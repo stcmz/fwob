@@ -1,15 +1,20 @@
 [package]
 name = "fwob-v2"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Fixed-page compressed storage for fast FWOB range queries and bulk append"
 
 [dependencies]
 byteorder.workspace = true
 crc32fast.workspace = true
-fwob-core = { path = "../fwob-core" }
+fwob-core = { version = "0.1.0", path = "../fwob-core" }
 lz4_flex.workspace = true
 thiserror.workspace = true
 zstd.workspace = true

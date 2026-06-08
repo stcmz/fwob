@@ -1,7 +1,6 @@
-# FWOB Rust
+# FWOB
 
-`fwob-rs` is the Rust implementation of the Fixed-Width Ordered Binary
-format family.
+FWOB is a Rust implementation of the Fixed-Width Ordered Binary format family.
 
 The project has two compatibility goals:
 
@@ -18,8 +17,19 @@ with a 64-byte header, compressed payload, and zero padding.
 - `fwob-core`: shared schema, frame, key, and error types.
 - `fwob-v1`: FWOB v1 reader, writer, verifier, and compatibility tests.
 - `fwob-v2`: compressed fixed-page FWOB v2 reader and writer.
-- `fwob-cli`: command-line tools for conversion, inspection, verification, and
+- `fwob`: command-line tools for conversion, inspection, verification, and
   benchmarking.
+
+## Installation
+
+Install the command-line tool from crates.io:
+
+```bash
+cargo install fwob
+```
+
+Library crates are available separately as `fwob-core`, `fwob-v1`, and
+`fwob-v2`.
 
 ## Command Examples
 
@@ -47,6 +57,7 @@ fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 
 ## Status
 
-This repository is intentionally separate from the original C# repository. The
-v1 crate is designed as a production compatibility layer rather than a one-off
-converter so conversions can be verified byte-for-byte against existing files.
+This repository is intentionally separate from the original C# implementation:
+<https://github.com/stcmz/Mozo.Fwob>. The v1 crate is designed as a production
+compatibility layer rather than a one-off converter so conversions can be
+verified byte-for-byte against existing files.

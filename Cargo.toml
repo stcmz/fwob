@@ -8,10 +8,15 @@ members = [
 ]
 
 [workspace.package]
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/stcmz/fwob-rs"
+repository = "https://github.com/stcmz/fwob"
+homepage = "https://github.com/stcmz/fwob"
+readme = "README.md"
 rust-version = "1.75"
+keywords = ["binary-format", "storage", "compression", "time-series"]
+categories = ["data-structures", "encoding", "filesystem"]
 
 [workspace.dependencies]
 anyhow = "1.0"

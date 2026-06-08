@@ -1,10 +1,15 @@
 [package]
-name = "fwob-cli"
-version = "0.1.0"
+name = "fwob"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Command-line tools for FWOB conversion, inspection, verification, and benchmarking"
 
 [[bin]]
 name = "fwob"
@@ -13,9 +18,9 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-fwob-core = { path = "../fwob-core" }
-fwob-v1 = { path = "../fwob-v1" }
-fwob-v2 = { path = "../fwob-v2" }
+fwob-core = { version = "0.1.0", path = "../fwob-core" }
+fwob-v1 = { version = "0.1.0", path = "../fwob-v1" }
+fwob-v2 = { version = "0.1.0", path = "../fwob-v2" }
 
 [dev-dependencies]
 criterion.workspace = true
