@@ -14,7 +14,7 @@ description = "Fixed-page compressed storage for fast FWOB range queries and bul
 [dependencies]
 byteorder.workspace = true
 crc32fast.workspace = true
-fwob-core = { version = "0.1.0", path = "../fwob-core" }
+fwob-core = { version = "1.0.0", path = "../fwob-core" }
 lz4_flex.workspace = true
 thiserror.workspace = true
 zstd.workspace = true
