@@ -1,0 +1,126 @@
+# FWOB v2 Format
+
+FWOB v2 is a fixed-page compressed format optimized for:
+
+- high-performance range query
+- random access
+- bulk append
+- mostly immutable datasets
+- strong page-local compression
+
+## Layout
+
+```text
+File header
+Page 0
+Page 1
+Page 2
+...
+```
+
+Every page has the same on-disk size. Page offsets are arithmetic:
+
+```text
+page_offset = file_header_length + page_index * page_size
+```
+
+## Tuning Parameters
+
+| Parameter | What It Controls | Typical Values |
+|---|---|---|
+| page-size token | Fixed physical page size. Integer with `B`, `KB`, `KiB`, `MB`, or `MiB`; range `1KiB..16MiB`. | `512KiB` (default), `1MB`, `1MiB`, `2MiB` |
+| `--codec` | Page compression codec. | `zstd` (default), `lz4`, `smallest`, `none` |
+| `--zstd-level` | zstd compression level. Affects write/convert speed heavily, read speed lightly. | `3`, `6` (default), `9`, `12`, `15`, `19` |
+| `--encoding` | Page payload layout before compression. `smallest` tries columnar-basic and columnar-delta per page and records the winning concrete encoding in page metadata. | `row-raw`, `columnar-basic` (default), `columnar-delta`, `smallest` |
+| `--compress-partial-page` | Compress the final partial page instead of leaving the final non-overflowing remainder raw for append. | off (default), on |
+
+## Page
+
+```text
+64-byte page header
+compressed payload
+zero padding
+```
+
+The page header stores `frame_count`, `first_key`, `last_key`,
+`uncompressed_len`, `compressed_len`, `codec`, `encoding`, flags, and CRCs.
+
+## Codecs
+
+```text
+0 = none
+1 = zstd
+2 = lz4
+```
+
+Zstd pages are written with a configurable compression level. The CLI default is
+level `3`; higher levels can improve density at the cost of slower conversion or
+compaction. The CLI accepts zstd levels `1..=22`. LZ4 support currently uses the
+fast block compressor and does not expose high-compression levels.
+
+## Encodings
+
+```text
+0 = row_raw_v1
+1 = columnar_basic_v1
+2 = columnar_delta_v1
+```
+
+`row_raw_v1` stores raw fixed-width frames before page compression. It is the
+first implementation target because it enables lossless v1 conversion.
+
+`columnar_basic_v1` stores the same fixed-width frame bytes transposed by field
+inside each page:
+
+```text
+row_raw_v1:
+frame0.field0, frame0.field1, frame0.field2
+frame1.field0, frame1.field1, frame1.field2
+
+columnar_basic_v1:
+frame0.field0, frame1.field0
+frame0.field1, frame1.field1
+frame0.field2, frame1.field2
+```
+
+It is intentionally simple: no deltas, bit packing, or RLE. It exists to
+measure the compression potential of page-local columnar layout while preserving
+independent random page reads.
+
+`columnar_delta_v1` uses the same field-major layout, but integer fields are
+stored as `first value + fixed-width deltas` within each page. Floating-point
+and byte/string fields remain raw field-major bytes. It is still page-local and
+does not depend on prior pages.
+
+## Compression Model
+
+Compression is transparent to readers. Callers request records or ranges; the
+reader locates pages via arithmetic offsets, reads page headers, decompresses
+matching pages into reusable buffers, and scans or binary-searches inside the
+decoded page.
+
+No separate index table is required.
+
+## Raw Tail Buffer for Append
+
+FWOB v2 supports uncompressed pages with `codec = 0`. The writer treats trailing
+raw pages as an on-disk append buffer:
+
+```text
+compressed pages...
+raw tail page 0
+raw tail page 1
+...
+possibly incomplete final raw page
+```
+
+When appends make the raw tail overflow one fixed page, the writer pulls back all
+trailing raw pages, appends the new frames, and tries to compress the full raw
+tail. If the compressed tail overflows a page, the writer emits as many
+maximally packed compressed pages as possible. Whatever does not overflow one
+compressed page remains raw unless `--compress-partial-page` is set. Existing
+compressed prefix pages remain in place.
+
+Compressed pages are always built from the largest available frame prefix that
+fits in one fixed-size page. The final remainder is raw instead of becoming a
+poorly utilized compressed page unless the user asks to compress partial pages.

@@ -1,0 +1,53 @@
+mod codec;
+mod encoding;
+mod file_header;
+mod page;
+mod reader;
+mod writer;
+
+pub use codec::Codec;
+pub use encoding::{decode_page_payload, encode_page_payload};
+pub use file_header::{FileHeader, FILE_HEADER_LEN, MAGIC, VERSION};
+pub use page::{Encoding, PageHeader, PAGE_HEADER_LEN};
+pub use reader::Reader;
+pub use writer::{
+    CodecSelection, EncodingSelection, PackingStats, PagePacking, Writer, WriterOptions,
+    DEFAULT_CODEC, DEFAULT_ENCODING, DEFAULT_PAGE_PACKING, DEFAULT_PAGE_SIZE, DEFAULT_ZSTD_LEVEL,
+};
+
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, V2Error>;
+
+#[derive(Debug, Error)]
+pub enum V2Error {
+    #[error("invalid FWOB v2 file header")]
+    InvalidFileHeader,
+
+    #[error("invalid FWOB v2 page header at page {0}")]
+    InvalidPageHeader(u64),
+
+    #[error("unsupported codec {0}")]
+    UnsupportedCodec(u8),
+
+    #[error("unsupported encoding {0}")]
+    UnsupportedEncoding(u8),
+
+    #[error("page payload exceeds page capacity: compressed {compressed}, capacity {capacity}")]
+    PageOverflow { compressed: usize, capacity: usize },
+
+    #[error("frame does not fit into an empty page")]
+    FrameTooLarge,
+
+    #[error("key order violation")]
+    KeyOrderViolation,
+
+    #[error("checksum mismatch")]
+    ChecksumMismatch,
+
+    #[error("FWOB core error: {0}")]
+    Core(#[from] fwob_core::FwobError),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}

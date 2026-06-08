@@ -1,0 +1,130 @@
+use std::cmp::Ordering;
+
+use crate::{
+    error::{FwobError, Result},
+    schema::{Field, FieldType},
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyType {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+}
+
+impl KeyType {
+    pub fn from_field(field: &Field) -> Result<Self> {
+        match (field.field_type, field.length) {
+            (FieldType::SignedInteger, 1) => Ok(Self::I8),
+            (FieldType::SignedInteger, 2) => Ok(Self::I16),
+            (FieldType::SignedInteger, 4) => Ok(Self::I32),
+            (FieldType::SignedInteger, 8) => Ok(Self::I64),
+            (FieldType::UnsignedInteger | FieldType::StringTableIndex, 1) => Ok(Self::U8),
+            (FieldType::UnsignedInteger | FieldType::StringTableIndex, 2) => Ok(Self::U16),
+            (FieldType::UnsignedInteger | FieldType::StringTableIndex, 4) => Ok(Self::U32),
+            (FieldType::UnsignedInteger | FieldType::StringTableIndex, 8) => Ok(Self::U64),
+            _ => Err(FwobError::UnsupportedKeyType {
+                field_type: field.field_type,
+                length: field.length,
+            }),
+        }
+    }
+
+    pub fn len(self) -> usize {
+        match self {
+            Self::I8 | Self::U8 => 1,
+            Self::I16 | Self::U16 => 2,
+            Self::I32 | Self::U32 => 4,
+            Self::I64 | Self::U64 => 8,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+}
+
+impl Key {
+    pub fn decode(key_type: KeyType, bytes: &[u8]) -> Result<Self> {
+        if bytes.len() != key_type.len() {
+            return Err(FwobError::InvalidKeyLength {
+                expected: key_type.len(),
+                actual: bytes.len(),
+            });
+        }
+
+        Ok(match key_type {
+            KeyType::I8 => Self::I8(bytes[0] as i8),
+            KeyType::I16 => Self::I16(i16::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::I32 => Self::I32(i32::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::I64 => Self::I64(i64::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::U8 => Self::U8(bytes[0]),
+            KeyType::U16 => Self::U16(u16::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::U32 => Self::U32(u32::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::U64 => Self::U64(u64::from_le_bytes(bytes.try_into().unwrap())),
+        })
+    }
+
+    pub fn encode(self, out: &mut Vec<u8>) {
+        match self {
+            Self::I8(v) => out.push(v as u8),
+            Self::I16(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::I32(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::I64(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::U8(v) => out.push(v),
+            Self::U16(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::U32(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::U64(v) => out.extend_from_slice(&v.to_le_bytes()),
+        }
+    }
+}
+
+impl PartialOrd for Key {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Key {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (*self, *other) {
+            (Self::I8(a), Self::I8(b)) => a.cmp(&b),
+            (Self::I16(a), Self::I16(b)) => a.cmp(&b),
+            (Self::I32(a), Self::I32(b)) => a.cmp(&b),
+            (Self::I64(a), Self::I64(b)) => a.cmp(&b),
+            (Self::U8(a), Self::U8(b)) => a.cmp(&b),
+            (Self::U16(a), Self::U16(b)) => a.cmp(&b),
+            (Self::U32(a), Self::U32(b)) => a.cmp(&b),
+            (Self::U64(a), Self::U64(b)) => a.cmp(&b),
+            _ => self.variant_rank().cmp(&other.variant_rank()),
+        }
+    }
+}
+
+impl Key {
+    fn variant_rank(self) -> u8 {
+        match self {
+            Self::I8(_) => 0,
+            Self::I16(_) => 1,
+            Self::I32(_) => 2,
+            Self::I64(_) => 3,
+            Self::U8(_) => 4,
+            Self::U16(_) => 5,
+            Self::U32(_) => 6,
+            Self::U64(_) => 7,
+        }
+    }
+}

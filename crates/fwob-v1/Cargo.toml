@@ -1,0 +1,20 @@
+[package]
+name = "fwob-v1"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+byteorder.workspace = true
+fwob-core = { path = "../fwob-core" }
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+tempfile.workspace = true
+
+[[bench]]
+name = "v1_read"
+harness = false

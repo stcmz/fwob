@@ -1,0 +1,587 @@
+use std::process::Command;
+
+use fwob_core::{Field, FieldType, Schema};
+use fwob_v1::{Reader as V1Reader, Writer as V1Writer, WriterOptions};
+use tempfile::tempdir;
+
+fn assert_command_success(command: &mut Command) {
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "command failed with status {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn command_output(command: &mut Command) -> std::process::Output {
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "command failed with status {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn assert_command_failure(command: &mut Command, expected_stderr: &str) {
+    let output = command.output().unwrap();
+    assert!(
+        !output.status.success(),
+        "command unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(expected_stderr),
+        "stderr did not contain {expected_stderr:?}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn tick_schema() -> Schema {
+    Schema::new(
+        "Tick",
+        vec![
+            Field::new("Time", FieldType::SignedInteger, 4, 0),
+            Field::new("Value", FieldType::FloatingPoint, 8, 4),
+            Field::new("Str", FieldType::Utf8String, 4, 12),
+        ],
+        0,
+    )
+    .unwrap()
+}
+
+fn tick(time: i32, value: f64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16);
+    out.extend_from_slice(&time.to_le_bytes());
+    out.extend_from_slice(&value.to_le_bytes());
+    out.extend_from_slice(&[b' '; 4]);
+    out
+}
+
+#[test]
+fn cli_roundtrips_v1_to_v2_to_v1() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("input.fwob");
+    let v2_path = dir.path().join("output-v2.fwob");
+    let restored_path = dir.path().join("restored.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        writer.append_string("sym").unwrap();
+        for i in 0..256 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        v1_path.to_str().unwrap(),
+        v2_path.to_str().unwrap(),
+        "64KiB",
+        "none",
+    ]));
+
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        "v1",
+        v2_path.to_str().unwrap(),
+        restored_path.to_str().unwrap(),
+    ]));
+
+    let mut original = V1Reader::open(&v1_path, 0).unwrap();
+    let mut restored = V1Reader::open(&restored_path, 0).unwrap();
+    assert_eq!(
+        original.read_string_table().unwrap(),
+        restored.read_string_table().unwrap()
+    );
+    assert_eq!(
+        original.read_all_frames().unwrap(),
+        restored.read_all_frames().unwrap()
+    );
+}
+
+#[test]
+fn cli_appends_v1_frames_to_existing_v2() {
+    let dir = tempdir().unwrap();
+    let base_v1_path = dir.path().join("base.fwob");
+    let append_v1_path = dir.path().join("append.fwob");
+    let v2_path = dir.path().join("target.fwob");
+
+    {
+        let mut writer = V1Writer::create(
+            &base_v1_path,
+            tick_schema(),
+            WriterOptions::new("HelloFwob"),
+        )
+        .unwrap();
+        writer.append_string("sym").unwrap();
+        for i in 0..128 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+    {
+        let mut writer = V1Writer::create(
+            &append_v1_path,
+            tick_schema(),
+            WriterOptions::new("HelloFwob"),
+        )
+        .unwrap();
+        writer.append_string("sym").unwrap();
+        for i in 128..256 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        "v2",
+        base_v1_path.to_str().unwrap(),
+        v2_path.to_str().unwrap(),
+        "4KiB",
+        "zstd",
+    ]));
+
+    assert_command_success(Command::new(exe).args([
+        "append",
+        v2_path.to_str().unwrap(),
+        "verify",
+        append_v1_path.to_str().unwrap(),
+    ]));
+
+    let mut reader = fwob_v2::Reader::open(&v2_path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 256);
+    assert_eq!(
+        reader
+            .frames_between(fwob_core::Key::I32(0), fwob_core::Key::I32(255))
+            .unwrap()
+            .len(),
+        256
+    );
+}
+
+#[test]
+fn cli_converts_v1_to_columnar_v2() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("input.fwob");
+    let v2_path = dir.path().join("columnar.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        writer.append_string("sym").unwrap();
+        for i in 0..256 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        v1_path.to_str().unwrap(),
+        v2_path.to_str().unwrap(),
+        "4KiB",
+        "zstd",
+        "columnar-basic",
+        "verify",
+    ]));
+
+    let mut reader = fwob_v2::Reader::open(&v2_path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(
+        reader.read_page_header(0).unwrap().encoding,
+        fwob_v2::Encoding::ColumnarBasicV1
+    );
+    assert_eq!(
+        reader
+            .frames_between(fwob_core::Key::I32(0), fwob_core::Key::I32(255))
+            .unwrap()
+            .len(),
+        256
+    );
+}
+
+#[test]
+fn cli_converts_v1_to_columnar_delta_v2() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("input.fwob");
+    let v2_path = dir.path().join("columnar_delta.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        writer.append_string("sym").unwrap();
+        for i in 0..256 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        "v2",
+        v1_path.to_str().unwrap(),
+        "columnar-delta",
+        v2_path.to_str().unwrap(),
+        "4KiB",
+        "zstd",
+        "verify",
+    ]));
+
+    let mut reader = fwob_v2::Reader::open(&v2_path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(
+        reader.read_page_header(0).unwrap().encoding,
+        fwob_v2::Encoding::ColumnarDeltaV1
+    );
+    assert_eq!(
+        reader
+            .frames_between(fwob_core::Key::I32(0), fwob_core::Key::I32(255))
+            .unwrap()
+            .len(),
+        256
+    );
+}
+
+#[test]
+fn cli_convert_accepts_plain_tokens_in_arbitrary_positions() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("input.fwob");
+    let v2_path = dir.path().join("plain_tokens.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        for i in 0..128 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        "zstd",
+        v1_path.to_str().unwrap(),
+        "row-raw",
+        v2_path.to_str().unwrap(),
+        "tight-fit",
+        "verify",
+        "4KiB",
+    ]));
+
+    let mut reader = fwob_v2::Reader::open(&v2_path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(
+        reader.read_page_header(0).unwrap().encoding,
+        fwob_v2::Encoding::RowRawV1
+    );
+}
+
+#[test]
+fn cli_convert_treats_prefixed_reserved_word_as_path() {
+    let dir = tempdir().unwrap();
+    let input_path = dir.path().join("row-raw");
+    let output_path = dir.path().join("out.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&input_path, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        writer.append_frame(&tick(1, 1.0)).unwrap();
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).current_dir(dir.path()).args([
+        "convert",
+        "./row-raw",
+        output_path.to_str().unwrap(),
+        "none",
+    ]));
+
+    let reader = fwob_v2::Reader::open(&output_path).unwrap();
+    assert_eq!(reader.header().frame_count, 1);
+}
+
+#[test]
+fn cli_convert_rejects_duplicate_plain_tokens() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("input.fwob");
+    let v2_path = dir.path().join("out.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        writer.append_frame(&tick(1, 1.0)).unwrap();
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_failure(
+        Command::new(exe).args([
+            "convert",
+            v1_path.to_str().unwrap(),
+            v2_path.to_str().unwrap(),
+            "zstd",
+            "lz4",
+        ]),
+        "duplicate codec token",
+    );
+}
+
+#[test]
+fn cli_convert_v1_rejects_v2_write_tokens() {
+    let dir = tempdir().unwrap();
+    let input_path = dir.path().join("input.fwob");
+    let output_path = dir.path().join("out.fwob");
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_failure(
+        Command::new(exe).args([
+            "convert",
+            "v1",
+            input_path.to_str().unwrap(),
+            output_path.to_str().unwrap(),
+            "zstd",
+        ]),
+        "v2 write tokens are not valid when converting to v1",
+    );
+}
+
+#[test]
+fn cli_bench_conversion_matrix_runs_all_supported_cases_and_cleans_outputs() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("input.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        writer.append_string("sym").unwrap();
+        for i in 0..64 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let output = command_output(Command::new(exe).args([
+        "bench",
+        v1_path.to_str().unwrap(),
+        "--output-dir",
+        dir.path().to_str().unwrap(),
+        "--iterations",
+        "1",
+        "--scan-iterations",
+        "1",
+    ]));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("mode: conversion-matrix"));
+    assert!(stdout.contains("cases: 99"));
+    assert!(stdout.contains("[conversion_matrix_dimensions]"));
+    assert!(stdout.contains("page_size (3): 512KiB (33 cases), 1MiB (33 cases), 2MiB (33 cases)"));
+    assert!(stdout.contains("codec (3): zstd (72 cases), lz4 (18 cases), none (9 cases)"));
+    assert!(stdout.contains(
+        "zstd_level (4; zstd only): 3 (18 cases), 6 (18 cases), 9 (18 cases), 12 (18 cases)"
+    ));
+    assert!(stdout.contains(
+        "encoding (3): row-raw (33 cases), columnar-basic (33 cases), columnar-delta (33 cases)"
+    ));
+    assert!(stdout.contains("page_packing (2): estimate-shrink (54 cases), tight-fit (45 cases)"));
+    assert!(stdout.contains("excluded: codec=none + page_packing=tight-fit"));
+    assert!(stdout.contains("conditional: zstd_level applies only to codec=zstd"));
+    assert!(stdout.contains("[conversion_matrix_test_runs]"));
+    assert!(stdout.contains("conversion: 99"));
+    assert!(stdout.contains("random_page: 99 cases x 1 iterations = 99 reads"));
+    assert!(stdout.contains("scan: 99 cases x 1 iterations = 99 scans"));
+    assert!(stdout.contains("range: 99 cases x 1 iterations = 99 queries"));
+    assert!(stdout.contains("[conversion_matrix_summary]"));
+    assert!(stdout.contains("convert_s"));
+    assert!(stdout.contains("random_ms"));
+    assert!(stdout.contains("scan_avg_ms"));
+    assert!(stdout.contains("range_ms"));
+    assert!(stdout.contains("[conversion_matrix_storage]"));
+    assert!(stdout.contains("compressed_bytes"));
+    assert!(stdout.contains("avg_frames_compressed_page"));
+    assert!(stdout.contains("[conversion_matrix_read_samples]"));
+    assert!(stdout.contains("random_iterations"));
+    assert!(stdout.contains("range_iterations"));
+    assert!(stdout.contains("[conversion_matrix_packing]"));
+    assert!(stdout.contains("subseq_attempt_range"));
+    assert!(stderr.contains("test=conversion started"));
+    assert!(stderr.contains("test=conversion completed"));
+    assert!(stderr.contains("test=metadata started"));
+    assert!(stderr.contains("test=metadata completed"));
+    assert!(stderr.contains("test=random-page started"));
+    assert!(stderr.contains("test=random-page completed"));
+    assert!(stderr.contains("test=scan started"));
+    assert!(stderr.contains("test=scan completed"));
+    assert!(stderr.contains("test=range started"));
+    assert!(stderr.contains("test=range completed"));
+
+    let leftover_outputs = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().contains(".bench."))
+        .count();
+    assert_eq!(leftover_outputs, 0);
+}
+
+#[test]
+fn cli_creates_blank_v2_from_template_with_new_title() {
+    let dir = tempdir().unwrap();
+    let template_path = dir.path().join("template.fwob");
+    let output_path = dir.path().join("blank.fwob");
+
+    {
+        let mut writer = V1Writer::create(
+            &template_path,
+            tick_schema(),
+            WriterOptions::new("Template"),
+        )
+        .unwrap();
+        writer.append_string("sym").unwrap();
+        writer.append_frame(&tick(1, 1.0)).unwrap();
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "create",
+        "v2",
+        output_path.to_str().unwrap(),
+        "--template",
+        template_path.to_str().unwrap(),
+        "--title",
+        "Blank",
+    ]));
+
+    let reader = fwob_v2::Reader::open(&output_path).unwrap();
+    assert_eq!(reader.header().title, "Blank");
+    assert_eq!(reader.header().frame_count, 0);
+    assert_eq!(reader.header().schema, tick_schema());
+    assert_eq!(reader.header().string_table, vec!["sym".to_string()]);
+}
+
+#[test]
+fn cli_creates_blank_v2_from_schema_args() {
+    let dir = tempdir().unwrap();
+    let output_path = dir.path().join("blank.fwob");
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "create",
+        "v2",
+        output_path.to_str().unwrap(),
+        "--title",
+        "Blank",
+        "--frame-type",
+        "Tick",
+        "--field",
+        "Time:i:4",
+        "--field",
+        "Value:f:8",
+        "--field",
+        "Str:utf8:4",
+    ]));
+
+    let reader = fwob_v2::Reader::open(&output_path).unwrap();
+    assert_eq!(reader.header().title, "Blank");
+    assert_eq!(reader.header().frame_count, 0);
+    assert_eq!(reader.header().page_size, fwob_v2::DEFAULT_PAGE_SIZE);
+    assert_eq!(reader.header().schema, tick_schema());
+    assert!(reader.header().string_table.is_empty());
+}
+
+#[test]
+fn cli_accepts_bounded_page_size_tokens_with_all_supported_suffixes() {
+    let dir = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let cases = [
+        ("1024B", 1024),
+        ("2KB", 2000),
+        ("1KiB", 1024),
+        ("1MB", 1_000_000),
+        ("1MiB", 1024 * 1024),
+        ("16MiB", 16 * 1024 * 1024),
+    ];
+
+    for (index, (token, expected)) in cases.into_iter().enumerate() {
+        let output_path = dir.path().join(format!("blank-{index}.fwob"));
+        assert_command_success(Command::new(exe).args([
+            "create",
+            "v2",
+            token,
+            output_path.to_str().unwrap(),
+            "--frame-type",
+            "Tick",
+            "--field",
+            "Time:i:4",
+        ]));
+        let reader = fwob_v2::Reader::open(&output_path).unwrap();
+        assert_eq!(reader.header().page_size, expected, "token {token}");
+    }
+
+    for token in ["1023B", "1KB", "17MiB"] {
+        let output_path = dir.path().join(format!("invalid-{token}.fwob"));
+        assert_command_failure(
+            Command::new(exe).args([
+                "create",
+                "v2",
+                token,
+                output_path.to_str().unwrap(),
+                "--frame-type",
+                "Tick",
+                "--field",
+                "Time:i:4",
+            ]),
+            "page size must be between 1KiB and 16MiB",
+        );
+    }
+}
+
+#[test]
+fn cli_create_without_template_requires_schema_args() {
+    let dir = tempdir().unwrap();
+    let output_path = dir.path().join("blank.fwob");
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let output = Command::new(exe)
+        .args(["create", output_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--frame-type is required"));
+}
+
+#[test]
+fn cli_inspect_prints_frame_preview() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("input.fwob");
+
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("Preview")).unwrap();
+        for i in 0..8 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let output = command_output(Command::new(exe).args(["inspect", v1_path.to_str().unwrap()]));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[frames]"));
+    assert!(stdout.lines().any(|line| {
+        line.contains("index")
+            && line.contains("Time")
+            && line.contains("Value")
+            && line.contains("Str")
+    }));
+    assert!(stdout
+        .lines()
+        .any(|line| line.split_whitespace().eq(["...", "...", "...", "..."])));
+}

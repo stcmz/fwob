@@ -1,0 +1,1617 @@
+fwob bench .\SPOT.fwob
+mode: conversion-matrix
+input: .\SPOT.fwob
+output_dir: .
+cases: 99
+
+[conversion_matrix_dimensions]
+page_size (3): 512KiB (33 cases), 1MiB (33 cases), 2MiB (33 cases)
+codec (3): zstd (72 cases), lz4 (18 cases), none (9 cases)
+zstd_level (4; zstd only): 3 (18 cases), 6 (18 cases), 9 (18 cases), 12 (18 cases)
+encoding (3): row-raw (33 cases), columnar-basic (33 cases), columnar-delta (33 cases)
+page_packing (2): estimate-shrink (54 cases), tight-fit (45 cases)
+excluded: codec=none + page_packing=tight-fit
+conditional: zstd_level applies only to codec=zstd
+
+[conversion_matrix_test_runs]
+conversion: 99
+random_page: 99 cases x 1,000 iterations = 99,000 reads
+scan: 99 cases x 3 iterations = 297 scans
+range: 99 cases x 1,000 iterations = 99,000 queries
+
+bench case 1/99: page_size=512KiB codec=zstd zstd_level=3 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.064
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=9.468 average_us=9,468.257
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.177 average_ms=4,058.885
+  test=range started iterations=1,000 page=151 first_key=1636656315 last_key=1637334911
+  test=range completed elapsed_s=24.134 average_us=24,133.727
+case_done: 1/99 physical_bytes=158,863,360 physical_ratio=0.3056 elapsed_s=5.064 random_page_avg_us=9,468.257 scan_avg_ms=4,058.885 range_avg_us=24,133.727
+bench case 2/99: page_size=512KiB codec=zstd zstd_level=6 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=12.642
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=9.854 average_us=9,853.827
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.059 average_ms=3,686.419
+  test=range started iterations=1,000 page=139 first_key=1636473551 last_key=1637094847
+  test=range completed elapsed_s=26.090 average_us=26,090.303
+case_done: 2/99 physical_bytes=145,756,160 physical_ratio=0.2803 elapsed_s=12.642 random_page_avg_us=9,853.827 scan_avg_ms=3,686.419 range_avg_us=26,090.303
+bench case 3/99: page_size=512KiB codec=zstd zstd_level=9 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=19.186
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=10.360 average_us=10,360.281
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.024 average_ms=3,674.669
+  test=range started iterations=1,000 page=139 first_key=1636989323 last_key=1637679092
+  test=range completed elapsed_s=26.001 average_us=26,000.620
+case_done: 3/99 physical_bytes=145,756,160 physical_ratio=0.2803 elapsed_s=19.186 random_page_avg_us=10,360.281 scan_avg_ms=3,674.669 range_avg_us=26,000.620
+bench case 4/99: page_size=512KiB codec=zstd zstd_level=12 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=32.600
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=10.714 average_us=10,713.897
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.116 average_ms=3,705.338
+  test=range started iterations=1,000 page=139 first_key=1637003073 last_key=1637682784
+  test=range completed elapsed_s=25.153 average_us=25,153.260
+case_done: 4/99 physical_bytes=145,756,160 physical_ratio=0.2803 elapsed_s=32.600 random_page_avg_us=10,713.897 scan_avg_ms=3,705.338 range_avg_us=25,153.260
+bench case 5/99: page_size=512KiB codec=zstd zstd_level=3 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=12.760
+  test=metadata started
+  test=metadata completed elapsed_s=0.005
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=9.691 average_us=9,690.642
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.145 average_ms=3,715.018
+  test=range started iterations=1,000 page=149 first_key=1636993162 last_key=1637612108
+  test=range completed elapsed_s=12.587 average_us=12,587.454
+case_done: 5/99 physical_bytes=156,766,208 physical_ratio=0.3015 elapsed_s=12.760 random_page_avg_us=9,690.642 scan_avg_ms=3,715.018 range_avg_us=12,587.454
+bench case 6/99: page_size=512KiB codec=zstd zstd_level=6 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=33.034
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=10.674 average_us=10,674.329
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.214 average_ms=3,737.841
+  test=range started iterations=1,000 page=137 first_key=1636575396 last_key=1637268171
+  test=range completed elapsed_s=39.540 average_us=39,540.489
+case_done: 6/99 physical_bytes=143,659,008 physical_ratio=0.2763 elapsed_s=33.034 random_page_avg_us=10,674.329 scan_avg_ms=3,737.841 range_avg_us=39,540.489
+bench case 7/99: page_size=512KiB codec=zstd zstd_level=9 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=52.613
+  test=metadata started
+  test=metadata completed elapsed_s=0.005
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=9.885 average_us=9,885.116
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.089 average_ms=3,696.174
+  test=range started iterations=1,000 page=136 first_key=1636403520 last_key=1637077252
+  test=range completed elapsed_s=25.185 average_us=25,184.781
+case_done: 7/99 physical_bytes=142,610,432 physical_ratio=0.2743 elapsed_s=52.613 random_page_avg_us=9,885.116 scan_avg_ms=3,696.174 range_avg_us=25,184.781
+bench case 8/99: page_size=512KiB codec=zstd zstd_level=12 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=115.194
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=10.791 average_us=10,791.293
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.288 average_ms=3,762.654
+  test=range started iterations=1,000 page=137 first_key=1637089266 last_key=1637701170
+  test=range completed elapsed_s=40.128 average_us=40,127.671
+case_done: 8/99 physical_bytes=143,659,008 physical_ratio=0.2763 elapsed_s=115.194 random_page_avg_us=10,791.293 scan_avg_ms=3,762.654 range_avg_us=40,127.671
+bench case 9/99: page_size=512KiB codec=zstd zstd_level=3 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.190
+  test=metadata started
+  test=metadata completed elapsed_s=0.005
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=12.209 average_us=12,209.485
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.374 average_ms=3,791.266
+  test=range started iterations=1,000 page=119 first_key=1636737403 last_key=1637682397
+  test=range completed elapsed_s=42.706 average_us=42,706.168
+case_done: 9/99 physical_bytes=124,784,640 physical_ratio=0.2400 elapsed_s=5.190 random_page_avg_us=12,209.485 scan_avg_ms=3,791.266 range_avg_us=42,706.168
+bench case 10/99: page_size=512KiB codec=zstd zstd_level=6 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=11.013
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=13.692 average_us=13,691.699
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.157 average_ms=3,719.079
+  test=range started iterations=1,000 page=111 first_key=1636483674 last_key=1637268962
+  test=range completed elapsed_s=33.357 average_us=33,357.372
+case_done: 10/99 physical_bytes=116,920,320 physical_ratio=0.2249 elapsed_s=11.013 random_page_avg_us=13,691.699 scan_avg_ms=3,719.079 range_avg_us=33,357.372
+bench case 11/99: page_size=512KiB codec=zstd zstd_level=9 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=18.356
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=12.834 average_us=12,834.229
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.025 average_ms=3,675.051
+  test=range started iterations=1,000 page=111 first_key=1636989281 last_key=1637701078
+  test=range completed elapsed_s=49.996 average_us=49,996.271
+case_done: 11/99 physical_bytes=116,920,320 physical_ratio=0.2249 elapsed_s=18.356 random_page_avg_us=12,834.229 scan_avg_ms=3,675.051 range_avg_us=49,996.271
+bench case 12/99: page_size=512KiB codec=zstd zstd_level=12 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=38.223
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=12.959 average_us=12,958.960
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.150 average_ms=3,716.751
+  test=range started iterations=1,000 page=109 first_key=1636053448 last_key=1636999846
+  test=range completed elapsed_s=48.123 average_us=48,123.020
+case_done: 12/99 physical_bytes=114,823,168 physical_ratio=0.2209 elapsed_s=38.223 random_page_avg_us=12,958.960 scan_avg_ms=3,716.751 range_avg_us=48,123.020
+bench case 13/99: page_size=512KiB codec=zstd zstd_level=3 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=16.313
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=12.170 average_us=12,169.867
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.118 average_ms=3,706.161
+  test=range started iterations=1,000 page=117 first_key=1636992290 last_key=1637696345
+  test=range completed elapsed_s=45.496 average_us=45,495.601
+case_done: 13/99 physical_bytes=123,211,776 physical_ratio=0.2370 elapsed_s=16.313 random_page_avg_us=12,169.867 scan_avg_ms=3,706.161 range_avg_us=45,495.601
+bench case 14/99: page_size=512KiB codec=zstd zstd_level=6 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=37.942
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=13.375 average_us=13,374.531
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.038 average_ms=3,679.287
+  test=range started iterations=1,000 page=109 first_key=1636480638 last_key=1637267820
+  test=range completed elapsed_s=47.680 average_us=47,679.863
+case_done: 14/99 physical_bytes=114,298,880 physical_ratio=0.2198 elapsed_s=37.942 random_page_avg_us=13,374.531 scan_avg_ms=3,679.287 range_avg_us=47,679.863
+bench case 15/99: page_size=512KiB codec=zstd zstd_level=9 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=65.029
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=13.701 average_us=13,700.809
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.960 average_ms=3,653.228
+  test=range started iterations=1,000 page=109 first_key=1636986609 last_key=1637699899
+  test=range completed elapsed_s=48.839 average_us=48,838.884
+case_done: 15/99 physical_bytes=114,298,880 physical_ratio=0.2198 elapsed_s=65.029 random_page_avg_us=13,700.809 scan_avg_ms=3,653.228 range_avg_us=48,838.884
+bench case 16/99: page_size=512KiB codec=zstd zstd_level=12 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=160.630
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=13.008 average_us=13,007.863
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.241 average_ms=3,746.932
+  test=range started iterations=1,000 page=107 first_key=1636055139 last_key=1637003715
+  test=range completed elapsed_s=31.029 average_us=31,028.555
+case_done: 16/99 physical_bytes=112,201,728 physical_ratio=0.2158 elapsed_s=160.630 random_page_avg_us=13,007.863 scan_avg_ms=3,746.932 range_avg_us=31,028.555
+bench case 17/99: page_size=512KiB codec=zstd zstd_level=3 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=6.226
+  test=metadata started
+  test=metadata completed elapsed_s=0.005
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=13.790 average_us=13,790.036
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.159 average_ms=4,053.025
+  test=range started iterations=1,000 page=113 first_key=1637594122 last_key=1638371974
+  test=range completed elapsed_s=33.545 average_us=33,545.399
+case_done: 17/99 physical_bytes=119,017,472 physical_ratio=0.2289 elapsed_s=6.226 random_page_avg_us=13,790.036 scan_avg_ms=4,053.025 range_avg_us=33,545.399
+bench case 18/99: page_size=512KiB codec=zstd zstd_level=6 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=12.670
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=14.888 average_us=14,887.533
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.159 average_ms=3,719.607
+  test=range started iterations=1,000 page=105 first_key=1637683860 last_key=1638478088
+  test=range completed elapsed_s=36.135 average_us=36,134.523
+case_done: 18/99 physical_bytes=110,104,576 physical_ratio=0.2118 elapsed_s=12.670 random_page_avg_us=14,887.533 scan_avg_ms=3,719.607 range_avg_us=36,134.523
+bench case 19/99: page_size=512KiB codec=zstd zstd_level=9 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=20.522
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=15.142 average_us=15,142.063
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.752 average_ms=3,917.369
+  test=range started iterations=1,000 page=104 first_key=1637679731 last_key=1638466812
+  test=range completed elapsed_s=53.524 average_us=53,524.192
+case_done: 19/99 physical_bytes=109,580,288 physical_ratio=0.2108 elapsed_s=20.522 random_page_avg_us=15,142.063 scan_avg_ms=3,917.369 range_avg_us=53,524.192
+bench case 20/99: page_size=512KiB codec=zstd zstd_level=12 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=51.665
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=14.984 average_us=14,983.975
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.103 average_ms=3,700.956
+  test=range started iterations=1,000 page=102 first_key=1637680945 last_key=1638477022
+  test=range completed elapsed_s=36.356 average_us=36,355.502
+case_done: 20/99 physical_bytes=106,958,848 physical_ratio=0.2057 elapsed_s=51.665 random_page_avg_us=14,983.975 scan_avg_ms=3,700.956 range_avg_us=36,355.502
+bench case 21/99: page_size=512KiB codec=zstd zstd_level=3 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=14.684
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=12.728 average_us=12,727.953
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.079 average_ms=3,692.887
+  test=range started iterations=1,000 page=111 first_key=1637073318 last_key=1637778064
+  test=range completed elapsed_s=18.662 average_us=18,662.369
+case_done: 21/99 physical_bytes=116,920,320 physical_ratio=0.2249 elapsed_s=14.684 random_page_avg_us=12,727.953 scan_avg_ms=3,692.887 range_avg_us=18,662.369
+bench case 22/99: page_size=512KiB codec=zstd zstd_level=6 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=38.214
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=14.180 average_us=14,180.429
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.259 average_ms=3,752.857
+  test=range started iterations=1,000 page=104 first_key=1638294360 last_key=1639066061
+  test=range completed elapsed_s=52.537 average_us=52,537.377
+case_done: 22/99 physical_bytes=109,580,288 physical_ratio=0.2108 elapsed_s=38.214 random_page_avg_us=14,180.429 scan_avg_ms=3,752.857 range_avg_us=52,537.377
+bench case 23/99: page_size=512KiB codec=zstd zstd_level=9 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=74.922
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=14.569 average_us=14,569.031
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.303 average_ms=3,767.803
+  test=range started iterations=1,000 page=102 first_key=1637089538 last_key=1638196578
+  test=range completed elapsed_s=35.670 average_us=35,669.921
+case_done: 23/99 physical_bytes=107,483,136 physical_ratio=0.2067 elapsed_s=74.922 random_page_avg_us=14,569.031 scan_avg_ms=3,767.803 range_avg_us=35,669.921
+bench case 24/99: page_size=512KiB codec=zstd zstd_level=12 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=160.774
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=14.478 average_us=14,477.869
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.913 average_ms=3,637.769
+  test=range started iterations=1,000 page=102 first_key=1638910669 last_key=1639760826
+  test=range completed elapsed_s=34.359 average_us=34,358.706
+case_done: 24/99 physical_bytes=106,958,848 physical_ratio=0.2057 elapsed_s=160.774 random_page_avg_us=14,477.869 scan_avg_ms=3,637.769 range_avg_us=34,358.706
+bench case 25/99: page_size=512KiB codec=lz4 zstd_level=- encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=3.672
+  test=metadata started
+  test=metadata completed elapsed_s=0.005
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=5.043 average_us=5,043.387
+  test=scan started iterations=3
+  test=scan completed elapsed_s=9.985 average_ms=3,328.187
+  test=range started iterations=1,000 page=230 first_key=1638543527 last_key=1638981692
+  test=range completed elapsed_s=12.728 average_us=12,727.648
+case_done: 25/99 physical_bytes=241,176,576 physical_ratio=0.4639 elapsed_s=3.672 random_page_avg_us=5,043.387 scan_avg_ms=3,328.187 range_avg_us=12,727.648
+bench case 26/99: page_size=512KiB codec=lz4 zstd_level=- encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=6.929
+  test=metadata started
+  test=metadata completed elapsed_s=0.007
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=4.868 average_us=4,868.348
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.137 average_ms=3,378.988
+  test=range started iterations=1,000 page=227 first_key=1638391804 last_key=1638822020
+  test=range completed elapsed_s=14.323 average_us=14,323.436
+case_done: 26/99 physical_bytes=238,555,136 physical_ratio=0.4588 elapsed_s=6.929 random_page_avg_us=4,868.348 scan_avg_ms=3,378.988 range_avg_us=14,323.436
+bench case 27/99: page_size=512KiB codec=lz4 zstd_level=- encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=4.448
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=6.650 average_us=6,649.699
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.559 average_ms=3,519.599
+  test=range started iterations=1,000 page=182 first_key=1636562937 last_key=1637094187
+  test=range completed elapsed_s=26.947 average_us=26,946.711
+case_done: 27/99 physical_bytes=191,369,216 physical_ratio=0.3681 elapsed_s=4.448 random_page_avg_us=6,649.699 scan_avg_ms=3,519.599 range_avg_us=26,946.711
+bench case 28/99: page_size=512KiB codec=lz4 zstd_level=- encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=8.678
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=6.657 average_us=6,657.199
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.117 average_ms=3,372.283
+  test=range started iterations=1,000 page=180 first_key=1637096216 last_key=1637684186
+  test=range completed elapsed_s=25.112 average_us=25,111.925
+case_done: 28/99 physical_bytes=188,747,776 physical_ratio=0.3630 elapsed_s=8.678 random_page_avg_us=6,657.199 scan_avg_ms=3,372.283 range_avg_us=25,111.925
+bench case 29/99: page_size=512KiB codec=lz4 zstd_level=- encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=4.672
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=8.007 average_us=8,006.688
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.664 average_ms=3,554.594
+  test=range started iterations=1,000 page=171 first_key=1637352768 last_key=1637943763
+  test=range completed elapsed_s=19.819 average_us=19,819.376
+case_done: 29/99 physical_bytes=179,834,880 physical_ratio=0.3459 elapsed_s=4.672 random_page_avg_us=8,006.688 scan_avg_ms=3,554.594 range_avg_us=19,819.376
+bench case 30/99: page_size=512KiB codec=lz4 zstd_level=- encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=12.116
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=7.542 average_us=7,541.830
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.357 average_ms=3,785.547
+  test=range started iterations=1,000 page=170 first_key=1638205302 last_key=1638549748
+  test=range completed elapsed_s=31.813 average_us=31,813.084
+case_done: 30/99 physical_bytes=178,262,016 physical_ratio=0.3429 elapsed_s=12.116 random_page_avg_us=7,541.830 scan_avg_ms=3,785.547 range_avg_us=31,813.084
+bench case 31/99: page_size=512KiB codec=none zstd_level=- encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=0.808
+  test=metadata started
+  test=metadata completed elapsed_s=0.011
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=2.177 average_us=2,176.866
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.646 average_ms=3,548.540
+  test=range started iterations=1,000 page=496 first_key=1639083594 last_key=1639428668
+  test=range completed elapsed_s=8.372 average_us=8,372.065
+case_done: 31/99 physical_bytes=520,097,792 physical_ratio=1.0004 elapsed_s=0.808 random_page_avg_us=2,176.866 scan_avg_ms=3,548.540 range_avg_us=8,372.065
+bench case 32/99: page_size=512KiB codec=none zstd_level=- encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=1.209
+  test=metadata started
+  test=metadata completed elapsed_s=0.018
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=2.172 average_us=2,171.562
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.768 average_ms=3,922.827
+  test=range started iterations=1,000 page=496 first_key=1639083594 last_key=1639428668
+  test=range completed elapsed_s=9.077 average_us=9,076.972
+case_done: 32/99 physical_bytes=520,097,792 physical_ratio=1.0004 elapsed_s=1.209 random_page_avg_us=2,171.562 scan_avg_ms=3,922.827 range_avg_us=9,076.972
+bench case 33/99: page_size=512KiB codec=none zstd_level=- encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=1.724
+  test=metadata started
+  test=metadata completed elapsed_s=0.015
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=2.538 average_us=2,538.442
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.567 average_ms=4,188.903
+  test=range started iterations=1,000 page=496 first_key=1639083594 last_key=1639428668
+  test=range completed elapsed_s=9.649 average_us=9,648.523
+case_done: 33/99 physical_bytes=520,097,792 physical_ratio=1.0003 elapsed_s=1.724 random_page_avg_us=2,538.442 scan_avg_ms=4,188.903 range_avg_us=9,648.523
+bench case 34/99: page_size=1MiB codec=zstd zstd_level=3 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.640
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=19.133 average_us=19,132.627
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.297 average_ms=4,098.968
+  test=range started iterations=1,000 page=76 first_key=1637252971 last_key=1638468412
+  test=range completed elapsed_s=75.270 average_us=75,270.392
+case_done: 34/99 physical_bytes=160,436,224 physical_ratio=0.3086 elapsed_s=5.640 random_page_avg_us=19,132.627 scan_avg_ms=4,098.968 range_avg_us=75,270.392
+bench case 35/99: page_size=1MiB codec=zstd zstd_level=6 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=12.732
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=22.860 average_us=22,860.007
+  test=scan started iterations=3
+  test=scan completed elapsed_s=14.250 average_ms=4,749.901
+  test=range started iterations=1,000 page=70 first_key=1637179961 last_key=1638542532
+  test=range completed elapsed_s=81.232 average_us=81,231.557
+case_done: 35/99 physical_bytes=146,804,736 physical_ratio=0.2824 elapsed_s=12.732 random_page_avg_us=22,860.007 scan_avg_ms=4,749.901 range_avg_us=81,231.557
+bench case 36/99: page_size=1MiB codec=zstd zstd_level=9 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=20.084
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=20.709 average_us=20,709.291
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.252 average_ms=4,417.362
+  test=range started iterations=1,000 page=69 first_key=1636391176 last_key=1637685442
+  test=range completed elapsed_s=58.250 average_us=58,250.405
+case_done: 36/99 physical_bytes=145,756,160 physical_ratio=0.2803 elapsed_s=20.084 random_page_avg_us=20,709.291 scan_avg_ms=4,417.362 range_avg_us=58,250.405
+bench case 37/99: page_size=1MiB codec=zstd zstd_level=12 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=39.780
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=21.798 average_us=21,798.462
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.912 average_ms=4,637.188
+  test=range started iterations=1,000 page=69 first_key=1636404256 last_key=1637696902
+  test=range completed elapsed_s=83.729 average_us=83,728.830
+case_done: 37/99 physical_bytes=145,756,160 physical_ratio=0.2803 elapsed_s=39.780 random_page_avg_us=21,798.462 scan_avg_ms=4,637.188 range_avg_us=83,728.830
+bench case 38/99: page_size=1MiB codec=zstd zstd_level=3 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=12.540
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=18.453 average_us=18,453.021
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.959 average_ms=4,319.787
+  test=range started iterations=1,000 page=75 first_key=1637351704 last_key=1638554907
+  test=range completed elapsed_s=28.158 average_us=28,158.194
+case_done: 38/99 physical_bytes=158,339,072 physical_ratio=0.3045 elapsed_s=12.540 random_page_avg_us=18,453.021 scan_avg_ms=4,319.787 range_avg_us=28,158.194
+bench case 39/99: page_size=1MiB codec=zstd zstd_level=6 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=35.888
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=21.882 average_us=21,881.868
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.131 average_ms=4,377.056
+  test=range started iterations=1,000 page=69 first_key=1637267017 last_key=1638560795
+  test=range completed elapsed_s=79.867 average_us=79,867.189
+case_done: 39/99 physical_bytes=144,707,584 physical_ratio=0.2783 elapsed_s=35.888 random_page_avg_us=21,881.868 scan_avg_ms=4,377.056 range_avg_us=79,867.189
+bench case 40/99: page_size=1MiB codec=zstd zstd_level=9 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=59.477
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=21.601 average_us=21,600.861
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.516 average_ms=4,171.993
+  test=range started iterations=1,000 page=68 first_key=1636470395 last_key=1637701177
+  test=range completed elapsed_s=79.469 average_us=79,469.380
+case_done: 40/99 physical_bytes=143,659,008 physical_ratio=0.2763 elapsed_s=59.477 random_page_avg_us=21,600.861 scan_avg_ms=4,171.993 range_avg_us=79,469.380
+bench case 41/99: page_size=1MiB codec=zstd zstd_level=12 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=117.848
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=22.505 average_us=22,504.927
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.098 average_ms=4,366.084
+  test=range started iterations=1,000 page=68 first_key=1636478752 last_key=1637773275
+  test=range completed elapsed_s=29.048 average_us=29,048.291
+case_done: 41/99 physical_bytes=143,659,008 physical_ratio=0.2763 elapsed_s=117.848 random_page_avg_us=22,504.927 scan_avg_ms=4,366.084 range_avg_us=29,048.291
+bench case 42/99: page_size=1MiB codec=zstd zstd_level=3 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.580
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=25.085 average_us=25,085.261
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.269 average_ms=4,423.016
+  test=range started iterations=1,000 page=60 first_key=1637787013 last_key=1639515023
+  test=range completed elapsed_s=66.374 average_us=66,373.531
+case_done: 42/99 physical_bytes=125,833,216 physical_ratio=0.2420 elapsed_s=5.580 random_page_avg_us=25,085.261 scan_avg_ms=4,423.016 range_avg_us=66,373.531
+bench case 43/99: page_size=1MiB codec=zstd zstd_level=6 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=12.689
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=27.621 average_us=27,621.008
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.452 average_ms=4,483.925
+  test=range started iterations=1,000 page=56 first_key=1637700060 last_key=1639506139
+  test=range completed elapsed_s=68.542 average_us=68,542.448
+case_done: 43/99 physical_bytes=117,444,608 physical_ratio=0.2259 elapsed_s=12.689 random_page_avg_us=27,621.008 scan_avg_ms=4,483.925 range_avg_us=68,542.448
+bench case 44/99: page_size=1MiB codec=zstd zstd_level=9 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=18.486
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=29.428 average_us=29,427.986
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.757 average_ms=4,585.502
+  test=range started iterations=1,000 page=55 first_key=1636475977 last_key=1638293035
+  test=range completed elapsed_s=103.136 average_us=103,136.406
+case_done: 44/99 physical_bytes=115,347,456 physical_ratio=0.2219 elapsed_s=18.486 random_page_avg_us=29,427.986 scan_avg_ms=4,585.502 range_avg_us=103,136.406
+bench case 45/99: page_size=1MiB codec=zstd zstd_level=12 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=41.049
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=27.189 average_us=27,188.540
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.289 average_ms=4,429.741
+  test=range started iterations=1,000 page=55 first_key=1637613487 last_key=1639409543
+  test=range completed elapsed_s=103.882 average_us=103,881.798
+case_done: 45/99 physical_bytes=115,347,456 physical_ratio=0.2219 elapsed_s=41.049 random_page_avg_us=27,188.540 scan_avg_ms=4,429.741 range_avg_us=103,881.798
+bench case 46/99: page_size=1MiB codec=zstd zstd_level=3 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=16.406
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=26.080 average_us=26,079.912
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.873 average_ms=4,624.290
+  test=range started iterations=1,000 page=59 first_key=1637777523 last_key=1639505085
+  test=range completed elapsed_s=91.979 average_us=91,979.373
+case_done: 46/99 physical_bytes=124,784,640 physical_ratio=0.2400 elapsed_s=16.406 random_page_avg_us=26,079.912 scan_avg_ms=4,624.290 range_avg_us=91,979.373
+bench case 47/99: page_size=1MiB codec=zstd zstd_level=6 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=44.976
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=29.016 average_us=29,016.379
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.316 average_ms=4,438.802
+  test=range started iterations=1,000 page=55 first_key=1637682703 last_key=1639426615
+  test=range completed elapsed_s=70.116 average_us=70,116.197
+case_done: 47/99 physical_bytes=116,396,032 physical_ratio=0.2239 elapsed_s=44.976 random_page_avg_us=29,016.379 scan_avg_ms=4,438.802 range_avg_us=70,116.197
+bench case 48/99: page_size=1MiB codec=zstd zstd_level=9 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=80.626
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=26.694 average_us=26,693.512
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.446 average_ms=4,148.748
+  test=range started iterations=1,000 page=54 first_key=1636405081 last_key=1638218834
+  test=range completed elapsed_s=101.401 average_us=101,400.557
+case_done: 48/99 physical_bytes=114,298,880 physical_ratio=0.2198 elapsed_s=80.626 random_page_avg_us=26,693.512 scan_avg_ms=4,148.748 range_avg_us=101,400.557
+bench case 49/99: page_size=1MiB codec=zstd zstd_level=12 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=185.221
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=27.249 average_us=27,249.170
+  test=scan started iterations=3
+  test=scan completed elapsed_s=14.015 average_ms=4,671.705
+  test=range started iterations=1,000 page=53 first_key=1635787472 last_key=1637337147
+  test=range completed elapsed_s=70.695 average_us=70,695.466
+case_done: 49/99 physical_bytes=112,201,728 physical_ratio=0.2158 elapsed_s=185.221 random_page_avg_us=27,249.170 scan_avg_ms=4,671.705 range_avg_us=70,695.466
+bench case 50/99: page_size=1MiB codec=zstd zstd_level=3 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=6.585
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=26.751 average_us=26,750.621
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.842 average_ms=4,613.922
+  test=range started iterations=1,000 page=56 first_key=1637268208 last_key=1638995662
+  test=range completed elapsed_s=104.021 average_us=104,020.773
+case_done: 50/99 physical_bytes=118,493,184 physical_ratio=0.2279 elapsed_s=6.585 random_page_avg_us=26,750.621 scan_avg_ms=4,613.922 range_avg_us=104,020.773
+bench case 51/99: page_size=1MiB codec=zstd zstd_level=6 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=14.836
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=30.636 average_us=30,635.688
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.903 average_ms=4,301.016
+  test=range started iterations=1,000 page=53 first_key=1639676905 last_key=1641849793
+  test=range completed elapsed_s=107.104 average_us=107,104.400
+case_done: 51/99 physical_bytes=112,201,728 physical_ratio=0.2158 elapsed_s=14.836 random_page_avg_us=30,635.688 scan_avg_ms=4,301.016 range_avg_us=107,104.400
+bench case 52/99: page_size=1MiB codec=zstd zstd_level=9 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=23.225
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=29.244 average_us=29,244.095
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.143 average_ms=4,047.780
+  test=range started iterations=1,000 page=51 first_key=1636986883 last_key=1638805692
+  test=range completed elapsed_s=111.056 average_us=111,056.466
+case_done: 52/99 physical_bytes=108,007,424 physical_ratio=0.2077 elapsed_s=23.225 random_page_avg_us=29,244.095 scan_avg_ms=4,047.780 range_avg_us=111,056.466
+bench case 53/99: page_size=1MiB codec=zstd zstd_level=12 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=51.615
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=30.591 average_us=30,590.627
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.029 average_ms=4,343.093
+  test=range started iterations=1,000 page=51 first_key=1638984918 last_key=1641243219
+  test=range completed elapsed_s=110.044 average_us=110,044.429
+case_done: 53/99 physical_bytes=108,007,424 physical_ratio=0.2077 elapsed_s=51.615 random_page_avg_us=30,590.627 scan_avg_ms=4,343.093 range_avg_us=110,044.429
+bench case 54/99: page_size=1MiB codec=zstd zstd_level=3 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=19.164
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=28.112 average_us=28,112.072
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.327 average_ms=4,442.231
+  test=range started iterations=1,000 page=56 first_key=1638543069 last_key=1640283061
+  test=range completed elapsed_s=69.555 average_us=69,554.627
+case_done: 54/99 physical_bytes=117,444,608 physical_ratio=0.2259 elapsed_s=19.164 random_page_avg_us=28,112.072 scan_avg_ms=4,442.231 range_avg_us=69,554.627
+bench case 55/99: page_size=1MiB codec=zstd zstd_level=6 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=45.141
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=36.786 average_us=36,786.194
+  test=scan started iterations=3
+  test=scan completed elapsed_s=14.282 average_ms=4,760.727
+  test=range started iterations=1,000 page=52 first_key=1639083469 last_key=1641317841
+  test=range completed elapsed_s=110.215 average_us=110,215.308
+case_done: 55/99 physical_bytes=110,104,576 physical_ratio=0.2118 elapsed_s=45.141 random_page_avg_us=36,786.194 scan_avg_ms=4,760.727 range_avg_us=110,215.308
+bench case 56/99: page_size=1MiB codec=zstd zstd_level=9 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=73.369
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=32.422 average_us=32,421.870
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.992 average_ms=4,664.041
+  test=range started iterations=1,000 page=52 first_key=1640028985 last_key=1642103822
+  test=range completed elapsed_s=113.223 average_us=113,222.651
+case_done: 56/99 physical_bytes=110,104,576 physical_ratio=0.2118 elapsed_s=73.369 random_page_avg_us=32,421.870 scan_avg_ms=4,664.041 range_avg_us=113,222.651
+bench case 57/99: page_size=1MiB codec=zstd zstd_level=12 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=189.047
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=29.413 average_us=29,413.227
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.544 average_ms=4,514.815
+  test=range started iterations=1,000 page=51 first_key=1640271447 last_key=1642528953
+  test=range completed elapsed_s=116.460 average_us=116,459.992
+case_done: 57/99 physical_bytes=106,958,848 physical_ratio=0.2057 elapsed_s=189.047 random_page_avg_us=29,413.227 scan_avg_ms=4,514.815 range_avg_us=116,459.992
+bench case 58/99: page_size=1MiB codec=lz4 zstd_level=- encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=3.477
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=9.250 average_us=9,249.800
+  test=scan started iterations=3
+  test=scan completed elapsed_s=10.836 average_ms=3,611.901
+  test=range started iterations=1,000 page=115 first_key=1638547017 last_key=1639498322
+  test=range completed elapsed_s=39.784 average_us=39,783.547
+case_done: 58/99 physical_bytes=242,225,152 physical_ratio=0.4659 elapsed_s=3.477 random_page_avg_us=9,249.800 scan_avg_ms=3,611.901 range_avg_us=39,783.547
+bench case 59/99: page_size=1MiB codec=lz4 zstd_level=- encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=7.635
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=10.423 average_us=10,423.268
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.364 average_ms=3,788.158
+  test=range started iterations=1,000 page=114 first_key=1638824304 last_key=1639601385
+  test=range completed elapsed_s=28.400 average_us=28,400.375
+case_done: 59/99 physical_bytes=240,128,000 physical_ratio=0.4619 elapsed_s=7.635 random_page_avg_us=10,423.268 scan_avg_ms=3,788.158 range_avg_us=28,400.375
+bench case 60/99: page_size=1MiB codec=lz4 zstd_level=- encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=4.330
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=13.694 average_us=13,693.528
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.548 average_ms=4,182.676
+  test=range started iterations=1,000 page=91 first_key=1636732177 last_key=1637778495
+  test=range completed elapsed_s=40.153 average_us=40,153.363
+case_done: 60/99 physical_bytes=191,893,504 physical_ratio=0.3691 elapsed_s=4.330 random_page_avg_us=13,693.528 scan_avg_ms=4,182.676 range_avg_us=40,153.363
+bench case 61/99: page_size=1MiB codec=lz4 zstd_level=- encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=9.453
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=15.209 average_us=15,208.699
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.691 average_ms=4,230.169
+  test=range started iterations=1,000 page=90 first_key=1637182460 last_key=1638373514
+  test=range completed elapsed_s=40.408 average_us=40,408.110
+case_done: 61/99 physical_bytes=189,796,352 physical_ratio=0.3651 elapsed_s=9.453 random_page_avg_us=15,208.699 scan_avg_ms=4,230.169 range_avg_us=40,408.110
+bench case 62/99: page_size=1MiB codec=lz4 zstd_level=- encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.354
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=16.485 average_us=16,484.627
+  test=scan started iterations=3
+  test=scan completed elapsed_s=11.790 average_ms=3,930.139
+  test=range started iterations=1,000 page=86 first_key=1638207431 last_key=1639149004
+  test=range completed elapsed_s=41.992 average_us=41,992.063
+case_done: 62/99 physical_bytes=181,407,744 physical_ratio=0.3489 elapsed_s=5.354 random_page_avg_us=16,484.627 scan_avg_ms=3,930.139 range_avg_us=41,992.063
+bench case 63/99: page_size=1MiB codec=lz4 zstd_level=- encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=13.687
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=17.036 average_us=17,035.501
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.689 average_ms=4,229.542
+  test=range started iterations=1,000 page=85 first_key=1638301352 last_key=1639422194
+  test=range completed elapsed_s=65.161 average_us=65,160.506
+case_done: 63/99 physical_bytes=178,262,016 physical_ratio=0.3429 elapsed_s=13.687 random_page_avg_us=17,035.501 scan_avg_ms=4,229.542 range_avg_us=65,160.506
+bench case 64/99: page_size=1MiB codec=none zstd_level=- encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=0.991
+  test=metadata started
+  test=metadata completed elapsed_s=0.007
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=4.603 average_us=4,603.401
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.472 average_ms=4,157.403
+  test=range started iterations=1,000 page=248 first_key=1639147330 last_key=1639587074
+  test=range completed elapsed_s=19.649 average_us=19,649.363
+case_done: 64/99 physical_bytes=520,097,792 physical_ratio=1.0004 elapsed_s=0.991 random_page_avg_us=4,603.401 scan_avg_ms=4,157.403 range_avg_us=19,649.363
+bench case 65/99: page_size=1MiB codec=none zstd_level=- encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=1.468
+  test=metadata started
+  test=metadata completed elapsed_s=0.007
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=5.266 average_us=5,265.725
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.024 average_ms=4,008.048
+  test=range started iterations=1,000 page=248 first_key=1639147330 last_key=1639587074
+  test=range completed elapsed_s=20.103 average_us=20,102.756
+case_done: 65/99 physical_bytes=520,097,792 physical_ratio=1.0004 elapsed_s=1.468 random_page_avg_us=5,265.725 scan_avg_ms=4,008.048 range_avg_us=20,102.756
+bench case 66/99: page_size=1MiB codec=none zstd_level=- encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=1.917
+  test=metadata started
+  test=metadata completed elapsed_s=0.006
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=5.253 average_us=5,253.385
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.122 average_ms=4,040.719
+  test=range started iterations=1,000 page=248 first_key=1639147229 last_key=1639586860
+  test=range completed elapsed_s=13.828 average_us=13,828.419
+case_done: 66/99 physical_bytes=520,097,792 physical_ratio=1.0003 elapsed_s=1.917 random_page_avg_us=5,253.385 scan_avg_ms=4,040.719 range_avg_us=13,828.419
+bench case 67/99: page_size=2MiB codec=zstd zstd_level=3 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.309
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=40.420 average_us=40,420.348
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.455 average_ms=4,151.755
+  test=range started iterations=1,000 page=38 first_key=1637073045 last_key=1639510075
+  test=range completed elapsed_s=145.373 average_us=145,372.549
+case_done: 67/99 physical_bytes=161,484,800 physical_ratio=0.3106 elapsed_s=5.309 random_page_avg_us=40,420.348 scan_avg_ms=4,151.755 range_avg_us=145,372.549
+bench case 68/99: page_size=2MiB codec=zstd zstd_level=6 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=12.942
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=40.905 average_us=40,905.374
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.111 average_ms=4,370.251
+  test=range started iterations=1,000 page=36 first_key=1639674900 last_key=1642696117
+  test=range completed elapsed_s=157.260 average_us=157,260.266
+case_done: 68/99 physical_bytes=150,999,040 physical_ratio=0.2904 elapsed_s=12.942 random_page_avg_us=40,905.374 scan_avg_ms=4,370.251 range_avg_us=157,260.266
+bench case 69/99: page_size=2MiB codec=zstd zstd_level=9 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=21.322
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=44.452 average_us=44,452.380
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.648 average_ms=4,549.281
+  test=range started iterations=1,000 page=35 first_key=1637353820 last_key=1640117171
+  test=range completed elapsed_s=167.549 average_us=167,549.107
+case_done: 69/99 physical_bytes=148,901,888 physical_ratio=0.2864 elapsed_s=21.322 random_page_avg_us=44,452.380 scan_avg_ms=4,549.281 range_avg_us=167,549.107
+bench case 70/99: page_size=2MiB codec=zstd zstd_level=12 encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=40.932
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=41.077 average_us=41,076.976
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.993 average_ms=4,664.250
+  test=range started iterations=1,000 page=35 first_key=1637598054 last_key=1640197581
+  test=range completed elapsed_s=110.858 average_us=110,857.760
+case_done: 70/99 physical_bytes=148,901,888 physical_ratio=0.2864 elapsed_s=40.932 random_page_avg_us=41,076.976 scan_avg_ms=4,664.250 range_avg_us=110,857.760
+bench case 71/99: page_size=2MiB codec=zstd zstd_level=3 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=15.317
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=41.332 average_us=41,331.658
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.848 average_ms=4,616.072
+  test=range started iterations=1,000 page=38 first_key=1638543240 last_key=1641324734
+  test=range completed elapsed_s=105.522 average_us=105,522.027
+case_done: 71/99 physical_bytes=159,387,648 physical_ratio=0.3066 elapsed_s=15.317 random_page_avg_us=41,331.658 scan_avg_ms=4,616.072 range_avg_us=105,522.027
+bench case 72/99: page_size=2MiB codec=zstd zstd_level=6 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=43.423
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=45.408 average_us=45,407.731
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.563 average_ms=4,521.135
+  test=range started iterations=1,000 page=35 first_key=1638560955 last_key=1641568187
+  test=range completed elapsed_s=61.802 average_us=61,801.724
+case_done: 72/99 physical_bytes=146,804,736 physical_ratio=0.2824 elapsed_s=43.423 random_page_avg_us=45,407.731 scan_avg_ms=4,521.135 range_avg_us=61,801.724
+bench case 73/99: page_size=2MiB codec=zstd zstd_level=9 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=62.126
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=45.671 average_us=45,671.067
+  test=scan started iterations=3
+  test=scan completed elapsed_s=14.112 average_ms=4,704.091
+  test=range started iterations=1,000 page=35 first_key=1639082331 last_key=1642092467
+  test=range completed elapsed_s=61.931 average_us=61,930.838
+case_done: 73/99 physical_bytes=146,804,736 physical_ratio=0.2824 elapsed_s=62.126 random_page_avg_us=45,671.067 scan_avg_ms=4,704.091 range_avg_us=61,930.838
+bench case 74/99: page_size=2MiB codec=zstd zstd_level=12 encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=120.481
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=42.836 average_us=42,836.446
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.932 average_ms=4,310.693
+  test=range started iterations=1,000 page=35 first_key=1639157894 last_key=1642107627
+  test=range completed elapsed_s=107.140 average_us=107,140.366
+case_done: 74/99 physical_bytes=146,804,736 physical_ratio=0.2824 elapsed_s=120.481 random_page_avg_us=42,836.446 scan_avg_ms=4,310.693 range_avg_us=107,140.366
+bench case 75/99: page_size=2MiB codec=zstd zstd_level=3 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.456
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=49.007 average_us=49,006.787
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.210 average_ms=4,403.307
+  test=range started iterations=1,000 page=31 first_key=1641315227 last_key=1643641010
+  test=range completed elapsed_s=186.152 average_us=186,152.119
+case_done: 75/99 physical_bytes=130,027,520 physical_ratio=0.2501 elapsed_s=5.456 random_page_avg_us=49,006.787 scan_avg_ms=4,403.307 range_avg_us=186,152.119
+bench case 76/99: page_size=2MiB codec=zstd zstd_level=6 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=11.633
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=53.719 average_us=53,718.978
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.693 average_ms=4,231.109
+  test=range started iterations=1,000 page=28 first_key=1637786683 last_key=1641502225
+  test=range completed elapsed_s=184.693 average_us=184,693.116
+case_done: 76/99 physical_bytes=119,541,760 physical_ratio=0.2299 elapsed_s=11.633 random_page_avg_us=53,718.978 scan_avg_ms=4,231.109 range_avg_us=184,693.116
+bench case 77/99: page_size=2MiB codec=zstd zstd_level=9 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=20.500
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=57.285 average_us=57,285.204
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.281 average_ms=4,093.718
+  test=range started iterations=1,000 page=28 first_key=1638457882 last_key=1642106921
+  test=range completed elapsed_s=194.316 average_us=194,315.808
+case_done: 77/99 physical_bytes=117,444,608 physical_ratio=0.2259 elapsed_s=20.500 random_page_avg_us=57,285.204 scan_avg_ms=4,093.718 range_avg_us=194,315.808
+bench case 78/99: page_size=2MiB codec=zstd zstd_level=12 encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=42.658
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=50.659 average_us=50,658.781
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.629 average_ms=4,209.702
+  test=range started iterations=1,000 page=28 first_key=1639583690 last_key=1643040528
+  test=range completed elapsed_s=195.386 average_us=195,385.912
+case_done: 78/99 physical_bytes=119,541,760 physical_ratio=0.2299 elapsed_s=42.658 random_page_avg_us=50,658.781 scan_avg_ms=4,209.702 range_avg_us=195,385.912
+bench case 79/99: page_size=2MiB codec=zstd zstd_level=3 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=17.086
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=49.496 average_us=49,496.469
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.946 average_ms=4,315.306
+  test=range started iterations=1,000 page=30 first_key=1639511780 last_key=1642779042
+  test=range completed elapsed_s=191.342 average_us=191,341.734
+case_done: 79/99 physical_bytes=127,930,368 physical_ratio=0.2461 elapsed_s=17.086 random_page_avg_us=49,496.469 scan_avg_ms=4,315.306 range_avg_us=191,341.734
+bench case 80/99: page_size=2MiB codec=zstd zstd_level=6 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=45.412
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=52.611 average_us=52,611.459
+  test=scan started iterations=3
+  test=scan completed elapsed_s=12.516 average_ms=4,172.116
+  test=range started iterations=1,000 page=28 first_key=1639514220 last_key=1643034907
+  test=range completed elapsed_s=142.635 average_us=142,635.266
+case_done: 80/99 physical_bytes=119,541,760 physical_ratio=0.2299 elapsed_s=45.412 random_page_avg_us=52,611.459 scan_avg_ms=4,172.116 range_avg_us=142,635.266
+bench case 81/99: page_size=2MiB codec=zstd zstd_level=9 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=79.148
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=51.013 average_us=51,013.244
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.129 average_ms=4,376.440
+  test=range started iterations=1,000 page=28 first_key=1640107800 last_key=1643224190
+  test=range completed elapsed_s=203.445 average_us=203,444.970
+case_done: 81/99 physical_bytes=117,444,608 physical_ratio=0.2259 elapsed_s=79.148 random_page_avg_us=51,013.244 scan_avg_ms=4,376.440 range_avg_us=203,444.970
+bench case 82/99: page_size=2MiB codec=zstd zstd_level=12 encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=153.770
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=51.788 average_us=51,787.935
+  test=scan started iterations=3
+  test=scan completed elapsed_s=13.115 average_ms=4,371.610
+  test=range started iterations=1,000 page=28 first_key=1641416222 last_key=1643813445
+  test=range completed elapsed_s=51,216.919 average_us=51,216,919.209
+case_done: 82/99 physical_bytes=117,444,608 physical_ratio=0.2259 elapsed_s=153.770 random_page_avg_us=51,787.935 scan_avg_ms=4,371.610 range_avg_us=51,216,919.209
+bench case 83/99: page_size=2MiB codec=zstd zstd_level=3 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=6.746
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=60.578 average_us=60,577.948
+  test=scan started iterations=3
+  test=scan completed elapsed_s=14.205 average_ms=4,734.972
+  test=range started iterations=1,000 page=28 first_key=1637699244 last_key=1641412421
+  test=range completed elapsed_s=203.960 average_us=203,960.237
+case_done: 83/99 physical_bytes=119,541,760 physical_ratio=0.2299 elapsed_s=6.746 random_page_avg_us=60,577.948 scan_avg_ms=4,734.972 range_avg_us=203,960.237
+bench case 84/99: page_size=2MiB codec=zstd zstd_level=6 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=15.673
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=61.018 average_us=61,018.053
+  test=scan started iterations=3
+  test=scan completed elapsed_s=14.042 average_ms=4,680.564
+  test=range started iterations=1,000 page=26 first_key=1638376457 last_key=1642184373
+  test=range completed elapsed_s=210.295 average_us=210,294.959
+case_done: 84/99 physical_bytes=109,056,000 physical_ratio=0.2098 elapsed_s=15.673 random_page_avg_us=61,018.053 scan_avg_ms=4,680.564 range_avg_us=210,294.959
+bench case 85/99: page_size=2MiB codec=zstd zstd_level=9 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=25.143
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=79.067 average_us=79,066.998
+  test=scan started iterations=3
+  test=scan completed elapsed_s=18.030 average_ms=6,009.922
+  test=range started iterations=1,000 page=26 first_key=1639427616 last_key=1643046300
+  test=range completed elapsed_s=197.622 average_us=197,622.484
+case_done: 85/99 physical_bytes=111,153,152 physical_ratio=0.2138 elapsed_s=25.143 random_page_avg_us=79,066.998 scan_avg_ms=6,009.922 range_avg_us=197,622.484
+bench case 86/99: page_size=2MiB codec=zstd zstd_level=12 encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=79.593
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=74.483 average_us=74,482.657
+  test=scan started iterations=3
+  test=scan completed elapsed_s=16.740 average_ms=5,580.061
+  test=range started iterations=1,000 page=25 first_key=1637777488 last_key=1641931355
+  test=range completed elapsed_s=261.788 average_us=261,787.947
+case_done: 86/99 physical_bytes=106,958,848 physical_ratio=0.2057 elapsed_s=79.593 random_page_avg_us=74,482.657 scan_avg_ms=5,580.061 range_avg_us=261,787.947
+bench case 87/99: page_size=2MiB codec=zstd zstd_level=3 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=26.246
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=80.719 average_us=80,719.165
+  test=scan started iterations=3
+  test=scan completed elapsed_s=22.134 average_ms=7,378.048
+  test=range started iterations=1,000 page=29 first_key=1642697904 last_key=1643912452
+  test=range completed elapsed_s=225.974 average_us=225,973.509
+case_done: 87/99 physical_bytes=121,638,912 physical_ratio=0.2340 elapsed_s=26.246 random_page_avg_us=80,719.165 scan_avg_ms=7,378.048 range_avg_us=225,973.509
+bench case 88/99: page_size=2MiB codec=zstd zstd_level=6 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=68.416
+  test=metadata started
+  test=metadata completed elapsed_s=0.003
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=91.372 average_us=91,371.775
+  test=scan started iterations=3
+  test=scan completed elapsed_s=24.268 average_ms=8,089.243
+  test=range started iterations=1,000 page=26 first_key=1639757067 last_key=1643223482
+  test=range completed elapsed_s=349.535 average_us=349,534.639
+case_done: 88/99 physical_bytes=111,153,152 physical_ratio=0.2138 elapsed_s=68.416 random_page_avg_us=91,371.775 scan_avg_ms=8,089.243 range_avg_us=349,534.639
+bench case 89/99: page_size=2MiB codec=zstd zstd_level=9 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=165.886
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=95.621 average_us=95,620.952
+  test=scan started iterations=3
+  test=scan completed elapsed_s=20.760 average_ms=6,919.929
+  test=range started iterations=1,000 page=25 first_key=1637168595 last_key=1641307738
+  test=range completed elapsed_s=319.718 average_us=319,718.375
+case_done: 89/99 physical_bytes=106,958,848 physical_ratio=0.2057 elapsed_s=165.886 random_page_avg_us=95,620.952 scan_avg_ms=6,919.929 range_avg_us=319,718.375
+bench case 90/99: page_size=2MiB codec=zstd zstd_level=12 encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=285.305
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=78.813 average_us=78,813.430
+  test=scan started iterations=3
+  test=scan completed elapsed_s=20.541 average_ms=6,846.840
+  test=range started iterations=1,000 page=26 first_key=1643057996 last_key=1644417885
+  test=range completed elapsed_s=316.160 average_us=316,160.227
+case_done: 90/99 physical_bytes=109,056,000 physical_ratio=0.2098 elapsed_s=285.305 random_page_avg_us=78,813.430 scan_avg_ms=6,846.840 range_avg_us=316,160.227
+bench case 91/99: page_size=2MiB codec=lz4 zstd_level=- encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=5.257
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=28.782 average_us=28,781.953
+  test=scan started iterations=3
+  test=scan completed elapsed_s=16.178 average_ms=5,392.597
+  test=range started iterations=1,000 page=58 first_key=1639584102 last_key=1641415802
+  test=range completed elapsed_s=103.858 average_us=103,857.802
+case_done: 91/99 physical_bytes=243,273,728 physical_ratio=0.4679 elapsed_s=5.257 random_page_avg_us=28,781.953 scan_avg_ms=5,392.597 range_avg_us=103,857.802
+bench case 92/99: page_size=2MiB codec=lz4 zstd_level=- encoding=row-raw page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=9.452
+  test=metadata started
+  test=metadata completed elapsed_s=0.005
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=30.074 average_us=30,074.214
+  test=scan started iterations=3
+  test=scan completed elapsed_s=15.467 average_ms=5,155.684
+  test=range started iterations=1,000 page=57 first_key=1638887639 last_key=1640791797
+  test=range completed elapsed_s=113.394 average_us=113,394.469
+case_done: 92/99 physical_bytes=241,176,576 physical_ratio=0.4639 elapsed_s=9.452 random_page_avg_us=30,074.214 scan_avg_ms=5,155.684 range_avg_us=113,394.469
+bench case 93/99: page_size=2MiB codec=lz4 zstd_level=- encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=6.901
+  test=metadata started
+  test=metadata completed elapsed_s=0.001
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=42.320 average_us=42,319.588
+  test=scan started iterations=3
+  test=scan completed elapsed_s=17.657 average_ms=5,885.578
+  test=range started iterations=1,000 page=46 first_key=1638211100 last_key=1640187277
+  test=range completed elapsed_s=152.637 average_us=152,636.867
+case_done: 93/99 physical_bytes=195,039,232 physical_ratio=0.3751 elapsed_s=6.901 random_page_avg_us=42,319.588 scan_avg_ms=5,885.578 range_avg_us=152,636.867
+bench case 94/99: page_size=2MiB codec=lz4 zstd_level=- encoding=columnar-basic page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=12.316
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=43.144 average_us=43,143.952
+  test=scan started iterations=3
+  test=scan completed elapsed_s=17.420 average_ms=5,806.818
+  test=range started iterations=1,000 page=46 first_key=1639493464 last_key=1641830555
+  test=range completed elapsed_s=104.124 average_us=104,124.422
+case_done: 94/99 physical_bytes=192,942,080 physical_ratio=0.3711 elapsed_s=12.316 random_page_avg_us=43,143.952 scan_avg_ms=5,806.818 range_avg_us=104,124.422
+bench case 95/99: page_size=2MiB codec=lz4 zstd_level=- encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=7.974
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=48.264 average_us=48,263.901
+  test=scan started iterations=3
+  test=scan completed elapsed_s=17.044 average_ms=5,681.432
+  test=range started iterations=1,000 page=43 first_key=1638304619 last_key=1640788641
+  test=range completed elapsed_s=107.080 average_us=107,079.942
+case_done: 95/99 physical_bytes=182,456,320 physical_ratio=0.3509 elapsed_s=7.974 random_page_avg_us=48,263.901 scan_avg_ms=5,681.432 range_avg_us=107,079.942
+bench case 96/99: page_size=2MiB codec=lz4 zstd_level=- encoding=columnar-delta page_packing=tight-fit
+  test=conversion started
+  test=conversion completed elapsed_s=22.797
+  test=metadata started
+  test=metadata completed elapsed_s=0.002
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=48.074 average_us=48,074.358
+  test=scan started iterations=3
+  test=scan completed elapsed_s=19.151 average_ms=6,383.786
+  test=range started iterations=1,000 page=43 first_key=1639497122 last_key=1641934120
+  test=range completed elapsed_s=113.677 average_us=113,676.970
+case_done: 96/99 physical_bytes=182,456,320 physical_ratio=0.3509 elapsed_s=22.797 random_page_avg_us=48,074.358 scan_avg_ms=6,383.786 range_avg_us=113,676.970
+bench case 97/99: page_size=2MiB codec=none zstd_level=- encoding=row-raw page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=1.092
+  test=metadata started
+  test=metadata completed elapsed_s=0.005
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=12.103 average_us=12,102.519
+  test=scan started iterations=3
+  test=scan completed elapsed_s=14.842 average_ms=4,947.260
+  test=range started iterations=1,000 page=124 first_key=1639147743 last_key=1640010109
+  test=range completed elapsed_s=17.903 average_us=17,902.668
+case_done: 97/99 physical_bytes=520,097,792 physical_ratio=1.0004 elapsed_s=1.092 random_page_avg_us=12,102.519 scan_avg_ms=4,947.260 range_avg_us=17,902.668
+bench case 98/99: page_size=2MiB codec=none zstd_level=- encoding=columnar-basic page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=1.829
+  test=metadata started
+  test=metadata completed elapsed_s=0.006
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=13.716 average_us=13,716.443
+  test=scan started iterations=3
+  test=scan completed elapsed_s=17.354 average_ms=5,784.792
+  test=range started iterations=1,000 page=124 first_key=1639147743 last_key=1640010109
+  test=range completed elapsed_s=21.102 average_us=21,102.074
+case_done: 98/99 physical_bytes=520,097,792 physical_ratio=1.0004 elapsed_s=1.829 random_page_avg_us=13,716.443 scan_avg_ms=5,784.792 range_avg_us=21,102.074
+bench case 99/99: page_size=2MiB codec=none zstd_level=- encoding=columnar-delta page_packing=estimate-shrink
+  test=conversion started
+  test=conversion completed elapsed_s=2.667
+  test=metadata started
+  test=metadata completed elapsed_s=0.004
+  test=random-page started iterations=1,000
+  test=random-page completed elapsed_s=15.972 average_us=15,971.733
+  test=scan started iterations=3
+  test=scan completed elapsed_s=18.427 average_ms=6,142.430
+  test=range started iterations=1,000 page=124 first_key=1639147743 last_key=1640010109
+  test=range completed elapsed_s=22.167 average_us=22,167.131
+case_done: 99/99 physical_bytes=520,097,792 physical_ratio=1.0004 elapsed_s=2.667 random_page_avg_us=15,971.733 scan_avg_ms=6,142.430 range_avg_us=22,167.131
+
+[conversion_matrix_summary]
+rank  page    codec  level  encoding        packing          convert_s  random_ms  scan_ms    range_ms    physical_bytes  ratio
+   1  512KiB  zstd      12  columnar-delta  estimate-shrink     51.665     14.984  3,700.956      36.356     106,958,848  0.2057
+   2  2MiB    zstd      12  columnar-delta  estimate-shrink     79.593     74.483  5,580.061     261.788     106,958,848  0.2057
+   3  512KiB  zstd      12  columnar-delta  tight-fit          160.774     14.478  3,637.769      34.359     106,958,848  0.2057
+   4  2MiB    zstd       9  columnar-delta  tight-fit          165.886     95.621  6,919.929     319.718     106,958,848  0.2057
+   5  1MiB    zstd      12  columnar-delta  tight-fit          189.047     29.413  4,514.815     116.460     106,958,848  0.2057
+   6  512KiB  zstd       9  columnar-delta  tight-fit           74.922     14.569  3,767.803      35.670     107,483,136  0.2067
+   7  1MiB    zstd       9  columnar-delta  estimate-shrink     23.225     29.244  4,047.780     111.056     108,007,424  0.2077
+   8  1MiB    zstd      12  columnar-delta  estimate-shrink     51.615     30.591  4,343.093     110.044     108,007,424  0.2077
+   9  2MiB    zstd       6  columnar-delta  estimate-shrink     15.673     61.018  4,680.564     210.295     109,056,000  0.2098
+  10  2MiB    zstd      12  columnar-delta  tight-fit          285.305     78.813  6,846.840     316.160     109,056,000  0.2098
+  11  512KiB  zstd       9  columnar-delta  estimate-shrink     20.522     15.142  3,917.369      53.524     109,580,288  0.2108
+  12  512KiB  zstd       6  columnar-delta  tight-fit           38.214     14.180  3,752.857      52.537     109,580,288  0.2108
+  13  512KiB  zstd       6  columnar-delta  estimate-shrink     12.670     14.888  3,719.607      36.135     110,104,576  0.2118
+  14  1MiB    zstd       6  columnar-delta  tight-fit           45.141     36.786  4,760.727     110.215     110,104,576  0.2118
+  15  1MiB    zstd       9  columnar-delta  tight-fit           73.369     32.422  4,664.041     113.223     110,104,576  0.2118
+  16  2MiB    zstd       9  columnar-delta  estimate-shrink     25.143     79.067  6,009.922     197.622     111,153,152  0.2138
+  17  2MiB    zstd       6  columnar-delta  tight-fit           68.416     91.372  8,089.243     349.535     111,153,152  0.2138
+  18  1MiB    zstd       6  columnar-delta  estimate-shrink     14.836     30.636  4,301.016     107.104     112,201,728  0.2158
+  19  512KiB  zstd      12  columnar-basic  tight-fit          160.630     13.008  3,746.932      31.029     112,201,728  0.2158
+  20  1MiB    zstd      12  columnar-basic  tight-fit          185.221     27.249  4,671.705      70.695     112,201,728  0.2158
+  21  512KiB  zstd       6  columnar-basic  tight-fit           37.942     13.375  3,679.287      47.680     114,298,880  0.2198
+  22  512KiB  zstd       9  columnar-basic  tight-fit           65.029     13.701  3,653.228      48.839     114,298,880  0.2198
+  23  1MiB    zstd       9  columnar-basic  tight-fit           80.626     26.694  4,148.748     101.401     114,298,880  0.2198
+  24  512KiB  zstd      12  columnar-basic  estimate-shrink     38.223     12.959  3,716.751      48.123     114,823,168  0.2209
+  25  1MiB    zstd       9  columnar-basic  estimate-shrink     18.486     29.428  4,585.502     103.136     115,347,456  0.2219
+  26  1MiB    zstd      12  columnar-basic  estimate-shrink     41.049     27.189  4,429.741     103.882     115,347,456  0.2219
+  27  1MiB    zstd       6  columnar-basic  tight-fit           44.976     29.016  4,438.802      70.116     116,396,032  0.2239
+  28  512KiB  zstd       6  columnar-basic  estimate-shrink     11.013     13.692  3,719.079      33.357     116,920,320  0.2249
+  29  512KiB  zstd       3  columnar-delta  tight-fit           14.684     12.728  3,692.887      18.662     116,920,320  0.2249
+  30  512KiB  zstd       9  columnar-basic  estimate-shrink     18.356     12.834  3,675.051      49.996     116,920,320  0.2249
+  31  1MiB    zstd       6  columnar-basic  estimate-shrink     12.689     27.621  4,483.925      68.542     117,444,608  0.2259
+  32  1MiB    zstd       3  columnar-delta  tight-fit           19.164     28.112  4,442.231      69.555     117,444,608  0.2259
+  33  2MiB    zstd       9  columnar-basic  estimate-shrink     20.500     57.285  4,093.718     194.316     117,444,608  0.2259
+  34  2MiB    zstd       9  columnar-basic  tight-fit           79.148     51.013  4,376.440     203.445     117,444,608  0.2259
+  35  2MiB    zstd      12  columnar-basic  tight-fit          153.770     51.788  4,371.610  51,216.919     117,444,608  0.2259
+  36  1MiB    zstd       3  columnar-delta  estimate-shrink      6.585     26.751  4,613.922     104.021     118,493,184  0.2279
+  37  512KiB  zstd       3  columnar-delta  estimate-shrink      6.226     13.790  4,053.025      33.545     119,017,472  0.2289
+  38  2MiB    zstd       3  columnar-delta  estimate-shrink      6.746     60.578  4,734.972     203.960     119,541,760  0.2299
+  39  2MiB    zstd       6  columnar-basic  estimate-shrink     11.633     53.719  4,231.109     184.693     119,541,760  0.2299
+  40  2MiB    zstd      12  columnar-basic  estimate-shrink     42.658     50.659  4,209.702     195.386     119,541,760  0.2299
+  41  2MiB    zstd       6  columnar-basic  tight-fit           45.412     52.611  4,172.116     142.635     119,541,760  0.2299
+  42  2MiB    zstd       3  columnar-delta  tight-fit           26.246     80.719  7,378.048     225.974     121,638,912  0.2340
+  43  512KiB  zstd       3  columnar-basic  tight-fit           16.313     12.170  3,706.161      45.496     123,211,776  0.2370
+  44  512KiB  zstd       3  columnar-basic  estimate-shrink      5.190     12.209  3,791.266      42.706     124,784,640  0.2400
+  45  1MiB    zstd       3  columnar-basic  tight-fit           16.406     26.080  4,624.290      91.979     124,784,640  0.2400
+  46  1MiB    zstd       3  columnar-basic  estimate-shrink      5.580     25.085  4,423.016      66.374     125,833,216  0.2420
+  47  2MiB    zstd       3  columnar-basic  tight-fit           17.086     49.496  4,315.306     191.342     127,930,368  0.2461
+  48  2MiB    zstd       3  columnar-basic  estimate-shrink      5.456     49.007  4,403.307     186.152     130,027,520  0.2501
+  49  512KiB  zstd       9  row-raw         tight-fit           52.613      9.885  3,696.174      25.185     142,610,432  0.2743
+  50  512KiB  zstd       6  row-raw         tight-fit           33.034     10.674  3,737.841      39.540     143,659,008  0.2763
+  51  1MiB    zstd       9  row-raw         tight-fit           59.477     21.601  4,171.993      79.469     143,659,008  0.2763
+  52  512KiB  zstd      12  row-raw         tight-fit          115.194     10.791  3,762.654      40.128     143,659,008  0.2763
+  53  1MiB    zstd      12  row-raw         tight-fit          117.848     22.505  4,366.084      29.048     143,659,008  0.2763
+  54  1MiB    zstd       6  row-raw         tight-fit           35.888     21.882  4,377.056      79.867     144,707,584  0.2783
+  55  512KiB  zstd       6  row-raw         estimate-shrink     12.642      9.854  3,686.419      26.090     145,756,160  0.2803
+  56  512KiB  zstd       9  row-raw         estimate-shrink     19.186     10.360  3,674.669      26.001     145,756,160  0.2803
+  57  1MiB    zstd       9  row-raw         estimate-shrink     20.084     20.709  4,417.362      58.250     145,756,160  0.2803
+  58  512KiB  zstd      12  row-raw         estimate-shrink     32.600     10.714  3,705.338      25.153     145,756,160  0.2803
+  59  1MiB    zstd      12  row-raw         estimate-shrink     39.780     21.798  4,637.188      83.729     145,756,160  0.2803
+  60  1MiB    zstd       6  row-raw         estimate-shrink     12.732     22.860  4,749.901      81.232     146,804,736  0.2824
+  61  2MiB    zstd       6  row-raw         tight-fit           43.423     45.408  4,521.135      61.802     146,804,736  0.2824
+  62  2MiB    zstd       9  row-raw         tight-fit           62.126     45.671  4,704.091      61.931     146,804,736  0.2824
+  63  2MiB    zstd      12  row-raw         tight-fit          120.481     42.836  4,310.693     107.140     146,804,736  0.2824
+  64  2MiB    zstd       9  row-raw         estimate-shrink     21.322     44.452  4,549.281     167.549     148,901,888  0.2864
+  65  2MiB    zstd      12  row-raw         estimate-shrink     40.932     41.077  4,664.250     110.858     148,901,888  0.2864
+  66  2MiB    zstd       6  row-raw         estimate-shrink     12.942     40.905  4,370.251     157.260     150,999,040  0.2904
+  67  512KiB  zstd       3  row-raw         tight-fit           12.760      9.691  3,715.018      12.587     156,766,208  0.3015
+  68  1MiB    zstd       3  row-raw         tight-fit           12.540     18.453  4,319.787      28.158     158,339,072  0.3045
+  69  512KiB  zstd       3  row-raw         estimate-shrink      5.064      9.468  4,058.885      24.134     158,863,360  0.3056
+  70  2MiB    zstd       3  row-raw         tight-fit           15.317     41.332  4,616.072     105.522     159,387,648  0.3066
+  71  1MiB    zstd       3  row-raw         estimate-shrink      5.640     19.133  4,098.968      75.270     160,436,224  0.3086
+  72  2MiB    zstd       3  row-raw         estimate-shrink      5.309     40.420  4,151.755     145.373     161,484,800  0.3106
+  73  512KiB  lz4        -  columnar-delta  tight-fit           12.116      7.542  3,785.547      31.813     178,262,016  0.3429
+  74  1MiB    lz4        -  columnar-delta  tight-fit           13.687     17.036  4,229.542      65.161     178,262,016  0.3429
+  75  512KiB  lz4        -  columnar-delta  estimate-shrink      4.672      8.007  3,554.594      19.819     179,834,880  0.3459
+  76  1MiB    lz4        -  columnar-delta  estimate-shrink      5.354     16.485  3,930.139      41.992     181,407,744  0.3489
+  77  2MiB    lz4        -  columnar-delta  estimate-shrink      7.974     48.264  5,681.432     107.080     182,456,320  0.3509
+  78  2MiB    lz4        -  columnar-delta  tight-fit           22.797     48.074  6,383.786     113.677     182,456,320  0.3509
+  79  512KiB  lz4        -  columnar-basic  tight-fit            8.678      6.657  3,372.283      25.112     188,747,776  0.3630
+  80  1MiB    lz4        -  columnar-basic  tight-fit            9.453     15.209  4,230.169      40.408     189,796,352  0.3651
+  81  512KiB  lz4        -  columnar-basic  estimate-shrink      4.448      6.650  3,519.599      26.947     191,369,216  0.3681
+  82  1MiB    lz4        -  columnar-basic  estimate-shrink      4.330     13.694  4,182.676      40.153     191,893,504  0.3691
+  83  2MiB    lz4        -  columnar-basic  tight-fit           12.316     43.144  5,806.818     104.124     192,942,080  0.3711
+  84  2MiB    lz4        -  columnar-basic  estimate-shrink      6.901     42.320  5,885.578     152.637     195,039,232  0.3751
+  85  512KiB  lz4        -  row-raw         tight-fit            6.929      4.868  3,378.988      14.323     238,555,136  0.4588
+  86  1MiB    lz4        -  row-raw         tight-fit            7.635     10.423  3,788.158      28.400     240,128,000  0.4619
+  87  512KiB  lz4        -  row-raw         estimate-shrink      3.672      5.043  3,328.187      12.728     241,176,576  0.4639
+  88  2MiB    lz4        -  row-raw         tight-fit            9.452     30.074  5,155.684     113.394     241,176,576  0.4639
+  89  1MiB    lz4        -  row-raw         estimate-shrink      3.477      9.250  3,611.901      39.784     242,225,152  0.4659
+  90  2MiB    lz4        -  row-raw         estimate-shrink      5.257     28.782  5,392.597     103.858     243,273,728  0.4679
+  91  512KiB  none       -  row-raw         estimate-shrink      0.808      2.177  3,548.540       8.372     520,097,792  1.0004
+  92  1MiB    none       -  row-raw         estimate-shrink      0.991      4.603  4,157.403      19.649     520,097,792  1.0004
+  93  2MiB    none       -  row-raw         estimate-shrink      1.092     12.103  4,947.260      17.903     520,097,792  1.0004
+  94  512KiB  none       -  columnar-basic  estimate-shrink      1.209      2.172  3,922.827       9.077     520,097,792  1.0004
+  95  1MiB    none       -  columnar-basic  estimate-shrink      1.468      5.266  4,008.048      20.103     520,097,792  1.0004
+  96  512KiB  none       -  columnar-delta  estimate-shrink      1.724      2.538  4,188.903       9.649     520,097,792  1.0003
+  97  2MiB    none       -  columnar-basic  estimate-shrink      1.829     13.716  5,784.792      21.102     520,097,792  1.0004
+  98  1MiB    none       -  columnar-delta  estimate-shrink      1.917      5.253  4,040.719      13.828     520,097,792  1.0003
+  99  2MiB    none       -  columnar-delta  estimate-shrink      2.667     15.972  6,142.430      22.167     520,097,792  1.0004
+
+[conversion_matrix_storage]
+rank  page    codec  level  encoding        packing          frames      pages  compressed_bytes  uncompressed_bytes  payload_ratio  avg_frames_compressed_page
+   1  512KiB  zstd      12  columnar-delta  estimate-shrink  43,326,210    204       105,219,121         519,915,132         0.2024                  214,264.76
+   2  2MiB    zstd      12  columnar-delta  estimate-shrink  43,326,210     51       105,375,999         519,914,673         0.2027                  877,694.78
+   3  512KiB  zstd      12  columnar-delta  tight-fit        43,326,210    204       106,414,019         519,915,132         0.2047                  216,840.33
+   4  2MiB    zstd       9  columnar-delta  tight-fit        43,326,210     51       105,125,647         519,914,673         0.2022                  866,067.56
+   5  1MiB    zstd      12  columnar-delta  tight-fit        43,326,210    102       105,917,454         519,914,826         0.2037                  439,411.69
+   6  512KiB  zstd       9  columnar-delta  tight-fit        43,326,210    205       107,114,293         519,915,135         0.2060                  212,310.50
+   7  1MiB    zstd       9  columnar-delta  estimate-shrink  43,326,210    103       105,874,836         519,914,829         0.2036                  424,719.41
+   8  1MiB    zstd      12  columnar-delta  estimate-shrink  43,326,210    103       106,062,046         519,914,829         0.2040                  434,845.36
+   9  2MiB    zstd       6  columnar-delta  estimate-shrink  43,326,210     52       107,660,172         519,914,676         0.2071                  846,297.92
+  10  2MiB    zstd      12  columnar-delta  tight-fit        43,326,210     52       108,480,255         519,914,676         0.2087                  889,045.12
+  11  512KiB  zstd       9  columnar-delta  estimate-shrink  43,326,210    209       107,844,429         519,915,147         0.2074                  209,877.44
+  12  512KiB  zstd       6  columnar-delta  tight-fit        43,326,210    209       109,246,559         519,915,147         0.2101                  210,619.68
+  13  512KiB  zstd       6  columnar-delta  estimate-shrink  43,326,210    210       108,316,976         519,915,150         0.2083                  208,079.46
+  14  1MiB    zstd       6  columnar-delta  tight-fit        43,326,210    105       109,910,543         519,914,835         0.2114                  425,658.25
+  15  1MiB    zstd       9  columnar-delta  tight-fit        43,326,210    105       109,112,886         519,914,835         0.2099                  429,707.20
+  16  2MiB    zstd       9  columnar-delta  estimate-shrink  43,326,210     53       109,408,105         519,914,679         0.2104                  856,872.32
+  17  2MiB    zstd       6  columnar-delta  tight-fit        43,326,210     53       110,397,734         519,914,679         0.2123                  857,278.84
+  18  1MiB    zstd       6  columnar-delta  estimate-shrink  43,326,210    107       110,151,105         519,914,841         0.2119                  421,237.38
+  19  512KiB  zstd      12  columnar-basic  tight-fit        43,326,210    214       112,073,056         519,914,520         0.2156                  203,243.40
+  20  1MiB    zstd      12  columnar-basic  tight-fit        43,326,210    107       111,905,993         519,914,520         0.2152                  408,131.69
+  21  512KiB  zstd       6  columnar-basic  tight-fit        43,326,210    218       114,184,889         519,914,520         0.2196                  200,211.62
+  22  512KiB  zstd       9  columnar-basic  tight-fit        43,326,210    218       113,865,363         519,914,520         0.2190                  201,064.97
+  23  1MiB    zstd       9  columnar-basic  tight-fit        43,326,210    109       113,914,465         519,914,520         0.2191                  403,569.22
+  24  512KiB  zstd      12  columnar-basic  estimate-shrink  43,326,210    219       112,956,839         519,914,520         0.2173                  199,988.00
+  25  1MiB    zstd       9  columnar-basic  estimate-shrink  43,326,210    110       113,183,045         519,914,520         0.2177                  396,917.86
+  26  1MiB    zstd      12  columnar-basic  estimate-shrink  43,326,210    110       113,571,730         519,914,520         0.2184                  402,582.92
+  27  1MiB    zstd       6  columnar-basic  tight-fit        43,326,210    111       116,069,872         519,914,520         0.2232                  401,889.22
+  28  512KiB  zstd       6  columnar-basic  estimate-shrink  43,326,210    223       115,044,602         519,914,520         0.2213                  197,047.18
+  29  512KiB  zstd       3  columnar-delta  tight-fit        43,326,210    223       116,826,848         519,915,189         0.2247                  194,985.11
+  30  512KiB  zstd       9  columnar-basic  estimate-shrink  43,326,210    223       114,585,004         519,914,520         0.2204                  197,941.27
+  31  1MiB    zstd       6  columnar-basic  estimate-shrink  43,326,210    112       114,787,937         519,914,520         0.2208                  395,826.61
+  32  1MiB    zstd       3  columnar-delta  tight-fit        43,326,210    112       116,616,323         519,914,856         0.2243                  392,893.95
+  33  2MiB    zstd       9  columnar-basic  estimate-shrink  43,326,210     56       114,445,800         519,914,520         0.2201                  797,984.72
+  34  2MiB    zstd       9  columnar-basic  tight-fit        43,326,210     56       115,965,087         519,914,520         0.2230                  809,890.32
+  35  2MiB    zstd      12  columnar-basic  tight-fit        43,326,210     56       117,038,570         519,914,520         0.2251                  820,384.79
+  36  1MiB    zstd       3  columnar-delta  estimate-shrink  43,326,210    113       117,081,874         519,914,859         0.2252                  388,910.47
+  37  512KiB  zstd       3  columnar-delta  estimate-shrink  43,326,210    227       117,500,168         519,915,201         0.2260                  192,925.81
+  38  2MiB    zstd       3  columnar-delta  estimate-shrink  43,326,210     57       118,054,017         519,914,691         0.2271                  781,880.75
+  39  2MiB    zstd       6  columnar-basic  estimate-shrink  43,326,210     57       117,505,114         519,914,520         0.2260                  793,020.46
+  40  2MiB    zstd      12  columnar-basic  estimate-shrink  43,326,210     57       115,868,320         519,914,520         0.2229                  807,401.87
+  41  2MiB    zstd       6  columnar-basic  tight-fit        43,326,210     57       118,572,188         519,914,520         0.2281                  805,786.38
+  42  2MiB    zstd       3  columnar-delta  tight-fit        43,326,210     58       120,959,042         519,914,694         0.2327                  790,413.70
+  43  512KiB  zstd       3  columnar-basic  tight-fit        43,326,210    235       123,134,597         519,914,520         0.2368                  186,818.30
+  44  512KiB  zstd       3  columnar-basic  estimate-shrink  43,326,210    238       122,784,100         519,914,520         0.2362                  183,821.00
+  45  1MiB    zstd       3  columnar-basic  tight-fit        43,326,210    119       124,114,018         519,914,520         0.2387                  374,180.32
+  46  1MiB    zstd       3  columnar-basic  estimate-shrink  43,326,210    120       123,262,636         519,914,520         0.2371                  368,619.59
+  47  2MiB    zstd       3  columnar-basic  tight-fit        43,326,210     61       126,912,046         519,914,520         0.2441                  749,309.47
+  48  2MiB    zstd       3  columnar-basic  estimate-shrink  43,326,210     62       126,596,189         519,914,520         0.2435                  737,025.00
+  49  512KiB  zstd       9  row-raw         tight-fit        43,326,210    272       142,582,523         519,914,520         0.2742                  159,715.88
+  50  512KiB  zstd       6  row-raw         tight-fit        43,326,210    274       143,401,865         519,914,520         0.2758                  159,463.94
+  51  1MiB    zstd       9  row-raw         tight-fit        43,326,210    137       143,366,733         519,914,520         0.2758                  319,812.70
+  52  512KiB  zstd      12  row-raw         tight-fit        43,326,210    274       143,541,640         519,914,520         0.2761                  159,849.57
+  53  1MiB    zstd      12  row-raw         tight-fit        43,326,210    137       143,188,958         519,914,520         0.2754                  319,922.44
+  54  1MiB    zstd       6  row-raw         tight-fit        43,326,210    138       144,443,864         519,914,520         0.2778                  319,147.81
+  55  512KiB  zstd       6  row-raw         estimate-shrink  43,326,210    278       143,524,493         519,914,520         0.2761                  157,090.89
+  56  512KiB  zstd       9  row-raw         estimate-shrink  43,326,210    278       143,495,747         519,914,520         0.2760                  157,565.78
+  57  1MiB    zstd       9  row-raw         estimate-shrink  43,326,210    139       143,211,692         519,914,520         0.2755                  315,290.23
+  58  512KiB  zstd      12  row-raw         estimate-shrink  43,326,210    278       143,422,843         519,914,520         0.2759                  157,571.59
+  59  1MiB    zstd      12  row-raw         estimate-shrink  43,326,210    139       143,049,779         519,914,520         0.2751                  315,378.05
+  60  1MiB    zstd       6  row-raw         estimate-shrink  43,326,210    140       144,122,508         519,914,520         0.2772                  314,774.96
+  61  2MiB    zstd       6  row-raw         tight-fit        43,326,210     70       146,744,351         519,914,520         0.2822                  638,899.10
+  62  2MiB    zstd       9  row-raw         tight-fit        43,326,210     70       145,431,361         519,914,520         0.2797                  640,532.24
+  63  2MiB    zstd      12  row-raw         tight-fit        43,326,210     70       145,227,420         519,914,520         0.2793                  640,785.91
+  64  2MiB    zstd       9  row-raw         estimate-shrink  43,326,210     71       145,477,314         519,914,520         0.2798                  631,049.21
+  65  2MiB    zstd      12  row-raw         estimate-shrink  43,326,210     71       145,226,239         519,914,520         0.2793                  631,361.19
+  66  2MiB    zstd       6  row-raw         estimate-shrink  43,326,210     72       146,810,611         519,914,520         0.2824                  629,403.46
+  67  512KiB  zstd       3  row-raw         tight-fit        43,326,210    299       156,661,761         519,914,520         0.3013                  145,952.25
+  68  1MiB    zstd       3  row-raw         tight-fit        43,326,210    151       157,378,770         519,914,520         0.3027                  291,506.27
+  69  512KiB  zstd       3  row-raw         estimate-shrink  43,326,210    303       156,708,922         519,914,520         0.3014                  143,988.56
+  70  2MiB    zstd       3  row-raw         tight-fit        43,326,210     76       157,730,405         519,914,520         0.3034                  582,622.14
+  71  1MiB    zstd       3  row-raw         estimate-shrink  43,326,210    153       157,355,195         519,914,520         0.3027                  287,634.07
+  72  2MiB    zstd       3  row-raw         estimate-shrink  43,326,210     77       157,948,608         519,914,520         0.3038                  574,467.24
+  73  512KiB  lz4        -  columnar-delta  tight-fit        43,326,210    340       178,009,598         519,915,540         0.3424                  128,230.08
+  74  1MiB    lz4        -  columnar-delta  tight-fit        43,326,210    170       178,133,191         519,915,030         0.3426                  256,907.82
+  75  512KiB  lz4        -  columnar-delta  estimate-shrink  43,326,210    343       177,799,761         519,915,549         0.3420                  126,811.80
+  76  1MiB    lz4        -  columnar-delta  estimate-shrink  43,326,210    173       179,424,411         519,915,039         0.3451                  254,372.30
+  77  2MiB    lz4        -  columnar-delta  estimate-shrink  43,326,210     87       180,563,702         519,914,781         0.3473                  509,742.11
+  78  2MiB    lz4        -  columnar-delta  tight-fit        43,326,210     87       181,276,374         519,914,781         0.3487                  514,751.37
+  79  512KiB  lz4        -  columnar-basic  tight-fit        43,326,210    360       188,592,366         519,914,520         0.3627                  121,241.42
+  80  1MiB    lz4        -  columnar-basic  tight-fit        43,326,210    181       189,634,441         519,914,520         0.3647                  242,874.28
+  81  512KiB  lz4        -  columnar-basic  estimate-shrink  43,326,210    365       188,336,645         519,914,520         0.3622                  119,335.46
+  82  1MiB    lz4        -  columnar-basic  estimate-shrink  43,326,210    183       188,978,505         519,914,520         0.3635                  239,335.74
+  83  2MiB    lz4        -  columnar-basic  tight-fit        43,326,210     92       190,921,698         519,914,520         0.3672                  486,302.15
+  84  2MiB    lz4        -  columnar-basic  estimate-shrink  43,326,210     93       191,559,096         519,914,520         0.3684                  479,862.08
+  85  512KiB  lz4        -  row-raw         tight-fit        43,326,210    455       238,419,272         519,914,520         0.4586                   95,583.15
+  86  1MiB    lz4        -  row-raw         tight-fit        43,326,210    229       239,414,628         519,914,520         0.4605                  191,264.58
+  87  512KiB  lz4        -  row-raw         estimate-shrink  43,326,210    460       238,231,116         519,914,520         0.4582                   94,604.68
+  88  2MiB    lz4        -  row-raw         tight-fit        43,326,210    115       240,446,486         519,914,520         0.4625                  382,694.57
+  89  1MiB    lz4        -  row-raw         estimate-shrink  43,326,210    231       239,589,570         519,914,520         0.4608                  189,452.06
+  90  2MiB    lz4        -  row-raw         estimate-shrink  43,326,210    116       240,580,836         519,914,520         0.4627                  379,121.81
+  91  512KiB  none       -  row-raw         estimate-shrink  43,326,210    992       519,914,520         519,914,520         1.0000                           -
+  92  1MiB    none       -  row-raw         estimate-shrink  43,326,210    496       519,914,520         519,914,520         1.0000                           -
+  93  2MiB    none       -  row-raw         estimate-shrink  43,326,210    248       519,914,520         519,914,520         1.0000                           -
+  94  512KiB  none       -  columnar-basic  estimate-shrink  43,326,210    992       519,914,520         519,914,520         1.0000                           -
+  95  1MiB    none       -  columnar-basic  estimate-shrink  43,326,210    496       519,914,520         519,914,520         1.0000                           -
+  96  512KiB  none       -  columnar-delta  estimate-shrink  43,326,210    992       519,917,496         519,917,496         1.0000                           -
+  97  2MiB    none       -  columnar-basic  estimate-shrink  43,326,210    248       519,914,520         519,914,520         1.0000                           -
+  98  1MiB    none       -  columnar-delta  estimate-shrink  43,326,210    496       519,916,008         519,916,008         1.0000                           -
+  99  2MiB    none       -  columnar-delta  estimate-shrink  43,326,210    248       519,915,264         519,915,264         1.0000                           -
+
+[conversion_matrix_read_samples]
+rank  page    codec  level  encoding        packing          random_iterations  random_frames  scan_iterations  scan_frames  range_iterations  range_frames
+   1  512KiB  zstd      12  columnar-delta  estimate-shrink              1,000    214,495,105                3  129,978,630             1,000   206,684,000
+   2  2MiB    zstd      12  columnar-delta  estimate-shrink              1,000    879,170,244                3  129,978,630             1,000   843,167,000
+   3  512KiB  zstd      12  columnar-delta  tight-fit                    1,000    214,174,582                3  129,978,630             1,000   207,452,000
+   4  2MiB    zstd       9  columnar-delta  tight-fit                    1,000    878,879,585                3  129,978,630             1,000   826,878,000
+   5  1MiB    zstd      12  columnar-delta  tight-fit                    1,000    431,105,485                3  129,978,630             1,000   413,056,000
+   6  512KiB  zstd       9  columnar-delta  tight-fit                    1,000    213,459,763                3  129,978,630             1,000   205,311,000
+   7  1MiB    zstd       9  columnar-delta  estimate-shrink              1,000    420,504,392                3  129,978,630             1,000   413,408,000
+   8  1MiB    zstd      12  columnar-delta  estimate-shrink              1,000    420,498,246                3  129,978,630             1,000   416,134,000
+   9  2MiB    zstd       6  columnar-delta  estimate-shrink              1,000    833,204,197                3  129,978,630             1,000   813,730,000
+  10  2MiB    zstd      12  columnar-delta  tight-fit                    1,000    833,849,870                3  129,978,630             1,000   868,256,000
+  11  512KiB  zstd       9  columnar-delta  estimate-shrink              1,000    207,142,404                3  129,978,630             1,000   202,416,000
+  12  512KiB  zstd       6  columnar-delta  tight-fit                    1,000    207,133,496                3  129,978,630             1,000   200,805,000
+  13  512KiB  zstd       6  columnar-delta  estimate-shrink              1,000    198,622,000                3  129,978,630             1,000   201,425,000
+  14  1MiB    zstd       6  columnar-delta  tight-fit                    1,000    447,467,000                3  129,978,630             1,000   405,195,000
+  15  1MiB    zstd       9  columnar-delta  tight-fit                    1,000    451,804,000                3  129,978,630             1,000   402,662,000
+  16  2MiB    zstd       9  columnar-delta  estimate-shrink              1,000    817,175,231                3  129,978,630             1,000   831,764,000
+  17  2MiB    zstd       6  columnar-delta  tight-fit                    1,000    817,211,099                3  129,978,630             1,000   821,996,000
+  18  1MiB    zstd       6  columnar-delta  estimate-shrink              1,000    404,431,390                3  129,978,630             1,000   401,793,000
+  19  512KiB  zstd      12  columnar-basic  tight-fit                    1,000    202,513,009                3  129,978,630             1,000   190,592,000
+  20  1MiB    zstd      12  columnar-basic  tight-fit                    1,000    404,843,016                3  129,978,630             1,000   385,720,000
+  21  512KiB  zstd       6  columnar-basic  tight-fit                    1,000    198,696,520                3  129,978,630             1,000   187,872,000
+  22  512KiB  zstd       9  columnar-basic  tight-fit                    1,000    198,808,774                3  129,978,630             1,000   188,775,000
+  23  1MiB    zstd       9  columnar-basic  tight-fit                    1,000    397,134,066                3  129,978,630             1,000   381,457,000
+  24  512KiB  zstd      12  columnar-basic  estimate-shrink              1,000    198,780,110                3  129,978,630             1,000   190,714,000
+  25  1MiB    zstd       9  columnar-basic  estimate-shrink              1,000    401,356,194                3  129,978,630             1,000   381,695,000
+  26  1MiB    zstd      12  columnar-basic  estimate-shrink              1,000    406,368,874                3  129,978,630             1,000   382,971,000
+  27  1MiB    zstd       6  columnar-basic  tight-fit                    1,000    392,130,884                3  129,978,630             1,000   381,746,000
+  28  512KiB  zstd       6  columnar-basic  estimate-shrink              1,000    194,659,975                3  129,978,630             1,000   188,221,000
+  29  512KiB  zstd       3  columnar-delta  tight-fit                    1,000    194,535,278                3  129,978,630             1,000   188,561,000
+  30  512KiB  zstd       9  columnar-basic  estimate-shrink              1,000    194,733,160                3  129,978,630             1,000   189,498,000
+  31  1MiB    zstd       6  columnar-basic  estimate-shrink              1,000    375,116,043                3  129,978,630             1,000   378,042,000
+  32  1MiB    zstd       3  columnar-delta  tight-fit                    1,000    388,735,588                3  129,978,630             1,000   377,463,000
+  33  2MiB    zstd       9  columnar-basic  estimate-shrink              1,000    804,817,625                3  129,978,630             1,000   757,794,000
+  34  2MiB    zstd       9  columnar-basic  tight-fit                    1,000    737,891,125                3  129,978,630             1,000   767,093,000
+  35  2MiB    zstd      12  columnar-basic  tight-fit                    1,000    737,648,625                3  129,978,630             1,000   785,383,000
+  36  1MiB    zstd       3  columnar-delta  estimate-shrink              1,000    383,345,732                3  129,978,630             1,000   379,669,000
+  37  512KiB  zstd       3  columnar-delta  estimate-shrink              1,000    190,740,191                3  129,978,630             1,000   186,724,000
+  38  2MiB    zstd       3  columnar-delta  estimate-shrink              1,000    780,314,980                3  129,978,630             1,000   759,942,000
+  39  2MiB    zstd       6  columnar-basic  estimate-shrink              1,000    760,916,636                3  129,978,630             1,000   758,003,000
+  40  2MiB    zstd      12  columnar-basic  estimate-shrink              1,000    774,848,948                3  129,978,630             1,000   773,769,000
+  41  2MiB    zstd       6  columnar-basic  tight-fit                    1,000    778,304,309                3  129,978,630             1,000   766,071,000
+  42  2MiB    zstd       3  columnar-delta  tight-fit                    1,000    747,009,989                3  129,978,630             1,000   776,106,000
+  43  512KiB  zstd       3  columnar-basic  tight-fit                    1,000    186,947,385                3  129,978,630             1,000   177,244,000
+  44  512KiB  zstd       3  columnar-basic  estimate-shrink              1,000    180,104,491                3  129,978,630             1,000   175,937,000
+  45  1MiB    zstd       3  columnar-basic  tight-fit                    1,000    353,857,635                3  129,978,630             1,000   355,815,000
+  46  1MiB    zstd       3  columnar-basic  estimate-shrink              1,000    374,884,500                3  129,978,630             1,000   355,335,000
+  47  2MiB    zstd       3  columnar-basic  tight-fit                    1,000    709,840,170                3  129,978,630             1,000   713,232,000
+  48  2MiB    zstd       3  columnar-basic  estimate-shrink              1,000    699,219,284                3  129,978,630             1,000   709,172,000
+  49  512KiB  zstd       9  row-raw         tight-fit                    1,000    159,267,326                3  129,978,630             1,000   149,687,000
+  50  512KiB  zstd       6  row-raw         tight-fit                    1,000    158,161,109                3  129,978,630             1,000   150,210,000
+  51  1MiB    zstd       9  row-raw         tight-fit                    1,000    316,110,246                3  129,978,630             1,000   301,058,000
+  52  512KiB  zstd      12  row-raw         tight-fit                    1,000    158,188,565                3  129,978,630             1,000   152,481,000
+  53  1MiB    zstd      12  row-raw         tight-fit                    1,000    316,114,836                3  129,978,630             1,000   301,249,000
+  54  1MiB    zstd       6  row-raw         tight-fit                    1,000    316,441,255                3  129,978,630             1,000   303,246,000
+  55  512KiB  zstd       6  row-raw         estimate-shrink              1,000    155,699,330                3  129,978,630             1,000   148,730,000
+  56  512KiB  zstd       9  row-raw         estimate-shrink              1,000    155,786,671                3  129,978,630             1,000   148,941,000
+  57  1MiB    zstd       9  row-raw         estimate-shrink              1,000    311,467,506                3  129,978,630             1,000   299,523,000
+  58  512KiB  zstd      12  row-raw         estimate-shrink              1,000    155,791,649                3  129,978,630             1,000   149,444,000
+  59  1MiB    zstd      12  row-raw         estimate-shrink              1,000    311,454,837                3  129,978,630             1,000   300,576,000
+  60  1MiB    zstd       6  row-raw         estimate-shrink              1,000    324,776,250                3  129,978,630             1,000   300,937,000
+  61  2MiB    zstd       6  row-raw         tight-fit                    1,000    619,072,500                3  129,978,630             1,000   590,983,000
+  62  2MiB    zstd       9  row-raw         tight-fit                    1,000    624,224,000                3  129,978,630             1,000   592,622,000
+  63  2MiB    zstd      12  row-raw         tight-fit                    1,000    624,858,000                3  129,978,630             1,000   593,924,000
+  64  2MiB    zstd       9  row-raw         estimate-shrink              1,000    610,470,860                3  129,978,630             1,000   603,897,000
+  65  2MiB    zstd      12  row-raw         estimate-shrink              1,000    610,470,995                3  129,978,630             1,000   604,460,000
+  66  2MiB    zstd       6  row-raw         estimate-shrink              1,000    574,414,500                3  129,978,630             1,000   591,796,000
+  67  512KiB  zstd       3  row-raw         tight-fit                    1,000    144,929,143                3  129,978,630             1,000   136,603,000
+  68  1MiB    zstd       3  row-raw         tight-fit                    1,000    286,941,181                3  129,978,630             1,000   278,149,000
+  69  512KiB  zstd       3  row-raw         estimate-shrink              1,000    143,085,624                3  129,978,630             1,000   136,667,000
+  70  2MiB    zstd       3  row-raw         tight-fit                    1,000    570,171,159                3  129,978,630             1,000   541,542,000
+  71  1MiB    zstd       3  row-raw         estimate-shrink              1,000    274,821,175                3  129,978,630             1,000   275,229,000
+  72  2MiB    zstd       3  row-raw         estimate-shrink              1,000    571,296,203                3  129,978,630             1,000   548,712,000
+  73  512KiB  lz4        -  columnar-delta  tight-fit                    1,000    129,008,740                3  129,978,630             1,000   126,137,000
+  74  1MiB    lz4        -  columnar-delta  tight-fit                    1,000    259,010,420                3  129,978,630             1,000   248,724,000
+  75  512KiB  lz4        -  columnar-delta  estimate-shrink              1,000    126,397,604                3  129,978,630             1,000   123,973,000
+  76  1MiB    lz4        -  columnar-delta  estimate-shrink              1,000    250,500,405                3  129,978,630             1,000   249,178,000
+  77  2MiB    lz4        -  columnar-delta  estimate-shrink              1,000    500,504,902                3  129,978,630             1,000   500,020,000
+  78  2MiB    lz4        -  columnar-delta  tight-fit                    1,000    504,276,398                3  129,978,630             1,000   497,832,000
+  79  512KiB  lz4        -  columnar-basic  tight-fit                    1,000    123,255,875                3  129,978,630             1,000   115,358,000
+  80  1MiB    lz4        -  columnar-basic  tight-fit                    1,000    239,171,772                3  129,978,630             1,000   235,442,000
+  81  512KiB  lz4        -  columnar-basic  estimate-shrink              1,000    119,765,149                3  129,978,630             1,000   114,800,000
+  82  1MiB    lz4        -  columnar-basic  estimate-shrink              1,000    238,038,720                3  129,978,630             1,000   231,401,000
+  83  2MiB    lz4        -  columnar-basic  tight-fit                    1,000    470,810,259                3  129,978,630             1,000   461,917,000
+  84  2MiB    lz4        -  columnar-basic  estimate-shrink              1,000    473,659,218                3  129,978,630             1,000   464,895,000
+  85  512KiB  lz4        -  row-raw         tight-fit                    1,000     95,571,759                3  129,978,630             1,000    91,351,000
+  86  1MiB    lz4        -  row-raw         tight-fit                    1,000    189,250,099                3  129,978,630             1,000   183,250,000
+  87  512KiB  lz4        -  row-raw         estimate-shrink              1,000     94,661,080                3  129,978,630             1,000    90,234,000
+  88  2MiB    lz4        -  row-raw         tight-fit                    1,000    382,903,196                3  129,978,630             1,000   365,023,000
+  89  1MiB    lz4        -  row-raw         estimate-shrink              1,000    180,919,461                3  129,978,630             1,000   181,408,000
+  90  2MiB    lz4        -  row-raw         estimate-shrink              1,000    373,440,962                3  129,978,630             1,000   365,692,000
+  91  512KiB  none       -  row-raw         estimate-shrink              1,000     43,675,690                3  129,978,630             1,000    43,709,000
+  92  1MiB    none       -  row-raw         estimate-shrink              1,000     87,351,428                3  129,978,630             1,000    87,445,000
+  93  2MiB    none       -  row-raw         estimate-shrink              1,000    174,702,896                3  129,978,630             1,000   174,757,000
+  94  512KiB  none       -  columnar-basic  estimate-shrink              1,000     43,675,690                3  129,978,630             1,000    43,709,000
+  95  1MiB    none       -  columnar-basic  estimate-shrink              1,000     87,351,428                3  129,978,630             1,000    87,445,000
+  96  512KiB  none       -  columnar-delta  estimate-shrink              1,000     43,675,690                3  129,978,630             1,000    43,709,000
+  97  2MiB    none       -  columnar-basic  estimate-shrink              1,000    174,702,896                3  129,978,630             1,000   174,757,000
+  98  1MiB    none       -  columnar-delta  estimate-shrink              1,000     87,351,420                3  129,978,630             1,000    87,399,000
+  99  2MiB    none       -  columnar-delta  estimate-shrink              1,000    174,702,896                3  129,978,630             1,000   174,757,000
+
+[conversion_matrix_packing]
+rank  page    codec  level  encoding        packing          first_attempts  subseq_avg_attempts  subseq_attempt_range
+   1  512KiB  zstd      12  columnar-delta  estimate-shrink              13                 2.35                  1..8
+   2  2MiB    zstd      12  columnar-delta  estimate-shrink               4                 2.48                  1..8
+   3  512KiB  zstd      12  columnar-delta  tight-fit                    13                 7.64                 3..70
+   4  2MiB    zstd       9  columnar-delta  tight-fit                     6                12.76                4..126
+   5  1MiB    zstd      12  columnar-delta  tight-fit                    11                 8.69                 4..38
+   6  512KiB  zstd       9  columnar-delta  tight-fit                    11                 8.57                3..181
+   7  1MiB    zstd       9  columnar-delta  estimate-shrink              11                 2.35                  1..9
+   8  1MiB    zstd      12  columnar-delta  estimate-shrink              11                 2.23                  1..6
+   9  2MiB    zstd       6  columnar-delta  estimate-shrink              11                 2.14                  1..7
+  10  2MiB    zstd      12  columnar-delta  tight-fit                     4                 9.32                 3..31
+  11  512KiB  zstd       9  columnar-delta  estimate-shrink              11                 2.18                  1..8
+  12  512KiB  zstd       6  columnar-delta  tight-fit                     7                 7.30                 2..27
+  13  512KiB  zstd       6  columnar-delta  estimate-shrink               7                 2.25                  1..7
+  14  1MiB    zstd       6  columnar-delta  tight-fit                     6                 8.40                 3..24
+  15  1MiB    zstd       9  columnar-delta  tight-fit                    11                 8.16                 4..22
+  16  2MiB    zstd       9  columnar-delta  estimate-shrink               6                 2.29                  1..5
+  17  2MiB    zstd       6  columnar-delta  tight-fit                    11                 9.08                 5..19
+  18  1MiB    zstd       6  columnar-delta  estimate-shrink               6                 2.42                  1..8
+  19  512KiB  zstd      12  columnar-basic  tight-fit                    17                 8.99                 4..54
+  20  1MiB    zstd      12  columnar-basic  tight-fit                    14                10.42                 4..76
+  21  512KiB  zstd       6  columnar-basic  tight-fit                    14                 7.98                 3..20
+  22  512KiB  zstd       9  columnar-basic  tight-fit                     7                 8.66                 4..38
+  23  1MiB    zstd       9  columnar-basic  tight-fit                    11                10.17                 4..71
+  24  512KiB  zstd      12  columnar-basic  estimate-shrink              17                 2.12                  1..8
+  25  1MiB    zstd       9  columnar-basic  estimate-shrink              11                 2.08                  1..6
+  26  1MiB    zstd      12  columnar-basic  estimate-shrink              14                 2.11                  1..6
+  27  1MiB    zstd       6  columnar-basic  tight-fit                    10                 8.75                 4..25
+  28  512KiB  zstd       6  columnar-basic  estimate-shrink              14                 2.05                 1..12
+  29  512KiB  zstd       3  columnar-delta  tight-fit                    13                 7.02                 1..15
+  30  512KiB  zstd       9  columnar-basic  estimate-shrink               7                 2.19                 1..12
+  31  1MiB    zstd       6  columnar-basic  estimate-shrink              10                 2.14                  1..9
+  32  1MiB    zstd       3  columnar-delta  tight-fit                    12                 8.14                 4..20
+  33  2MiB    zstd       9  columnar-basic  estimate-shrink              28                 2.13                  1..7
+  34  2MiB    zstd       9  columnar-basic  tight-fit                    28                 9.77                 3..20
+  35  2MiB    zstd      12  columnar-basic  tight-fit                    10                 8.78                 4..15
+  36  1MiB    zstd       3  columnar-delta  estimate-shrink              12                 2.15                  1..6
+  37  512KiB  zstd       3  columnar-delta  estimate-shrink              13                 2.07                  1..8
+  38  2MiB    zstd       3  columnar-delta  estimate-shrink              11                 2.15                  1..6
+  39  2MiB    zstd       6  columnar-basic  estimate-shrink              11                 1.92                  1..4
+  40  2MiB    zstd      12  columnar-basic  estimate-shrink              10                 2.13                  1..7
+  41  2MiB    zstd       6  columnar-basic  tight-fit                    11                 9.23                 5..34
+  42  2MiB    zstd       3  columnar-delta  tight-fit                    11                 7.72                 5..12
+  43  512KiB  zstd       3  columnar-basic  tight-fit                     7                 8.06                 2..18
+  44  512KiB  zstd       3  columnar-basic  estimate-shrink               7                 1.97                  1..9
+  45  1MiB    zstd       3  columnar-basic  tight-fit                    10                 8.01                 2..23
+  46  1MiB    zstd       3  columnar-basic  estimate-shrink              10                 2.09                  1..7
+  47  2MiB    zstd       3  columnar-basic  tight-fit                    11                 8.39                 4..18
+  48  2MiB    zstd       3  columnar-basic  estimate-shrink              11                 1.96                  1..5
+  49  512KiB  zstd       9  row-raw         tight-fit                     8                 6.73                 2..96
+  50  512KiB  zstd       6  row-raw         tight-fit                    16                 6.02                 1..22
+  51  1MiB    zstd       9  row-raw         tight-fit                     8                 6.71                 2..63
+  52  512KiB  zstd      12  row-raw         tight-fit                    11                 7.12                2..143
+  53  1MiB    zstd      12  row-raw         tight-fit                     7                 6.61                 3..27
+  54  1MiB    zstd       6  row-raw         tight-fit                     8                 6.42                 3..34
+  55  512KiB  zstd       6  row-raw         estimate-shrink              16                 2.12                  1..8
+  56  512KiB  zstd       9  row-raw         estimate-shrink               8                 2.12                  1..9
+  57  1MiB    zstd       9  row-raw         estimate-shrink               8                 2.15                  1..8
+  58  512KiB  zstd      12  row-raw         estimate-shrink              11                 1.97                  1..9
+  59  1MiB    zstd      12  row-raw         estimate-shrink               7                 2.14                  1..8
+  60  1MiB    zstd       6  row-raw         estimate-shrink               8                 2.07                  1..8
+  61  2MiB    zstd       6  row-raw         tight-fit                    18                 7.48                 4..53
+  62  2MiB    zstd       9  row-raw         tight-fit                     8                 6.92                 3..36
+  63  2MiB    zstd      12  row-raw         tight-fit                     6                 6.48                 3..18
+  64  2MiB    zstd       9  row-raw         estimate-shrink               8                 2.21                  1..7
+  65  2MiB    zstd      12  row-raw         estimate-shrink               6                 2.10                  1..8
+  66  2MiB    zstd       6  row-raw         estimate-shrink              18                 2.04                  1..7
+  67  512KiB  zstd       3  row-raw         tight-fit                     6                 5.96                 3..24
+  68  1MiB    zstd       3  row-raw         tight-fit                     8                 6.20                 3..14
+  69  512KiB  zstd       3  row-raw         estimate-shrink               6                 2.21                 1..57
+  70  2MiB    zstd       3  row-raw         tight-fit                     4                 6.60                 2..25
+  71  1MiB    zstd       3  row-raw         estimate-shrink               8                 1.93                  1..6
+  72  2MiB    zstd       3  row-raw         estimate-shrink               4                 1.99                  1..5
+  73  512KiB  lz4        -  columnar-delta  tight-fit                     7                 7.37                 3..51
+  74  1MiB    lz4        -  columnar-delta  tight-fit                    12                 9.34                 2..79
+  75  512KiB  lz4        -  columnar-delta  estimate-shrink               7                 1.91                  1..7
+  76  1MiB    lz4        -  columnar-delta  estimate-shrink              12                 2.04                  1..8
+  77  2MiB    lz4        -  columnar-delta  estimate-shrink              45                 2.36                  1..8
+  78  2MiB    lz4        -  columnar-delta  tight-fit                    45                11.51                 3..80
+  79  512KiB  lz4        -  columnar-basic  tight-fit                    64                 6.10                 3..15
+  80  1MiB    lz4        -  columnar-basic  tight-fit                     8                 6.31                 3..24
+  81  512KiB  lz4        -  columnar-basic  estimate-shrink              64                 2.14                  1..9
+  82  1MiB    lz4        -  columnar-basic  estimate-shrink               8                 2.08                  1..9
+  83  2MiB    lz4        -  columnar-basic  tight-fit                     5                 6.57                 3..20
+  84  2MiB    lz4        -  columnar-basic  estimate-shrink               5                 2.48                  1..8
+  85  512KiB  lz4        -  row-raw         tight-fit                     7                 4.78                 2..13
+  86  1MiB    lz4        -  row-raw         tight-fit                    10                 5.03                 2..12
+  87  512KiB  lz4        -  row-raw         estimate-shrink               7                 1.96                  1..8
+  88  2MiB    lz4        -  row-raw         tight-fit                    12                 5.09                  3..8
+  89  1MiB    lz4        -  row-raw         estimate-shrink              10                 2.03                  1..6
+  90  2MiB    lz4        -  row-raw         estimate-shrink              12                 2.03                  1..6
+  91  512KiB  none       -  row-raw         estimate-shrink               0                 0.00                  0..0
+  92  1MiB    none       -  row-raw         estimate-shrink               0                 0.00                  0..0
+  93  2MiB    none       -  row-raw         estimate-shrink               0                 0.00                  0..0
+  94  512KiB  none       -  columnar-basic  estimate-shrink               0                 0.00                  0..0
+  95  1MiB    none       -  columnar-basic  estimate-shrink               0                 0.00                  0..0
+  96  512KiB  none       -  columnar-delta  estimate-shrink               0                 0.00                  0..0
+  97  2MiB    none       -  columnar-basic  estimate-shrink               0                 0.00                  0..0
+  98  1MiB    none       -  columnar-delta  estimate-shrink               0                 0.00                  0..0
+  99  2MiB    none       -  columnar-delta  estimate-shrink               0                 0.00                  0..0
