@@ -44,6 +44,7 @@ pub struct PageHeader {
 }
 
 impl PageHeader {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         codec: Codec,
         encoding: Encoding,

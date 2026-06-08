@@ -4,7 +4,7 @@ members = [
     "crates/fwob-core",
     "crates/fwob-v1",
     "crates/fwob-v2",
-    "crates/fwob-cli",
+    "crates/fwob",
 ]
 
 [workspace.package]
@@ -14,7 +14,7 @@ license = "Apache-2.0"
 repository = "https://github.com/stcmz/fwob"
 homepage = "https://github.com/stcmz/fwob"
 readme = "README.md"
-rust-version = "1.75"
+rust-version = "1.85"
 keywords = ["binary-format", "storage", "compression", "time-series"]
 categories = ["data-structures", "encoding", "filesystem"]
 

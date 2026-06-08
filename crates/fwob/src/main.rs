@@ -2398,6 +2398,7 @@ fn print_packing_stats(stats: fwob_v2::PackingStats) {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn print_convert_v2_toml(
     input: &Path,
     output: &Path,

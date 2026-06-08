@@ -1,5 +1,8 @@
 # FWOB
 
+[![CI](https://github.com/stcmz/fwob/actions/workflows/ci.yml/badge.svg)](https://github.com/stcmz/fwob/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/fwob.svg)](https://crates.io/crates/fwob)
+
 FWOB is a Rust implementation of the Fixed-Width Ordered Binary format family.
 
 The project has two compatibility goals:
@@ -47,7 +50,7 @@ fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ## Tuning Parameters
 
 | Parameter | What It Controls | Typical Values |
-|---|---|---|
+| --- | --- | --- |
 | page-size token | Fixed physical page size. Integer with `B`, `KB`, `KiB`, `MB`, or `MiB`; range `1KiB..16MiB`. | `512KiB` (default), `1MB`, `1MiB`, `2MiB` |
 | codec token | Page compression codec. | `zstd` (default), `lz4`, `smallest`, `none` |
 | `--zstd-level` | zstd compression level. Affects write/convert speed heavily, read speed lightly. | `3`, `6` (default), `9`, `12`, `15`, `19` |

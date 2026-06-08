@@ -35,7 +35,7 @@ impl KeyType {
         }
     }
 
-    pub fn len(self) -> usize {
+    pub fn byte_len(self) -> usize {
         match self {
             Self::I8 | Self::U8 => 1,
             Self::I16 | Self::U16 => 2,
@@ -59,9 +59,9 @@ pub enum Key {
 
 impl Key {
     pub fn decode(key_type: KeyType, bytes: &[u8]) -> Result<Self> {
-        if bytes.len() != key_type.len() {
+        if bytes.len() != key_type.byte_len() {
             return Err(FwobError::InvalidKeyLength {
-                expected: key_type.len(),
+                expected: key_type.byte_len(),
                 actual: bytes.len(),
             });
         }
