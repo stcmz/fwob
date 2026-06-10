@@ -10,7 +10,7 @@ use crate::{Reader, Result, V1Error, Writer, WriterOptions};
 /// original C# implementation; this editor performs the same logical operation
 /// by rewriting the file. That is acceptable for compatibility and for the rare
 /// bulk-deletion workflow that v2 is designed around.
-pub struct Editor {
+pub struct InMemoryEditor {
     schema: Schema,
     title: String,
     string_table: Vec<String>,
@@ -18,7 +18,7 @@ pub struct Editor {
     key_type: KeyType,
 }
 
-impl Editor {
+impl InMemoryEditor {
     pub fn open(path: impl AsRef<Path>, key_field_index: usize) -> Result<Self> {
         let mut reader = Reader::open(path, key_field_index)?;
         reader.verify_key_order()?;

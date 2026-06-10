@@ -7,6 +7,10 @@ use std::{
 
 use fwob_core::{Key, OwnedFrame, Schema};
 
+mod editor;
+
+pub use editor::AnyEditor;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +94,14 @@ pub trait FwobAppender: FwobFile {
     fn append_frame(&mut self, frame: &[u8]) -> Result<()>;
     fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()>;
     fn finish(self: Box<Self>) -> Result<()>;
+}
+
+pub trait FwobEditor: FwobFile {
+    fn delete_frame(&mut self, index: u64) -> Result<bool>;
+    fn delete_frames(&mut self, range: Range<u64>) -> Result<u64>;
+    fn delete_key(&mut self, key: Key) -> Result<u64>;
+    fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> Result<u64>;
+    fn delete_all_frames(&mut self) -> Result<u64>;
 }
 
 pub enum AnyReader {

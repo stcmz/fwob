@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use fwob::{
-    AnyAppender, AnyReader, AppendOptions, FormatVersion, FwobAppender, FwobFile, FwobReader,
+    AnyAppender, AnyEditor, AnyReader, AppendOptions, FormatVersion, FwobAppender, FwobEditor,
+    FwobFile, FwobReader,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -147,6 +148,71 @@ fn assert_query_contract(path: &Path, expected_version: FormatVersion) {
     assert!(frames.iter().all(|frame| matches!(frame_key(frame), 2 | 3)));
 }
 
+fn assert_remaining_keys(path: &Path, expected: &[i32]) {
+    let mut reader = AnyReader::open(path).unwrap();
+    let count = reader.frame_count();
+    let keys = reader
+        .frames(0..count)
+        .unwrap()
+        .map(|frame| frame_key(&frame.unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(keys, expected);
+    assert_eq!(reader.title(), "query");
+    assert_eq!(reader.schema(), &schema());
+}
+
+fn create_query_file(path: &Path, version: FormatVersion) {
+    match version {
+        FormatVersion::V1 => create_query_v1(path),
+        FormatVersion::V2 => create_query_v2(path),
+    }
+}
+
+fn assert_editor_contract(version: FormatVersion) {
+    let dir = tempdir().unwrap();
+
+    let single = dir.path().join("single.fwob");
+    create_query_file(&single, version);
+    let mut editor = AnyEditor::open(&single).unwrap();
+    assert!(editor.delete_frame(40).unwrap());
+    assert!(!editor.delete_frame(999).unwrap());
+    assert_eq!(editor.frame_count(), 299);
+    let mut expected = (0..300).map(query_key).collect::<Vec<_>>();
+    expected.remove(40);
+    assert_remaining_keys(&single, &expected);
+
+    let indexes = dir.path().join("indexes.fwob");
+    create_query_file(&indexes, version);
+    let mut editor = AnyEditor::open(&indexes).unwrap();
+    assert_eq!(editor.delete_frames(40..180).unwrap(), 140);
+    let expected = (0..40).chain(180..300).map(query_key).collect::<Vec<_>>();
+    assert_remaining_keys(&indexes, &expected);
+
+    let key = dir.path().join("key.fwob");
+    create_query_file(&key, version);
+    let mut editor = AnyEditor::open(&key).unwrap();
+    assert_eq!(editor.delete_key(Key::I32(2)).unwrap(), 140);
+    let expected = (0..40).chain(180..300).map(query_key).collect::<Vec<_>>();
+    assert_remaining_keys(&key, &expected);
+
+    let key_range = dir.path().join("key-range.fwob");
+    create_query_file(&key_range, version);
+    let mut editor = AnyEditor::open(&key_range).unwrap();
+    assert_eq!(
+        editor.delete_key_range(Key::I32(2)..=Key::I32(3)).unwrap(),
+        220
+    );
+    let expected = (0..40).chain(260..300).map(query_key).collect::<Vec<_>>();
+    assert_remaining_keys(&key_range, &expected);
+
+    let all = dir.path().join("all.fwob");
+    create_query_file(&all, version);
+    let mut editor = AnyEditor::open(&all).unwrap();
+    assert_eq!(editor.delete_all_frames().unwrap(), 300);
+    assert_eq!(editor.frame_count(), 0);
+    assert_remaining_keys(&all, &[]);
+}
+
 #[test]
 fn reader_contract_is_identical_for_v1_and_v2() {
     let dir = tempdir().unwrap();
@@ -181,4 +247,10 @@ fn indexed_key_and_streaming_queries_are_identical_for_v1_and_v2() {
 
     assert_query_contract(&v1, FormatVersion::V1);
     assert_query_contract(&v2, FormatVersion::V2);
+}
+
+#[test]
+fn bounded_memory_editor_contract_is_identical_for_v1_and_v2() {
+    assert_editor_contract(FormatVersion::V1);
+    assert_editor_contract(FormatVersion::V2);
 }

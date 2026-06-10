@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use fwob_core::{Field, FieldType, Key, Schema};
-use fwob_v1::{Editor, Reader, Writer, WriterOptions};
+use fwob_v1::{InMemoryEditor, Reader, Writer, WriterOptions};
 
 fn tick_schema() -> Schema {
     Schema::new(
@@ -167,7 +167,7 @@ fn v1_writer_reopens_and_appends() {
 #[test]
 fn editor_supports_v1_delete_and_rewrite() {
     let schema = tick_schema();
-    let mut editor = Editor::new(schema, "HelloFwob").unwrap();
+    let mut editor = InMemoryEditor::new(schema, "HelloFwob").unwrap();
     for key in [12, 12, 13, 13, 14, 15, 15, 100, 100] {
         editor.append_frame(&tick(key, key as f64, "")).unwrap();
     }

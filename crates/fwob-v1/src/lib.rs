@@ -4,7 +4,7 @@ mod reader;
 mod verifier;
 mod writer;
 
-pub use editor::Editor;
+pub use editor::InMemoryEditor;
 pub use header::{Header, HEADER_LEN, SIGNATURE, VERSION};
 pub use reader::Reader;
 pub use verifier::{repair_committed_tail, verify_file, VerificationReport};

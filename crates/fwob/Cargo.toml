@@ -21,6 +21,7 @@ clap.workspace = true
 fwob-core = { version = "1.0.0", path = "../fwob-core" }
 fwob-v1 = { version = "1.0.0", path = "../fwob-v1" }
 fwob-v2 = { version = "1.0.0", path = "../fwob-v2" }
+tempfile.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
