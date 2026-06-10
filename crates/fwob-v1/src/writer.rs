@@ -1,6 +1,6 @@
 use std::{
-    fs::File,
-    io::{Seek, SeekFrom, Write},
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom, Write},
     path::Path,
 };
 
@@ -8,7 +8,7 @@ use fwob_core::{FrameRef, Key, KeyType, Schema};
 
 use crate::{
     header::{
-        update_frame_count, update_string_table_len, write_header, Header,
+        read_header, update_frame_count, update_string_table_len, write_header, Header,
         DEFAULT_STRING_TABLE_PRESERVED_LEN, VERSION,
     },
     Result, V1Error,
@@ -41,6 +41,43 @@ impl Writer<File> {
     pub fn create(path: impl AsRef<Path>, schema: Schema, options: WriterOptions) -> Result<Self> {
         let file = File::create(path)?;
         Self::new(file, schema, options)
+    }
+
+    pub fn open_append(path: impl AsRef<Path>, key_field_index: usize) -> Result<Self> {
+        let mut file = OpenOptions::new().read(true).write(true).open(path)?;
+        let actual_len = file.metadata()?.len();
+        file.seek(SeekFrom::Start(0))?;
+        let header = read_header(&mut file)?;
+        let expected_len = header.file_length();
+        if actual_len != expected_len {
+            return Err(V1Error::CorruptedFileLength {
+                expected: expected_len,
+                actual: actual_len,
+            });
+        }
+
+        let schema = header.schema(key_field_index)?;
+        let key_type = KeyType::from_field(schema.key_field())?;
+        let last_key = if header.frame_count == 0 {
+            None
+        } else {
+            let key_field = schema.key_field();
+            let key_offset = header.first_frame_position()
+                + u64::from(header.frame_length) * (header.frame_count - 1)
+                + u64::from(key_field.offset);
+            file.seek(SeekFrom::Start(key_offset))?;
+            let mut bytes = vec![0u8; key_field.length as usize];
+            file.read_exact(&mut bytes)?;
+            Some(Key::decode(key_type, &bytes)?)
+        };
+        file.seek(SeekFrom::Start(expected_len))?;
+        Ok(Self {
+            inner: file,
+            header,
+            schema,
+            key_type,
+            last_key,
+        })
     }
 }
 

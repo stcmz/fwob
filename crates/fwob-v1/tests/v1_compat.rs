@@ -146,6 +146,25 @@ fn v1_writer_rejects_unsorted_append() {
 }
 
 #[test]
+fn v1_writer_reopens_and_appends() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("append.fwob");
+    {
+        let mut writer = Writer::create(&path, tick_schema(), WriterOptions::new("ticks")).unwrap();
+        writer.append_frame(&tick(12, 1.0, "")).unwrap();
+        writer.append_frame(&tick(13, 2.0, "")).unwrap();
+    }
+    {
+        let mut writer = Writer::open_append(&path, 0).unwrap();
+        writer.append_frame(&tick(100, 3.0, "")).unwrap();
+    }
+
+    let mut reader = Reader::open(&path, 0).unwrap();
+    assert_eq!(reader.frame_count(), 3);
+    assert_eq!(reader.read_key_at(2).unwrap(), Some(Key::I32(100)));
+}
+
+#[test]
 fn editor_supports_v1_delete_and_rewrite() {
     let schema = tick_schema();
     let mut editor = Editor::new(schema, "HelloFwob").unwrap();

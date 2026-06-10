@@ -7,7 +7,7 @@ mod writer;
 pub use editor::Editor;
 pub use header::{Header, HEADER_LEN, SIGNATURE, VERSION};
 pub use reader::Reader;
-pub use verifier::{verify_file, VerificationReport};
+pub use verifier::{repair_committed_tail, verify_file, VerificationReport};
 pub use writer::{Writer, WriterOptions};
 
 use thiserror::Error;

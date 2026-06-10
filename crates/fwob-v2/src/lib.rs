@@ -3,6 +3,7 @@ mod encoding;
 mod file_header;
 mod page;
 mod reader;
+mod repair;
 mod writer;
 
 pub use codec::Codec;
@@ -10,6 +11,7 @@ pub use encoding::{decode_page_payload, encode_page_payload};
 pub use file_header::{FileHeader, FILE_HEADER_LEN, MAGIC, VERSION};
 pub use page::{Encoding, PageHeader, PAGE_HEADER_LEN};
 pub use reader::Reader;
+pub use repair::repair_committed_tail;
 pub use writer::{
     CodecSelection, EncodingSelection, PackingStats, PagePacking, Writer, WriterOptions,
     DEFAULT_CODEC, DEFAULT_ENCODING, DEFAULT_PAGE_PACKING, DEFAULT_PAGE_SIZE, DEFAULT_ZSTD_LEVEL,
