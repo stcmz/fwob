@@ -646,7 +646,7 @@ fn parse_bench_target(values: &[String]) -> Result<(BenchMode, PathBuf)> {
 }
 
 fn match_bench_mode(value: &str) -> Option<BenchMode> {
-    match value.to_ascii_lowercase().as_str() {
+    match value {
         "conversion-matrix" => Some(BenchMode::ConversionMatrix),
         "range" => Some(BenchMode::Range),
         "random-page" => Some(BenchMode::RandomPage),
@@ -656,7 +656,7 @@ fn match_bench_mode(value: &str) -> Option<BenchMode> {
 }
 
 fn match_target_format(value: &str) -> Option<TargetFormat> {
-    match value.to_ascii_lowercase().as_str() {
+    match value {
         "v1" => Some(TargetFormat::V1),
         "v2" => Some(TargetFormat::V2),
         _ => None,
@@ -731,7 +731,7 @@ fn parse_command_tokens<'a>(
             continue;
         }
         if allow_write {
-            match value.to_ascii_lowercase().as_str() {
+            match value.as_str() {
                 "none" => {
                     set_once(&mut parsed.codec, CodecArg::None, "codec")?;
                     continue;
@@ -817,7 +817,7 @@ fn set_bool_once(seen: &mut bool, name: &str) -> Result<()> {
 
 fn is_any_reserved_token(value: &str) -> bool {
     matches!(
-        value.to_ascii_lowercase().as_str(),
+        value,
         "v1" | "v2"
             | "conversion-matrix"
             | "range"
@@ -881,13 +881,37 @@ fn schema_from_create_args(
 }
 
 fn parse_field_type(value: &str) -> Result<FieldType> {
-    match value.to_ascii_lowercase().as_str() {
+    match value {
         "i" | "int" | "signed" | "signed-integer" => Ok(FieldType::SignedInteger),
         "u" | "uint" | "unsigned" | "unsigned-integer" => Ok(FieldType::UnsignedInteger),
         "f" | "float" | "floating" | "floating-point" => Ok(FieldType::FloatingPoint),
         "utf8" | "utf8-string" | "string" => Ok(FieldType::Utf8String),
         "string-index" | "string-table-index" | "stridx" => Ok(FieldType::StringTableIndex),
         _ => bail!("unsupported field type '{value}'"),
+    }
+}
+
+#[cfg(test)]
+mod token_case_tests {
+    use super::*;
+
+    #[test]
+    fn positional_tokens_are_case_sensitive() {
+        assert!(matches!(match_target_format("v2"), Some(TargetFormat::V2)));
+        assert!(match_target_format("V2").is_none());
+        assert!(matches!(match_bench_mode("range"), Some(BenchMode::Range)));
+        assert!(match_bench_mode("RANGE").is_none());
+
+        let values = vec!["ZSTD".to_string(), "input.fwob".to_string()];
+        let parsed = parse_command_tokens(&values, false, true, false, false).unwrap();
+        assert_eq!(parsed.paths, ["ZSTD", "input.fwob"]);
+        assert_eq!(parsed.codec, None);
+    }
+
+    #[test]
+    fn field_type_tokens_are_case_sensitive() {
+        assert_eq!(parse_field_type("u").unwrap(), FieldType::UnsignedInteger);
+        assert!(parse_field_type("U").is_err());
     }
 }
 

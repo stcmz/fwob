@@ -47,6 +47,10 @@ fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```
 
+Positional tokens are case-sensitive. For example, `v2`, `zstd`, and `1MiB`
+are tokens; `V2`, `ZSTD`, and `1MIB` are treated as paths or values rather than
+their lowercase token forms.
+
 ## Tuning Parameters
 
 | Parameter | What It Controls | Typical Values |
