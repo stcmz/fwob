@@ -41,6 +41,7 @@ pub struct PageHeader {
     pub frame_count: u32,
     pub uncompressed_len: u32,
     pub compressed_len: u32,
+    pub first_frame_index: u64,
 }
 
 impl PageHeader {
@@ -53,6 +54,7 @@ impl PageHeader {
         frame_count: u32,
         uncompressed_len: u32,
         compressed_len: u32,
+        first_frame_index: u64,
         payload: &[u8],
     ) -> Self {
         let payload_crc32 = crc32(payload);
@@ -68,6 +70,7 @@ impl PageHeader {
             frame_count,
             uncompressed_len,
             compressed_len,
+            first_frame_index,
         };
         header.header_crc32 = crc32(&header.bytes_with_zero_crc());
         header
@@ -90,8 +93,9 @@ impl PageHeader {
         let frame_count = reader.read_u32::<LittleEndian>()?;
         let uncompressed_len = reader.read_u32::<LittleEndian>()?;
         let compressed_len = reader.read_u32::<LittleEndian>()?;
+        let first_frame_index = reader.read_u64::<LittleEndian>()?;
 
-        let mut reserved = [0u8; 18];
+        let mut reserved = [0u8; 10];
         reader.read_exact(&mut reserved)?;
 
         let header = Self {
@@ -106,6 +110,7 @@ impl PageHeader {
             frame_count,
             uncompressed_len,
             compressed_len,
+            first_frame_index,
         };
         if crc32(&header.bytes_with_zero_crc()) != header.header_crc32 {
             return Err(V2Error::InvalidPageHeader(page_index));
@@ -126,7 +131,8 @@ impl PageHeader {
         writer.write_u32::<LittleEndian>(self.frame_count)?;
         writer.write_u32::<LittleEndian>(self.uncompressed_len)?;
         writer.write_u32::<LittleEndian>(self.compressed_len)?;
-        writer.write_all(&[0u8; 18])?;
+        writer.write_u64::<LittleEndian>(self.first_frame_index)?;
+        writer.write_all(&[0u8; 10])?;
         Ok(())
     }
 
@@ -152,7 +158,8 @@ impl PageHeader {
         bytes.extend_from_slice(&self.frame_count.to_le_bytes());
         bytes.extend_from_slice(&self.uncompressed_len.to_le_bytes());
         bytes.extend_from_slice(&self.compressed_len.to_le_bytes());
-        bytes.extend_from_slice(&[0u8; 18]);
+        bytes.extend_from_slice(&self.first_frame_index.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 10]);
         bytes
     }
 }

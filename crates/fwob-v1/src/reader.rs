@@ -134,9 +134,24 @@ impl<R: Read + Seek> Reader<R> {
     }
 
     pub fn equal_range(&mut self, key: Key) -> Result<(u64, u64)> {
-        let lb = self.lower_bound(key)?;
-        let mut lo = lb;
+        let mut lo = 0;
         let mut hi = self.header.frame_count;
+        let mut upper_hi = hi;
+        while lo < hi {
+            let mid = lo + ((hi - lo) >> 1);
+            let mid_key = self.read_key_at(mid)?.expect("mid is in range");
+            if mid_key < key {
+                lo = mid + 1;
+            } else if mid_key > key {
+                hi = mid;
+                upper_hi = mid;
+            } else {
+                hi = mid;
+            }
+        }
+
+        let lower = lo;
+        hi = upper_hi;
         while lo < hi {
             let mid = lo + ((hi - lo) >> 1);
             let mid_key = self.read_key_at(mid)?.expect("mid is in range");
@@ -146,7 +161,7 @@ impl<R: Read + Seek> Reader<R> {
                 hi = mid;
             }
         }
-        Ok((lb, hi))
+        Ok((lower, hi))
     }
 
     pub fn frames_between(&mut self, first: Key, last: Key) -> Result<Vec<OwnedFrame>> {

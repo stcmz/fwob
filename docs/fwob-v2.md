@@ -42,8 +42,21 @@ compressed payload
 zero padding
 ```
 
-The page header stores `frame_count`, `first_key`, `last_key`,
-`uncompressed_len`, `compressed_len`, `codec`, `encoding`, flags, and CRCs.
+The page header stores `first_frame_index`, `frame_count`, `first_key`,
+`last_key`, `uncompressed_len`, `compressed_len`, `codec`, `encoding`, flags,
+and CRCs.
+
+`first_frame_index` is the global logical index of the first frame in the page.
+It permits binary search by frame index without a separate index table. Page
+indexes must be contiguous:
+
+```text
+page[0].first_frame_index = 0
+page[n].first_frame_index =
+    page[n - 1].first_frame_index + page[n - 1].frame_count
+```
+
+Verification and interrupted-write repair enforce this invariant.
 
 ## Codecs
 
@@ -100,6 +113,19 @@ matching pages into reusable buffers, and scans or binary-searches inside the
 decoded page.
 
 No separate index table is required.
+
+## Logical Reader
+
+The public logical API does not expose pages. It supports:
+
+- global frame and key access by index
+- first and last frame/key access
+- lower bound, upper bound, and equal range
+- lazy index-range and inclusive key-range iteration
+
+`equal_range` follows the original C# shared-window search: the lower-bound
+search records the smallest known greater-key position, and the upper-bound
+search is restricted to that window.
 
 ## Raw Tail Buffer for Append
 

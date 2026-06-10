@@ -673,6 +673,7 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
             frame_count as u32,
             encoded_len as u32,
             compressed.len() as u32,
+            self.header.frame_count,
             &compressed,
         );
 
@@ -734,6 +735,7 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
             frame_count as u32,
             encoded.len() as u32,
             encoded.len() as u32,
+            self.header.frame_count,
             &encoded,
         );
 

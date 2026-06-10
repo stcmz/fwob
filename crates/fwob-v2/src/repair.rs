@@ -21,10 +21,17 @@ pub fn repair_committed_tail(path: impl AsRef<Path>) -> Result<()> {
     let mut last_key = None;
 
     for page_index in 0..candidate_pages {
+        let page = match reader.read_page_header(page_index) {
+            Ok(page) if page.first_frame_index == frame_count => page,
+            _ => break,
+        };
         let frames = match reader.read_page_frames(page_index) {
             Ok(frames) => frames,
             Err(_) => break,
         };
+        if frames.len() != page.frame_count as usize {
+            break;
+        }
         let mut page_valid = true;
         for frame in &frames {
             let key = frame.as_ref().key(&header.schema, key_type)?;

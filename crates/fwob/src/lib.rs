@@ -1,10 +1,11 @@
 use std::{
     fs::File,
     io::Read,
+    ops::{Range, RangeInclusive},
     path::{Path, PathBuf},
 };
 
-use fwob_core::{OwnedFrame, Schema};
+use fwob_core::{Key, OwnedFrame, Schema};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -14,6 +15,12 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("unsupported FWOB file format: {0}")]
     UnsupportedFormat(PathBuf),
+    #[error("invalid frame range {start}..{end} for {frame_count} frames")]
+    InvalidFrameRange {
+        start: u64,
+        end: u64,
+        frame_count: u64,
+    },
     #[error(transparent)]
     V1(#[from] fwob_v1::V1Error),
     #[error(transparent)]
@@ -35,7 +42,48 @@ pub trait FwobFile {
 }
 
 pub trait FwobReader: FwobFile {
-    fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>>;
+    fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>>;
+    fn read_key(&mut self, index: u64) -> Result<Option<Key>>;
+
+    fn first_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        self.read_frame(0)
+    }
+
+    fn last_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        match self.frame_count().checked_sub(1) {
+            Some(index) => self.read_frame(index),
+            None => Ok(None),
+        }
+    }
+
+    fn first_key(&mut self) -> Result<Option<Key>> {
+        self.read_key(0)
+    }
+
+    fn last_key(&mut self) -> Result<Option<Key>> {
+        match self.frame_count().checked_sub(1) {
+            Some(index) => self.read_key(index),
+            None => Ok(None),
+        }
+    }
+
+    fn lower_bound(&mut self, key: Key) -> Result<u64>;
+    fn upper_bound(&mut self, key: Key) -> Result<u64>;
+    fn equal_range(&mut self, key: Key) -> Result<Range<u64>>;
+
+    fn frames(
+        &mut self,
+        range: Range<u64>,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>>;
+
+    fn frames_by_key(
+        &mut self,
+        range: RangeInclusive<Key>,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>>;
+
+    fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>> {
+        self.frames(0..self.frame_count())?.collect()
+    }
 }
 
 pub trait FwobAppender: FwobFile {
@@ -111,13 +159,126 @@ impl FwobFile for AnyReader {
 }
 
 impl FwobReader for AnyReader {
-    fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>> {
+    fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>> {
         match self {
-            Self::V1 { reader, .. } => Ok(reader.read_all_frames()?),
-            Self::V2(reader) => Ok(reader.read_all_frames()?),
+            Self::V1 { reader, .. } => Ok(reader.read_frame_at(index)?),
+            Self::V2(reader) => Ok(reader.read_frame_at(index)?),
         }
     }
+
+    fn read_key(&mut self, index: u64) -> Result<Option<Key>> {
+        match self {
+            Self::V1 { reader, .. } => Ok(reader.read_key_at(index)?),
+            Self::V2(reader) => Ok(reader.read_key_at(index)?),
+        }
+    }
+
+    fn first_key(&mut self) -> Result<Option<Key>> {
+        match self {
+            Self::V1 { reader, .. } => Ok(reader.read_key_at(0)?),
+            Self::V2(reader) => Ok(reader.first_key()?),
+        }
+    }
+
+    fn last_key(&mut self) -> Result<Option<Key>> {
+        match self {
+            Self::V1 { reader, .. } => {
+                let Some(index) = reader.frame_count().checked_sub(1) else {
+                    return Ok(None);
+                };
+                Ok(reader.read_key_at(index)?)
+            }
+            Self::V2(reader) => Ok(reader.last_key()?),
+        }
+    }
+
+    fn lower_bound(&mut self, key: Key) -> Result<u64> {
+        match self {
+            Self::V1 { reader, .. } => Ok(reader.lower_bound(key)?),
+            Self::V2(reader) => Ok(reader.lower_bound(key)?),
+        }
+    }
+
+    fn upper_bound(&mut self, key: Key) -> Result<u64> {
+        match self {
+            Self::V1 { reader, .. } => Ok(reader.upper_bound(key)?),
+            Self::V2(reader) => Ok(reader.upper_bound(key)?),
+        }
+    }
+
+    fn equal_range(&mut self, key: Key) -> Result<Range<u64>> {
+        let (start, end) = match self {
+            Self::V1 { reader, .. } => reader.equal_range(key)?,
+            Self::V2(reader) => reader.equal_range(key)?,
+        };
+        Ok(start..end)
+    }
+
+    fn frames(
+        &mut self,
+        range: Range<u64>,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
+        let frame_count = self.frame_count();
+        if range.start > range.end || range.end > frame_count {
+            return Err(Error::InvalidFrameRange {
+                start: range.start,
+                end: range.end,
+                frame_count,
+            });
+        }
+        Ok(Box::new(FrameIter {
+            reader: self,
+            next: range.start,
+            end: range.end,
+        }))
+    }
+
+    fn frames_by_key(
+        &mut self,
+        range: RangeInclusive<Key>,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
+        if range.start() > range.end() {
+            return self.frames(0..0);
+        }
+        let start = self.lower_bound(*range.start())?;
+        let end = self.upper_bound(*range.end())?;
+        self.frames(start..end)
+    }
 }
+
+struct FrameIter<'a> {
+    reader: &'a mut AnyReader,
+    next: u64,
+    end: u64,
+}
+
+impl Iterator for FrameIter<'_> {
+    type Item = Result<OwnedFrame>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next >= self.end {
+            return None;
+        }
+        let index = self.next;
+        self.next += 1;
+        match self.reader.read_frame(index) {
+            Ok(Some(frame)) => Some(Ok(frame)),
+            Ok(None) => Some(Err(Error::InvalidFrameRange {
+                start: index,
+                end: index + 1,
+                frame_count: self.reader.frame_count(),
+            })),
+            Err(error) => Some(Err(error)),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = (self.end - self.next).min(usize::MAX as u64) as usize;
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for FrameIter<'_> {}
 
 pub struct AppendOptions {
     pub v1_key_field_index: usize,

@@ -44,6 +44,33 @@ fn page_header_is_64_bytes() {
 }
 
 #[test]
+fn page_headers_store_contiguous_first_frame_indexes() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("indexes.fwob");
+    let schema = tick_schema();
+    let mut options = WriterOptions::new("indexes");
+    options.page_size = 1024;
+    options.codec = Codec::None;
+    options.codec_selection = CodecSelection::Fixed(Codec::None);
+    options.encoding = Encoding::RowRawV1;
+    options.encoding_selection = EncodingSelection::Fixed(Encoding::RowRawV1);
+    let mut writer = Writer::create(&path, schema, options).unwrap();
+    for index in 0..300 {
+        writer.append_frame(&tick(index, index as f64, "")).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let mut reader = Reader::open(&path).unwrap();
+    let mut expected = 0u64;
+    for page_index in 0..reader.header().page_count {
+        let page = reader.read_page_header(page_index).unwrap();
+        assert_eq!(page.first_frame_index, expected);
+        expected += u64::from(page.frame_count);
+    }
+    assert_eq!(expected, 300);
+}
+
+#[test]
 fn writer_defaults_match_cli_parameter_spec() {
     let options = WriterOptions::new("Defaults");
     assert_eq!(options.page_size, fwob_v2::DEFAULT_PAGE_SIZE);
@@ -118,6 +145,11 @@ fn columnar_basic_pages_roundtrip_and_read_ranges() {
     let frames = reader.frames_between(Key::I32(10), Key::I32(20)).unwrap();
     assert_eq!(frames.len(), 11);
     assert_eq!(frames[0].bytes(), tick(10, 10.0, "").as_slice());
+    assert_eq!(
+        reader.read_frame_at(99).unwrap().unwrap().bytes(),
+        tick(99, 99.0, "").as_slice()
+    );
+    assert_eq!(reader.equal_range(Key::I32(50)).unwrap(), (50, 51));
 }
 
 #[test]
@@ -148,6 +180,12 @@ fn columnar_delta_pages_roundtrip_and_read_ranges() {
     let frames = reader.frames_between(Key::I32(10), Key::I32(20)).unwrap();
     assert_eq!(frames.len(), 11);
     assert_eq!(frames[0].bytes(), tick(10, 20.0, "").as_slice());
+    assert_eq!(
+        reader.read_frame_at(99).unwrap().unwrap().bytes(),
+        tick(99, 198.0, "").as_slice()
+    );
+    assert_eq!(reader.lower_bound(Key::I32(50)).unwrap(), 50);
+    assert_eq!(reader.upper_bound(Key::I32(50)).unwrap(), 51);
 }
 
 #[test]
