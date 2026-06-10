@@ -118,6 +118,14 @@ impl<W: Write + Seek> Writer<W> {
         &self.header
     }
 
+    pub fn schema(&self) -> &Schema {
+        &self.schema
+    }
+
+    pub fn frame_count(&self) -> u64 {
+        self.header.frame_count
+    }
+
     pub fn append_string(&mut self, value: &str) -> Result<u32> {
         let encoded_len = dotnet_string_len(value);
         let required = self.header.string_table_length + encoded_len;

@@ -410,6 +410,24 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
         self.packing_stats
     }
 
+    pub fn header(&self) -> &FileHeader {
+        &self.header
+    }
+
+    pub fn schema(&self) -> &Schema {
+        &self.header.schema
+    }
+
+    pub fn frame_count(&self) -> u64 {
+        let loaded_tail_frames = self
+            .append_tail
+            .as_ref()
+            .filter(|tail| tail.loaded)
+            .map(|tail| tail.frame_count)
+            .unwrap_or(0);
+        self.header.frame_count + self.pending_frame_count() as u64 - loaded_tail_frames
+    }
+
     pub fn append_frame(&mut self, bytes: &[u8]) -> Result<()> {
         let frame = FrameRef::new(&self.header.schema, bytes)?;
         let key = frame.key(&self.header.schema, self.key_type)?;

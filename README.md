@@ -21,7 +21,9 @@ with a 64-byte header, compressed payload, and zero padding.
 - `fwob-v1`: FWOB v1 reader, writer, verifier, and compatibility tests.
 - `fwob-v2`: compressed fixed-page FWOB v2 reader and writer.
 - `fwob`: command-line tools for conversion, inspection, verification, and
-  benchmarking.
+  benchmarking, plus version-neutral `AnyReader` and `AnyAppender` facades.
+
+The logical Rust API is documented in [`docs/api.md`](docs/api.md).
 
 ## Installation
 

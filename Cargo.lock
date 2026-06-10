@@ -345,6 +345,7 @@ dependencies = [
  "fwob-v1",
  "fwob-v2",
  "tempfile",
+ "thiserror",
 ]
 
 [[package]]
