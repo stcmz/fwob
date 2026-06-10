@@ -77,6 +77,32 @@ offset. V2 locates the internal storage unit using `first_frame_index` and
 retains one decoded unit as a reusable cache. Total stream memory is bounded
 independently of file size.
 
+### Reader Complexity
+
+Let `N` be total frames, `P` the number of v2 storage units, and `D` the cost
+of decoding one v2 unit.
+
+| Operation | v1 time | v2 time | Extra memory |
+| --- | --- | --- | --- |
+| frame/key by index | `O(1)` | `O(log P + D)` | one frame / one decoded unit |
+| first/last frame or key | `O(1)` | `O(log P + D)` | one frame / one decoded unit |
+| lower/upper/equal range | `O(log N)` | `O(log N * (log P + D))`, with unit cache reuse | one decoded unit |
+| stream `K` frames | `O(K)` | `O(P touched * D + K)` | one decoded unit |
+
+## Validation
+
+Shared schemas reject empty or duplicate names, invalid key indexes,
+non-contiguous offsets, invalid field widths, frame-length overflow, and key
+fields without a defined total ordering. Floating payload fields may be 4, 8,
+or 16 bytes for compatibility with C# `float`, `double`, and `decimal`; they
+cannot currently be keys.
+
+V1 creation additionally enforces its fixed legacy header limits: at most 16
+fields, 8-byte ASCII field names, 16-byte ASCII frame type and title, and
+single-byte field lengths. V2 permits UTF-8 metadata, restricts page size to
+`1KiB..16MiB`, parses metadata strictly as UTF-8, and parses all variable
+metadata inside the fixed 4 KiB file-header boundary.
+
 ## Bounded-Memory Editing
 
 `AnyEditor` supports deletion by:

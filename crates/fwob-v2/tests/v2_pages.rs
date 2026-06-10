@@ -90,10 +90,34 @@ fn writer_defaults_match_cli_parameter_spec() {
 }
 
 #[test]
+fn v2_writer_enforces_page_size_bounds_and_nonempty_title() {
+    for page_size in [fwob_v2::MIN_PAGE_SIZE - 1, fwob_v2::MAX_PAGE_SIZE + 1] {
+        let mut options = WriterOptions::new("bounds");
+        options.page_size = page_size;
+        assert!(Writer::new(Cursor::new(Vec::new()), tick_schema(), options).is_err());
+    }
+
+    let options = WriterOptions::new("");
+    assert!(Writer::new(Cursor::new(Vec::new()), tick_schema(), options).is_err());
+}
+
+#[test]
+fn v2_reader_rejects_invalid_utf8_inside_bounded_header() {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let writer = Writer::new(&mut cursor, tick_schema(), WriterOptions::new("Title")).unwrap();
+        writer.finish().unwrap();
+    }
+    cursor.get_mut()[29] = 0xff;
+    cursor.set_position(0);
+    assert!(Reader::new(cursor).is_err());
+}
+
+#[test]
 fn writes_fixed_pages_and_reads_ranges() {
     let schema = tick_schema();
     let mut options = WriterOptions::new("HelloFwob");
-    options.page_size = 512;
+    options.page_size = 1024;
     options.codec = Codec::None;
     options.codec_selection = CodecSelection::Fixed(Codec::None);
     options.encoding = Encoding::RowRawV1;
@@ -121,7 +145,7 @@ fn writes_fixed_pages_and_reads_ranges() {
 fn columnar_basic_pages_roundtrip_and_read_ranges() {
     let schema = tick_schema();
     let mut options = WriterOptions::new("Columnar");
-    options.page_size = 512;
+    options.page_size = 1024;
     options.codec = Codec::Zstd;
     options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
     options.encoding = Encoding::ColumnarBasicV1;
@@ -156,7 +180,7 @@ fn columnar_basic_pages_roundtrip_and_read_ranges() {
 fn columnar_delta_pages_roundtrip_and_read_ranges() {
     let schema = tick_schema();
     let mut options = WriterOptions::new("ColumnarDelta");
-    options.page_size = 512;
+    options.page_size = 1024;
     options.codec = Codec::Zstd;
     options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
     options.encoding = Encoding::ColumnarDeltaV1;
@@ -269,7 +293,7 @@ fn v2_supports_utf8_metadata_and_string_table() {
 fn finish_leaves_residual_tail_uncompressed() {
     let schema = tick_schema();
     let mut options = WriterOptions::new("Tail");
-    options.page_size = 512;
+    options.page_size = 1024;
     options.codec = Codec::Zstd;
     options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
 
@@ -297,7 +321,7 @@ fn open_append_repacks_existing_raw_tail_into_full_pages_and_appends() {
     let path = dir.path().join("append.fwob");
     let schema = tick_schema();
     let mut options = WriterOptions::new("Append");
-    options.page_size = 512;
+    options.page_size = 1024;
     options.codec = Codec::Zstd;
     options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
 
@@ -334,7 +358,7 @@ fn open_append_does_not_rewrite_raw_tail_for_tiny_append() {
     let path = dir.path().join("append_tiny.fwob");
     let schema = tick_schema();
     let mut options = WriterOptions::new("AppendTiny");
-    options.page_size = 512;
+    options.page_size = 1024;
     options.codec = Codec::Zstd;
     options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
 

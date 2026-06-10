@@ -1,4 +1,4 @@
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use fwob_core::{Field, FieldType, Schema};
@@ -8,6 +8,10 @@ use crate::{Result, V2Error};
 pub const MAGIC: &[u8; 4] = b"FWB2";
 pub const VERSION: u8 = 2;
 pub const FILE_HEADER_LEN: u64 = 4096;
+pub const MIN_PAGE_SIZE: u32 = 1024;
+pub const MAX_PAGE_SIZE: u32 = 16 * 1024 * 1024;
+const MAX_HEADER_FIELDS: u16 = 768;
+const MAX_HEADER_STRINGS: u32 = 2048;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileHeader {
@@ -28,6 +32,9 @@ impl FileHeader {
 
 pub fn read_file_header<R: Read + Seek>(reader: &mut R) -> Result<FileHeader> {
     reader.seek(SeekFrom::Start(0))?;
+    let mut header_bytes = vec![0; FILE_HEADER_LEN as usize];
+    reader.read_exact(&mut header_bytes)?;
+    let reader = &mut Cursor::new(header_bytes);
     let mut magic = [0u8; 4];
     reader.read_exact(&mut magic)?;
     if &magic != MAGIC {
@@ -38,12 +45,18 @@ pub fn read_file_header<R: Read + Seek>(reader: &mut R) -> Result<FileHeader> {
         return Err(V2Error::InvalidFileHeader);
     }
     let page_size = reader.read_u32::<LittleEndian>()?;
+    if !(MIN_PAGE_SIZE..=MAX_PAGE_SIZE).contains(&page_size) {
+        return Err(V2Error::InvalidFileHeader);
+    }
     let page_count = reader.read_u64::<LittleEndian>()?;
     let frame_count = reader.read_u64::<LittleEndian>()?;
     let key_field_index = reader.read_u16::<LittleEndian>()?;
     let title = read_len_string(reader)?;
     let frame_type = read_len_string(reader)?;
     let field_count = reader.read_u16::<LittleEndian>()?;
+    if field_count == 0 || field_count > MAX_HEADER_FIELDS {
+        return Err(V2Error::InvalidFileHeader);
+    }
     let mut fields = Vec::with_capacity(field_count as usize);
     let mut offset = 0u32;
     for _ in 0..field_count {
@@ -54,6 +67,9 @@ pub fn read_file_header<R: Read + Seek>(reader: &mut R) -> Result<FileHeader> {
         offset += u32::from(length);
     }
     let string_count = reader.read_u32::<LittleEndian>()?;
+    if string_count > MAX_HEADER_STRINGS {
+        return Err(V2Error::InvalidFileHeader);
+    }
     let mut string_table = Vec::with_capacity(string_count as usize);
     for _ in 0..string_count {
         string_table.push(read_len_string(reader)?);
@@ -114,7 +130,7 @@ fn read_len_string<R: Read>(reader: &mut R) -> Result<String> {
     let len = reader.read_u16::<LittleEndian>()?;
     let mut bytes = vec![0u8; len as usize];
     reader.read_exact(&mut bytes)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    String::from_utf8(bytes).map_err(|_| V2Error::InvalidFileHeader)
 }
 
 fn write_len_string<W: Write>(writer: &mut W, value: &str) -> Result<()> {

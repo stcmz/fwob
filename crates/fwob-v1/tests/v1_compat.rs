@@ -146,6 +146,44 @@ fn v1_writer_rejects_unsorted_append() {
 }
 
 #[test]
+fn v1_writer_rejects_metadata_outside_legacy_header_limits() {
+    let mut fields = Vec::new();
+    for index in 0..17 {
+        fields.push(Field::new(
+            format!("F{index}"),
+            FieldType::SignedInteger,
+            4,
+            index * 4,
+        ));
+    }
+    let schema = Schema::new("Tick", fields, 0).unwrap();
+    assert!(Writer::new(Cursor::new(Vec::new()), schema, WriterOptions::new("title")).is_err());
+
+    let schema = Schema::new(
+        "FrameTypeNameTooLong",
+        vec![Field::new("Key", FieldType::SignedInteger, 4, 0)],
+        0,
+    )
+    .unwrap();
+    assert!(Writer::new(Cursor::new(Vec::new()), schema, WriterOptions::new("title")).is_err());
+
+    let schema = Schema::new(
+        "Tick",
+        vec![Field::new("LongField", FieldType::SignedInteger, 4, 0)],
+        0,
+    )
+    .unwrap();
+    assert!(Writer::new(Cursor::new(Vec::new()), schema, WriterOptions::new("title")).is_err());
+
+    assert!(Writer::new(
+        Cursor::new(Vec::new()),
+        tick_schema(),
+        WriterOptions::new("non-ascii-\u{00e9}")
+    )
+    .is_err());
+}
+
+#[test]
 fn v1_writer_reopens_and_appends() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("append.fwob");

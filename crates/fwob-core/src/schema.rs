@@ -1,4 +1,5 @@
 use crate::error::{FwobError, Result};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -56,6 +57,12 @@ impl Schema {
         fields: Vec<Field>,
         key_field_index: usize,
     ) -> Result<Self> {
+        let frame_type = frame_type.into();
+        if frame_type.is_empty() {
+            return Err(FwobError::InvalidSchema(
+                "frame type must not be empty".into(),
+            ));
+        }
         if fields.is_empty() {
             return Err(FwobError::InvalidSchema(
                 "schema must contain fields".into(),
@@ -68,18 +75,34 @@ impl Schema {
         }
 
         let mut expected_offset = 0u32;
+        let mut field_names = HashSet::with_capacity(fields.len());
         for field in &fields {
+            if field.name.is_empty() {
+                return Err(FwobError::InvalidSchema(
+                    "field name must not be empty".into(),
+                ));
+            }
+            if !field_names.insert(field.name.as_str()) {
+                return Err(FwobError::InvalidSchema(format!(
+                    "duplicate field name '{}'",
+                    field.name
+                )));
+            }
+            validate_field_length(field)?;
             if field.offset != expected_offset {
                 return Err(FwobError::InvalidSchema(format!(
                     "field '{}' has offset {}, expected {}",
                     field.name, field.offset, expected_offset
                 )));
             }
-            expected_offset += u32::from(field.length);
+            expected_offset = expected_offset
+                .checked_add(u32::from(field.length))
+                .ok_or_else(|| FwobError::InvalidSchema("frame length overflows u32".into()))?;
         }
+        crate::KeyType::from_field(&fields[key_field_index])?;
 
         Ok(Self {
-            frame_type: frame_type.into(),
+            frame_type,
             fields,
             key_field_index,
             frame_len: expected_offset,
@@ -99,5 +122,81 @@ impl Schema {
                 actual: len,
             })
         }
+    }
+}
+
+fn validate_field_length(field: &Field) -> Result<()> {
+    let valid = match field.field_type {
+        FieldType::SignedInteger | FieldType::UnsignedInteger | FieldType::StringTableIndex => {
+            matches!(field.length, 1 | 2 | 4 | 8)
+        }
+        // Decimal fields written by the original C# implementation use 16 bytes.
+        FieldType::FloatingPoint => matches!(field.length, 4 | 8 | 16),
+        FieldType::Utf8String => field.length > 0,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(FwobError::InvalidSchema(format!(
+            "field '{}' has invalid length {} for {:?}",
+            field.name, field.length, field.field_type
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field(name: &str, field_type: FieldType, length: u16, offset: u32) -> Field {
+        Field::new(name, field_type, length, offset)
+    }
+
+    #[test]
+    fn schema_rejects_empty_duplicate_and_non_contiguous_fields() {
+        assert!(Schema::new("", vec![field("Key", FieldType::SignedInteger, 4, 0)], 0).is_err());
+        assert!(Schema::new(
+            "Tick",
+            vec![
+                field("Key", FieldType::SignedInteger, 4, 0),
+                field("Key", FieldType::UnsignedInteger, 4, 4),
+            ],
+            0,
+        )
+        .is_err());
+        assert!(Schema::new(
+            "Tick",
+            vec![
+                field("Key", FieldType::SignedInteger, 4, 0),
+                field("Value", FieldType::UnsignedInteger, 4, 5),
+            ],
+            0,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn schema_validates_field_widths_and_orderable_key_type() {
+        assert!(Schema::new(
+            "Tick",
+            vec![field("Key", FieldType::SignedInteger, 3, 0)],
+            0,
+        )
+        .is_err());
+        assert!(Schema::new(
+            "Tick",
+            vec![field("Key", FieldType::FloatingPoint, 8, 0)],
+            0,
+        )
+        .is_err());
+        assert!(Schema::new(
+            "Tick",
+            vec![
+                field("Key", FieldType::SignedInteger, 4, 0),
+                field("Decimal", FieldType::FloatingPoint, 16, 4),
+            ],
+            0,
+        )
+        .is_ok());
     }
 }

@@ -43,6 +43,7 @@ pub enum FormatVersion {
     V2,
 }
 
+/// Version-neutral immutable file metadata.
 pub trait FwobFile {
     fn format_version(&self) -> FormatVersion;
     fn schema(&self) -> &Schema;
@@ -51,6 +52,12 @@ pub trait FwobFile {
     fn string_table(&self) -> &[String];
 }
 
+/// Random and sequential logical-frame access.
+///
+/// Indexed frame/key reads are `O(1)` for v1 and `O(log P + D)` for v2, where
+/// `P` is the number of internal storage units and `D` is one-unit decode cost.
+/// Bound searches are `O(log N)` logical probes. Streams use memory bounded by
+/// one decoded storage unit and do not load the complete file.
 pub trait FwobReader: FwobFile {
     fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>>;
     fn read_key(&mut self, index: u64) -> Result<Option<Key>>;
@@ -96,12 +103,21 @@ pub trait FwobReader: FwobFile {
     }
 }
 
+/// Ordered fixed-width append operations.
+///
+/// A single append is amortized `O(F)` plus format encoding/compression work,
+/// where `F` is frame size. Bulk append is `O(K * F)` for `K` frames and uses
+/// bounded buffering in v2.
 pub trait FwobAppender: FwobFile {
     fn append_frame(&mut self, frame: &[u8]) -> Result<()>;
     fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()>;
     fn finish(self: Box<Self>) -> Result<()>;
 }
 
+/// Copy-on-write logical deletion operations.
+///
+/// Every successful mutation rewrites retained frames in `O(N)` time with
+/// bounded memory. Key selection adds `O(log N)` search work.
 pub trait FwobEditor: FwobFile {
     fn delete_frame(&mut self, index: u64) -> Result<bool>;
     fn delete_frames(&mut self, range: Range<u64>) -> Result<u64>;

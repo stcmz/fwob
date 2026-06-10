@@ -9,7 +9,9 @@ use fwob_core::{FrameRef, FwobError, Key, KeyType, Schema};
 
 use crate::{
     encoding::{decode_page_payload, encode_page_payload},
-    file_header::{update_counts, write_file_header, FileHeader, FILE_HEADER_LEN},
+    file_header::{
+        update_counts, write_file_header, FileHeader, FILE_HEADER_LEN, MAX_PAGE_SIZE, MIN_PAGE_SIZE,
+    },
     page::{Encoding, PageHeader, PAGE_HEADER_LEN},
     Codec, Result, V2Error,
 };
@@ -375,7 +377,8 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
     pub fn new(mut inner: W, schema: Schema, options: WriterOptions) -> Result<Self> {
         let mut options = options;
         normalize_encoding_selection(&mut options);
-        if options.page_size as usize <= PAGE_HEADER_LEN {
+        if !(MIN_PAGE_SIZE..=MAX_PAGE_SIZE).contains(&options.page_size) || options.title.is_empty()
+        {
             return Err(V2Error::InvalidFileHeader);
         }
         let key_type = KeyType::from_field(schema.key_field())?;

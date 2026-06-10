@@ -9,7 +9,8 @@ use fwob_core::{FrameRef, Key, KeyType, Schema};
 use crate::{
     header::{
         read_header, update_frame_count, update_string_table_len, write_header, Header,
-        DEFAULT_STRING_TABLE_PRESERVED_LEN, VERSION,
+        DEFAULT_STRING_TABLE_PRESERVED_LEN, MAX_FIELDS, MAX_FIELD_NAME_LEN, MAX_FRAME_TYPE_LEN,
+        MAX_TITLE_LEN, VERSION,
     },
     Result, V1Error,
 };
@@ -83,6 +84,7 @@ impl Writer<File> {
 
 impl<W: Write + Seek> Writer<W> {
     pub fn new(mut inner: W, schema: Schema, options: WriterOptions) -> Result<Self> {
+        validate_v1_metadata(&schema, &options)?;
         let key_type = KeyType::from_field(schema.key_field())?;
         let header = Header {
             version: VERSION,
@@ -205,6 +207,26 @@ impl<W: Write + Seek> Writer<W> {
         self.inner.flush()?;
         Ok(())
     }
+}
+
+fn validate_v1_metadata(schema: &Schema, options: &WriterOptions) -> Result<()> {
+    let valid_ascii = |value: &str, max_len: usize| {
+        !value.is_empty() && value.is_ascii() && value.len() <= max_len
+    };
+    if schema.fields.len() > MAX_FIELDS
+        || !valid_ascii(&schema.frame_type, MAX_FRAME_TYPE_LEN)
+        || !valid_ascii(&options.title, MAX_TITLE_LEN)
+        || schema.fields.iter().any(|field| {
+            !valid_ascii(&field.name, MAX_FIELD_NAME_LEN) || field.length > u8::MAX as u16
+        })
+        || options.string_table_preserved_length > i32::MAX as u32
+        || schema.frame_len > i32::MAX as u32
+    {
+        return Err(V1Error::Core(fwob_core::FwobError::InvalidSchema(
+            "schema or metadata exceeds FWOB v1 limits".into(),
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) fn write_dotnet_string<W: Write>(writer: &mut W, value: &str) -> Result<()> {
