@@ -8,8 +8,10 @@ use std::{
 use fwob_core::{Key, OwnedFrame, Schema};
 
 mod editor;
+mod typed;
 
 pub use editor::AnyEditor;
+pub use typed::{TypedAppender, TypedEditor, TypedReader};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -25,6 +27,10 @@ pub enum Error {
         end: u64,
         frame_count: u64,
     },
+    #[error("typed frame schema does not match the file schema")]
+    SchemaMismatch,
+    #[error(transparent)]
+    Core(#[from] fwob_core::FwobError),
     #[error(transparent)]
     V1(#[from] fwob_v1::V1Error),
     #[error(transparent)]
@@ -315,6 +321,32 @@ pub enum AnyAppender {
 }
 
 impl AnyAppender {
+    pub fn create_v1(
+        path: impl AsRef<Path>,
+        schema: Schema,
+        options: fwob_v1::WriterOptions,
+        strings: &[String],
+    ) -> Result<Self> {
+        let mut writer = fwob_v1::Writer::create(path, schema, options)?;
+        for value in strings {
+            writer.append_string(value)?;
+        }
+        Ok(Self::V1 {
+            writer: Box::new(writer),
+            string_table: strings.to_vec(),
+        })
+    }
+
+    pub fn create_v2(
+        path: impl AsRef<Path>,
+        schema: Schema,
+        options: fwob_v2::WriterOptions,
+    ) -> Result<Self> {
+        Ok(Self::V2(Box::new(fwob_v2::Writer::create(
+            path, schema, options,
+        )?)))
+    }
+
     pub fn open(path: impl AsRef<Path>, options: AppendOptions) -> Result<Self> {
         let path = path.as_ref();
         match detect_format(path)? {

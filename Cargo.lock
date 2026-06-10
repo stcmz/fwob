@@ -352,7 +352,17 @@ dependencies = [
 name = "fwob-core"
 version = "1.0.0"
 dependencies = [
+ "fwob-derive",
  "thiserror",
+]
+
+[[package]]
+name = "fwob-derive"
+version = "1.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

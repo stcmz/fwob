@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/fwob-core",
+    "crates/fwob-derive",
     "crates/fwob-v1",
     "crates/fwob-v2",
     "crates/fwob",
@@ -30,3 +31,6 @@ proptest = "1.4"
 tempfile = "3.10"
 thiserror = "1.0"
 zstd = "0.13"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }

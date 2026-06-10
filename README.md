@@ -18,6 +18,7 @@ with a 64-byte header, compressed payload, and zero padding.
 ## Workspace
 
 - `fwob-core`: shared schema, frame, key, and error types.
+- `fwob-derive`: derive macro for strongly typed fixed-width frames.
 - `fwob-v1`: FWOB v1 reader, writer, verifier, and compatibility tests.
 - `fwob-v2`: compressed fixed-page FWOB v2 reader and writer.
 - `fwob`: command-line tools for conversion, inspection, verification, and
@@ -33,8 +34,8 @@ Install the command-line tool from crates.io:
 cargo install fwob
 ```
 
-Library crates are available separately as `fwob-core`, `fwob-v1`, and
-`fwob-v2`.
+Library crates are available separately as `fwob`, `fwob-core`, `fwob-derive`,
+`fwob-v1`, and `fwob-v2`.
 
 ## Command Examples
 

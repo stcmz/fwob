@@ -1,5 +1,5 @@
 [package]
-name = "fwob-core"
+name = "fwob-derive"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,8 +9,12 @@ readme.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Shared schema, frame, and key types for the FWOB binary format"
+description = "Derive macro for strongly typed FWOB frames"
+
+[lib]
+proc-macro = true
 
 [dependencies]
-fwob-derive = { version = "1.0.0", path = "../fwob-derive" }
-thiserror.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
