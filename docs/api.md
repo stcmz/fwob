@@ -129,6 +129,11 @@ The previous v1 whole-file implementation remains available as
 `fwob_v1::InMemoryEditor`. Its name explicitly identifies that it loads every
 frame and is not suitable for large production files.
 
+Title and string-table changes use the same atomic bounded-memory rewrite.
+`AnyEditor::update_metadata` can apply both changes in one pass. V1 rewrites
+retain at least the original reserved string-table capacity and grow it when
+needed.
+
 ### Editing Complexity
 
 Let `N` be total frames, `D` deleted frames, `F` fixed frame size, and `B` the
@@ -141,3 +146,18 @@ bounded copy buffer.
 | delete one key | `O(log N + N)` | `O(B)` | rewrite `N - D` frames |
 | delete key range | `O(log N + N)` | `O(B)` | rewrite `N - D` frames |
 | delete all frames | `O(1)` logical selection, format rewrite | `O(B)` | metadata-only or empty-file rewrite |
+| title/string-table update | `O(N)` | `O(B + S)` | rewrite all frames and `S` metadata bytes |
+
+## File Organization
+
+`split_by_keys` emits same-format files at the lower bound of each supplied
+first key. `concat_files` accepts same-format inputs with identical schema and
+title, globally ordered keys, and compatible string tables. String tables are
+compatible when one is a matching prefix of the other; the longest table is
+written, matching the original C# behavior.
+
+Both operations stream through a 4 MiB frame buffer, verify each completed
+output, and atomically publish it. Splitting `N` frames into `M` parts takes
+`O(M log N + N)` time. Concatenation takes `O(N)` time after `O(M)` metadata
+and boundary checks. Extra frame-copy memory is `O(B)` and independent of file
+size.

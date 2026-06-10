@@ -214,6 +214,22 @@ impl<F: FwobFrame> TypedEditor<F> {
     pub fn delete_all_frames(&mut self) -> Result<u64> {
         self.inner.delete_all_frames()
     }
+
+    pub fn set_title(&mut self, title: &str) -> Result<()> {
+        self.inner.set_title(title)
+    }
+
+    pub fn append_string(&mut self, value: &str) -> Result<u32> {
+        self.inner.append_string(value)
+    }
+
+    pub fn replace_string_table(&mut self, strings: &[String]) -> Result<()> {
+        self.inner.replace_string_table(strings)
+    }
+
+    pub fn clear_string_table(&mut self) -> Result<()> {
+        self.inner.clear_string_table()
+    }
 }
 
 fn ensure_schema<F: FwobFrame>(file: &impl FwobFile) -> Result<()> {

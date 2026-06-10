@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use fwob::{
-    AnyAppender, AnyEditor, AnyReader, AppendOptions, FormatVersion, FwobAppender, FwobEditor,
-    FwobFile, FwobReader,
+    concat_files, split_by_keys, AnyAppender, AnyEditor, AnyReader, AppendOptions, FormatVersion,
+    FwobAppender, FwobEditor, FwobFile, FwobReader, SplitOptions,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -213,6 +213,70 @@ fn assert_editor_contract(version: FormatVersion) {
     assert_remaining_keys(&all, &[]);
 }
 
+fn assert_metadata_contract(version: FormatVersion) {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("metadata.fwob");
+    match version {
+        FormatVersion::V1 => create_v1(&path),
+        FormatVersion::V2 => create_v2(&path),
+    }
+
+    let mut editor = AnyEditor::open(&path).unwrap();
+    editor.set_title("renamed").unwrap();
+    assert_eq!(editor.append_string("beta").unwrap(), 1);
+    editor
+        .replace_string_table(&["one".into(), "two".into(), "three".into()])
+        .unwrap();
+
+    let reader = AnyReader::open(&path).unwrap();
+    assert_eq!(reader.title(), "renamed");
+    assert_eq!(reader.string_table(), ["one", "two", "three"]);
+    assert_eq!(reader.frame_count(), 2);
+    drop(reader);
+
+    editor.clear_string_table().unwrap();
+    let reader = AnyReader::open(&path).unwrap();
+    assert!(reader.string_table().is_empty());
+    assert_eq!(reader.frame_count(), 2);
+}
+
+fn assert_organization_contract(version: FormatVersion) {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("series.fwob");
+    create_query_file(&source, version);
+
+    let parts = split_by_keys(
+        &source,
+        dir.path().join("parts"),
+        &[Key::I32(2), Key::I32(3)],
+        SplitOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(parts.len(), 3);
+    assert_eq!(
+        parts
+            .iter()
+            .map(|path| AnyReader::open(path).unwrap().frame_count())
+            .collect::<Vec<_>>(),
+        [40, 140, 120]
+    );
+
+    let joined = dir.path().join("joined.fwob");
+    assert_eq!(concat_files(&joined, &parts, 0).unwrap(), 300);
+    let mut reader = AnyReader::open(&joined).unwrap();
+    assert_eq!(
+        reader
+            .frames(0..300)
+            .unwrap()
+            .map(|frame| frame_key(&frame.unwrap()))
+            .collect::<Vec<_>>(),
+        (0..300).map(query_key).collect::<Vec<_>>()
+    );
+
+    let reversed = parts.iter().rev().cloned().collect::<Vec<_>>();
+    assert!(concat_files(dir.path().join("invalid.fwob"), &reversed, 0).is_err());
+}
+
 #[test]
 fn reader_contract_is_identical_for_v1_and_v2() {
     let dir = tempdir().unwrap();
@@ -253,4 +317,16 @@ fn indexed_key_and_streaming_queries_are_identical_for_v1_and_v2() {
 fn bounded_memory_editor_contract_is_identical_for_v1_and_v2() {
     assert_editor_contract(FormatVersion::V1);
     assert_editor_contract(FormatVersion::V2);
+}
+
+#[test]
+fn metadata_editor_contract_is_identical_for_v1_and_v2() {
+    assert_metadata_contract(FormatVersion::V1);
+    assert_metadata_contract(FormatVersion::V2);
+}
+
+#[test]
+fn split_and_concat_contract_is_identical_for_v1_and_v2() {
+    assert_organization_contract(FormatVersion::V1);
+    assert_organization_contract(FormatVersion::V2);
 }

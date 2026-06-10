@@ -73,7 +73,12 @@ impl AnyEditor {
         })
     }
 
-    fn rewrite_without(&mut self, deleted: Range<u64>) -> Result<u64> {
+    fn rewrite(
+        &mut self,
+        deleted: Range<u64>,
+        title: String,
+        string_table: Vec<String>,
+    ) -> Result<u64> {
         if deleted.start > deleted.end || deleted.end > self.frame_count {
             return Err(Error::InvalidFrameRange {
                 start: deleted.start,
@@ -82,7 +87,7 @@ impl AnyEditor {
             });
         }
         let removed = deleted.end - deleted.start;
-        if removed == 0 {
+        if removed == 0 && title == self.title && string_table == self.string_table {
             return Ok(0);
         }
 
@@ -93,7 +98,8 @@ impl AnyEditor {
         let mut destination = RewriteWriter::create(
             &temporary_path,
             self.schema.clone(),
-            &self.string_table,
+            &title,
+            &string_table,
             &self.rewrite_options,
         )?;
 
@@ -121,7 +127,26 @@ impl AnyEditor {
             .persist(&self.path)
             .map_err(|error| Error::Io(error.error))?;
         self.frame_count -= removed;
+        self.title = title;
+        self.string_table = string_table;
         Ok(removed)
+    }
+
+    fn rewrite_without(&mut self, deleted: Range<u64>) -> Result<u64> {
+        self.rewrite(deleted, self.title.clone(), self.string_table.clone())
+    }
+
+    pub fn update_metadata(
+        &mut self,
+        title: Option<&str>,
+        string_table: Option<&[String]>,
+    ) -> Result<()> {
+        self.rewrite(
+            0..0,
+            title.unwrap_or(&self.title).to_owned(),
+            string_table.unwrap_or(&self.string_table).to_vec(),
+        )?;
+        Ok(())
     }
 }
 
@@ -180,6 +205,26 @@ impl FwobEditor for AnyEditor {
     fn delete_all_frames(&mut self) -> Result<u64> {
         self.rewrite_without(0..self.frame_count)
     }
+
+    fn set_title(&mut self, title: &str) -> Result<()> {
+        self.update_metadata(Some(title), None)
+    }
+
+    fn append_string(&mut self, value: &str) -> Result<u32> {
+        let index = u32::try_from(self.string_table.len()).map_err(|_| {
+            Error::Core(fwob_core::FwobError::InvalidSchema(
+                "string table exceeds u32 entries".into(),
+            ))
+        })?;
+        let mut strings = self.string_table.clone();
+        strings.push(value.to_owned());
+        self.rewrite(0..0, self.title.clone(), strings)?;
+        Ok(index)
+    }
+
+    fn replace_string_table(&mut self, strings: &[String]) -> Result<()> {
+        self.update_metadata(None, Some(strings))
+    }
 }
 
 enum RewriteWriter {
@@ -191,22 +236,35 @@ impl RewriteWriter {
     fn create(
         path: &Path,
         schema: Schema,
+        title: &str,
         strings: &[String],
         options: &RewriteOptions,
     ) -> Result<Self> {
         match options {
             RewriteOptions::V1(options) => {
-                let mut writer = fwob_v1::Writer::create(path, schema, options.clone())?;
+                let mut options = options.clone();
+                options.title = title.to_owned();
+                let required = strings
+                    .iter()
+                    .map(|value| value.len().saturating_add(5))
+                    .sum::<usize>();
+                options.string_table_preserved_length = options
+                    .string_table_preserved_length
+                    .max(u32::try_from(required).unwrap_or(u32::MAX));
+                let mut writer = fwob_v1::Writer::create(path, schema, options)?;
                 for value in strings {
                     writer.append_string(value)?;
                 }
                 Ok(Self::V1(Box::new(writer)))
             }
-            RewriteOptions::V2(options) => Ok(Self::V2(Box::new(fwob_v2::Writer::create(
-                path,
-                schema,
-                options.clone(),
-            )?))),
+            RewriteOptions::V2(options) => {
+                let mut options = options.clone();
+                options.title = title.to_owned();
+                options.string_table = strings.to_vec();
+                Ok(Self::V2(Box::new(fwob_v2::Writer::create(
+                    path, schema, options,
+                )?)))
+            }
         }
     }
 

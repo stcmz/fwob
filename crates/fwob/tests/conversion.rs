@@ -1,5 +1,6 @@
 use std::process::Command;
 
+use fwob::{AnyReader, FwobFile, FwobReader};
 use fwob_core::{Field, FieldType, Schema};
 use fwob_v1::{Reader as V1Reader, Writer as V1Writer, WriterOptions};
 use tempfile::tempdir;
@@ -61,6 +62,60 @@ fn tick(time: i32, value: f64) -> Vec<u8> {
     out.extend_from_slice(&value.to_le_bytes());
     out.extend_from_slice(&[b' '; 4]);
     out
+}
+
+#[test]
+fn cli_splits_concatenates_and_edits_metadata() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("input.fwob");
+    let parts_dir = dir.path().join("parts");
+    let joined = dir.path().join("joined.fwob");
+    {
+        let mut writer =
+            V1Writer::create(&input, tick_schema(), WriterOptions::new("HelloFwob")).unwrap();
+        writer.append_string("sym").unwrap();
+        for i in 0..30 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "split",
+        input.to_str().unwrap(),
+        parts_dir.to_str().unwrap(),
+        "10",
+        "20",
+    ]));
+    let parts = (0..3)
+        .map(|index| parts_dir.join(format!("input.part{index}.fwob")))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        parts
+            .iter()
+            .map(|path| AnyReader::open(path).unwrap().frame_count())
+            .collect::<Vec<_>>(),
+        [10, 10, 10]
+    );
+
+    let mut concat = Command::new(exe);
+    concat.arg("concat").arg(&joined);
+    concat.args(&parts);
+    assert_command_success(&mut concat);
+    assert_command_success(Command::new(exe).args([
+        "edit",
+        joined.to_str().unwrap(),
+        "--title",
+        "Renamed",
+        "--clear-strings",
+        "--append-string",
+        "new-symbol",
+    ]));
+
+    let mut reader = AnyReader::open(&joined).unwrap();
+    assert_eq!(reader.title(), "Renamed");
+    assert_eq!(reader.string_table(), ["new-symbol"]);
+    assert_eq!(reader.read_all_frames().unwrap().len(), 30);
 }
 
 #[test]

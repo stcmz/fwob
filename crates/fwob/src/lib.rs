@@ -8,9 +8,11 @@ use std::{
 use fwob_core::{Key, OwnedFrame, Schema};
 
 mod editor;
+mod organization;
 mod typed;
 
 pub use editor::AnyEditor;
+pub use organization::{concat_files, split_by_keys, SplitOptions};
 pub use typed::{TypedAppender, TypedEditor, TypedReader};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -27,6 +29,22 @@ pub enum Error {
         end: u64,
         frame_count: u64,
     },
+    #[error("at least one source file is required")]
+    EmptySources,
+    #[error("at least one split key is required")]
+    EmptySplitKeys,
+    #[error("split keys must be sorted")]
+    UnsortedSplitKeys,
+    #[error("source files use different FWOB format versions")]
+    IncompatibleFormat,
+    #[error("source files use incompatible schemas")]
+    IncompatibleSchema,
+    #[error("source files use incompatible titles")]
+    IncompatibleTitle,
+    #[error("source files use incompatible string tables")]
+    IncompatibleStringTable,
+    #[error("source frame keys are not globally ordered")]
+    IncompatibleKeyOrder,
     #[error("typed frame schema does not match the file schema")]
     SchemaMismatch,
     #[error(transparent)]
@@ -124,6 +142,13 @@ pub trait FwobEditor: FwobFile {
     fn delete_key(&mut self, key: Key) -> Result<u64>;
     fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> Result<u64>;
     fn delete_all_frames(&mut self) -> Result<u64>;
+    fn set_title(&mut self, title: &str) -> Result<()>;
+    fn append_string(&mut self, value: &str) -> Result<u32>;
+    fn replace_string_table(&mut self, strings: &[String]) -> Result<()>;
+
+    fn clear_string_table(&mut self) -> Result<()> {
+        self.replace_string_table(&[])
+    }
 }
 
 pub enum AnyReader {

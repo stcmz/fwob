@@ -46,6 +46,9 @@ fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
 fwob convert v2 ticks.fwob ticks-delta.fwob columnar-delta zstd verify
 fwob append ticks-v2.fwob new-ticks.fwob verify
+fwob split ticks.fwob parts 1000 2000 3000
+fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob
+fwob edit ticks-joined.fwob --title Renamed --append-string NASDAQ
 fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```

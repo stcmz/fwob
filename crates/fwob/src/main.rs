@@ -35,6 +35,12 @@ enum Command {
     Convert(ConvertArgs),
     /// Append frames from a v1 input file into an existing v2 target file.
     Append(AppendArgs),
+    /// Split a v1 or v2 file at key lower bounds.
+    Split(SplitArgs),
+    /// Concatenate ordered, compatible v1 or v2 files.
+    Concat(ConcatArgs),
+    /// Rewrite title or string-table metadata without changing frames.
+    Edit(EditArgs),
 }
 
 const FRAME_PREVIEW_COUNT: usize = 3;
@@ -246,6 +252,53 @@ struct AppendArgs {
     write: V2WriteArgs,
 }
 
+#[derive(Debug, Args)]
+struct SplitArgs {
+    /// Input v1 or v2 file.
+    input: PathBuf,
+    /// Directory receiving INPUT.partN.fwob files.
+    output_dir: PathBuf,
+    /// First key of each new part, parsed using the input key field type.
+    #[arg(required = true)]
+    first_keys: Vec<String>,
+    /// Key field index for v1 input only.
+    #[arg(long, default_value_t = 0)]
+    key_field_index: usize,
+    /// Emit empty parts when adjacent keys resolve to the same frame index.
+    #[arg(long)]
+    keep_empty_parts: bool,
+}
+
+#[derive(Debug, Args)]
+struct ConcatArgs {
+    /// Destination FWOB file.
+    output: PathBuf,
+    /// Ordered source files with matching version, schema, title, and strings.
+    #[arg(required = true)]
+    inputs: Vec<PathBuf>,
+    /// Key field index for v1 inputs only.
+    #[arg(long, default_value_t = 0)]
+    key_field_index: usize,
+}
+
+#[derive(Debug, Args)]
+struct EditArgs {
+    /// Input v1 or v2 file to rewrite atomically.
+    path: PathBuf,
+    /// Replacement title.
+    #[arg(long)]
+    title: Option<String>,
+    /// Append a string-table value. May be repeated.
+    #[arg(long = "append-string")]
+    append_strings: Vec<String>,
+    /// Clear the string table before applying appended values.
+    #[arg(long)]
+    clear_strings: bool,
+    /// Key field index for v1 input only.
+    #[arg(long, default_value_t = 0)]
+    key_field_index: usize,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct V2WriteOptions {
     codec: CodecArg,
@@ -372,7 +425,93 @@ fn main() -> Result<()> {
         Command::Bench(args) => bench_v2(args),
         Command::Convert(args) => convert(args),
         Command::Append(args) => append_to_v2(args),
+        Command::Split(args) => split_file(args),
+        Command::Concat(args) => concat_file(args),
+        Command::Edit(args) => edit_file(args),
     }
+}
+
+fn split_file(args: SplitArgs) -> Result<()> {
+    use fwob::{AnyReader, FwobFile, SplitOptions};
+
+    let reader = AnyReader::open_with_v1_key(&args.input, args.key_field_index)?;
+    let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
+    let keys = args
+        .first_keys
+        .iter()
+        .map(|value| parse_key(value, key_type))
+        .collect::<Result<Vec<_>>>()?;
+    drop(reader);
+    let outputs = fwob::split_by_keys(
+        &args.input,
+        &args.output_dir,
+        &keys,
+        SplitOptions {
+            ignore_empty_parts: !args.keep_empty_parts,
+            v1_key_field_index: args.key_field_index,
+        },
+    )?;
+    println!("[split]");
+    println!("parts = {}", outputs.len());
+    for (index, path) in outputs.iter().enumerate() {
+        println!("part_{index} = {:?}", path.display().to_string());
+    }
+    Ok(())
+}
+
+fn concat_file(args: ConcatArgs) -> Result<()> {
+    let frames = fwob::concat_files(&args.output, &args.inputs, args.key_field_index)?;
+    println!("[concat]");
+    println!("frames = {frames}");
+    println!("output = {:?}", args.output.display().to_string());
+    Ok(())
+}
+
+fn edit_file(args: EditArgs) -> Result<()> {
+    use fwob::{AnyEditor, FwobFile};
+
+    if args.title.is_none() && args.append_strings.is_empty() && !args.clear_strings {
+        bail!("edit requires --title, --append-string, or --clear-strings");
+    }
+    let mut editor = AnyEditor::open_with_v1_key(&args.path, args.key_field_index)?;
+    let strings = if args.clear_strings || !args.append_strings.is_empty() {
+        let mut values = if args.clear_strings {
+            Vec::new()
+        } else {
+            editor.string_table().to_vec()
+        };
+        values.extend(args.append_strings);
+        Some(values)
+    } else {
+        None
+    };
+    editor.update_metadata(args.title.as_deref(), strings.as_deref())?;
+    println!("[edit]");
+    println!("title = {:?}", editor.title());
+    println!("string_count = {}", editor.string_table().len());
+    Ok(())
+}
+
+fn parse_key(value: &str, key_type: fwob_core::KeyType) -> Result<Key> {
+    macro_rules! parsed {
+        ($ty:ty, $variant:ident) => {
+            Key::$variant(
+                value
+                    .parse::<$ty>()
+                    .with_context(|| format!("invalid {:?} key: {value}", key_type))?,
+            )
+        };
+    }
+    Ok(match key_type {
+        fwob_core::KeyType::I8 => parsed!(i8, I8),
+        fwob_core::KeyType::I16 => parsed!(i16, I16),
+        fwob_core::KeyType::I32 => parsed!(i32, I32),
+        fwob_core::KeyType::I64 => parsed!(i64, I64),
+        fwob_core::KeyType::U8 => parsed!(u8, U8),
+        fwob_core::KeyType::U16 => parsed!(u16, U16),
+        fwob_core::KeyType::U32 => parsed!(u32, U32),
+        fwob_core::KeyType::U64 => parsed!(u64, U64),
+    })
 }
 
 fn inspect_auto(args: AutoFileArgs) -> Result<()> {
