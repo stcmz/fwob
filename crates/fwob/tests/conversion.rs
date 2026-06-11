@@ -65,6 +65,15 @@ fn tick(time: i32, value: f64) -> Vec<u8> {
 }
 
 #[test]
+fn cli_prints_package_version() {
+    let output = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).arg("--version"));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        format!("fwob {}", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
 fn cli_splits_concatenates_and_edits_metadata() {
     let dir = tempdir().unwrap();
     let input = dir.path().join("input.fwob");

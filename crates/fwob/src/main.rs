@@ -11,6 +11,7 @@ use fwob_v2::{Codec, CodecSelection, Encoding, EncodingSelection, PagePacking};
 
 #[derive(Debug, Parser)]
 #[command(name = "fwob")]
+#[command(version)]
 #[command(about = "FWOB v1/v2 inspection, verification, and conversion tools")]
 struct Cli {
     #[command(subcommand)]
