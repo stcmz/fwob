@@ -1,11 +1,12 @@
 # Publishing
 
-The workspace publishes four crates in dependency order:
+The workspace publishes five crates in dependency order:
 
-1. `fwob-core`
-2. `fwob-v1`
-3. `fwob-v2`
-4. `fwob`
+1. `fwob-derive`
+2. `fwob-core`
+3. `fwob-v1`
+4. `fwob-v2`
+5. `fwob`
 
 ## Automated Releases
 
@@ -41,6 +42,7 @@ cargo login
 For the initial release, publish each crate separately:
 
 ```bash
+cargo publish -p fwob-derive
 cargo publish -p fwob-core
 cargo publish -p fwob-v1
 cargo publish -p fwob-v2

@@ -37,7 +37,7 @@ jobs:
           version="${tag#v}"
           mapfile -t versions < <(
             cargo metadata --no-deps --format-version 1 |
-              jq -r '.packages[] | select(.name == "fwob" or .name == "fwob-core" or .name == "fwob-v1" or .name == "fwob-v2") | .version' |
+              jq -r '.packages[] | select(.name == "fwob" or .name == "fwob-core" or .name == "fwob-derive" or .name == "fwob-v1" or .name == "fwob-v2") | .version' |
               sort -u
           )
           if [[ "${#versions[@]}" -ne 1 || "${versions[0]}" != "$version" ]]; then
@@ -153,6 +153,7 @@ jobs:
             exit 1
           }
 
+          publish_and_wait fwob-derive
           publish_and_wait fwob-core
           publish_and_wait fwob-v1
           publish_and_wait fwob-v2
