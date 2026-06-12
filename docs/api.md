@@ -28,6 +28,11 @@ The `fwob` crate is the normal consumer entry point. Its `Reader`, `Writer`, and
 core contracts. `Maintenance` groups light verification, full verification, and
 repair. `Organizer` groups split and concatenation.
 
+The facade source is organized by responsibility: `reader.rs`, `writer.rs`,
+`editor.rs`, `maintenance.rs`, `organization.rs`, and `typed.rs`. `lib.rs`
+contains only shared errors, format detection, module declarations, and public
+re-exports.
+
 V1 files do not store their key-field index. `Reader::open_with_options` and
 `ReaderOptions::v1_key_field_index` allow callers to supply it; field zero is
 the default. `WriterOpenOptions` embeds `ReaderOptions` and carries v2 append
@@ -39,6 +44,152 @@ format implementation details.
 
 Reader, writer, editor, maintenance, and organization conformance tests execute
 the same logical assertions against both formats.
+
+## Examples
+
+All snippets use the version-neutral `fwob` facade unless physical v1/v2
+details are explicitly needed.
+
+### Read Frames and Ranges
+
+```rust
+use fwob::Reader;
+use fwob_core::Key;
+
+let mut reader = Reader::open("ticks.fwob")?;
+println!("frames: {}", reader.frame_count());
+
+let first = reader.first_frame()?;
+let frame = reader.read_frame(100)?;
+let matching = reader.equal_range(Key::I64(123))?;
+
+for frame in reader.frames(matching)? {
+    println!("{:?}", frame?.bytes());
+}
+# Ok::<(), fwob::Error>(())
+```
+
+`frames` and `frames_by_key` are lazy iterators. V1 reads by direct offset; v2
+retains one decoded internal storage unit as a reusable cache.
+
+### Create and Write
+
+```rust
+use fwob::Writer;
+use fwob_core::{Field, FieldType, Schema};
+
+let schema = Schema::new(
+    "Tick",
+    vec![Field::new("time", FieldType::SignedInteger, 8, 0)],
+    0,
+)?;
+
+let mut writer = Writer::create_v2(
+    "ticks.fwob",
+    schema,
+    fwob_v2::WriterOptions::new("prices"),
+)?;
+writer.append_frame(&123_i64.to_le_bytes())?;
+writer.finish()?;
+# Ok::<(), fwob::Error>(())
+```
+
+### Append
+
+```rust
+use fwob::{Writer, WriterOpenOptions};
+
+let mut writer = Writer::open("ticks.fwob", WriterOpenOptions::default())?;
+writer.append_frame(&456_i64.to_le_bytes())?;
+writer.finish()?;
+# Ok::<(), fwob::Error>(())
+```
+
+### Edit
+
+```rust
+use fwob::Editor;
+use fwob_core::Key;
+
+let mut editor = Editor::open("ticks.fwob")?;
+editor.delete_frame(10)?;
+editor.delete_frames(20..30)?;
+editor.delete_key(Key::I64(123))?;
+editor.delete_key_range(Key::I64(200)..=Key::I64(300))?;
+editor.set_title("updated prices")?;
+# Ok::<(), fwob::Error>(())
+```
+
+### Verify and Repair
+
+```rust
+use fwob::{Maintenance, ReaderOptions};
+
+let report = Maintenance::verify("ticks.fwob", ReaderOptions::default())?;
+println!("version: {:?}", report.format_version);
+println!("frames: {}", report.frame_count);
+
+Maintenance::repair("ticks.fwob", ReaderOptions::default())?;
+# Ok::<(), fwob::Error>(())
+```
+
+### Split and Concatenate
+
+```rust
+use fwob::Organizer;
+use fwob_core::Key;
+
+let organizer = Organizer::default();
+let parts = organizer.split(
+    "ticks.fwob",
+    "parts",
+    &[Key::I64(1_000), Key::I64(2_000)],
+)?;
+organizer.concat("joined.fwob", &parts)?;
+# Ok::<(), fwob::Error>(())
+```
+
+### Typed Read and Write
+
+```rust
+use fwob::{TypedReader, TypedWriter};
+use fwob_core::FwobFrame;
+
+#[derive(Debug, FwobFrame)]
+struct Tick {
+    #[fwob(key)]
+    time: i64,
+    price: u32,
+    size: i32,
+}
+
+let mut writer = TypedWriter::<Tick>::create_v2(
+    "ticks.fwob",
+    fwob_v2::WriterOptions::new("prices"),
+)?;
+writer.append(&Tick {
+    time: 123,
+    price: 500,
+    size: 10,
+})?;
+writer.finish()?;
+
+let mut reader = TypedReader::<Tick>::open("ticks.fwob")?;
+let tick = reader.read_frame(0)?;
+# Ok::<(), fwob::Error>(())
+```
+
+### Format-Specific Access
+
+Use a format crate directly only when physical details matter:
+
+```rust
+let mut reader = fwob_v2::Reader::open("ticks.fwob")?;
+let header = reader.header();
+let page = reader.read_page_header(0)?;
+let frames = reader.read_page_frames(0)?;
+# Ok::<(), fwob_v2::V2Error>(())
+```
 
 ## Typed Frames
 

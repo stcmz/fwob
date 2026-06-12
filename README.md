@@ -38,6 +38,35 @@ cargo install fwob
 Library crates are available separately as `fwob`, `fwob-core`, `fwob-derive`,
 `fwob-v1`, and `fwob-v2`.
 
+## Library Quick Start
+
+```rust
+use fwob::{Reader, Writer};
+use fwob_core::{Field, FieldType, Schema};
+
+let schema = Schema::new(
+    "Tick",
+    vec![Field::new("time", FieldType::SignedInteger, 8, 0)],
+    0,
+)?;
+
+let mut writer = Writer::create_v2(
+    "ticks.fwob",
+    schema,
+    fwob_v2::WriterOptions::new("prices"),
+)?;
+writer.append_frame(&123_i64.to_le_bytes())?;
+writer.finish()?;
+
+let mut reader = Reader::open("ticks.fwob")?;
+let first = reader.first_frame()?.expect("one frame");
+assert_eq!(first.bytes(), 123_i64.to_le_bytes());
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+See [`docs/api.md`](docs/api.md) for reading, appending, editing, maintenance,
+organization, typed-frame, and format-specific examples.
+
 ## Command Examples
 
 ```bash
