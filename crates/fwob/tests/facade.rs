@@ -1,8 +1,7 @@
 use std::{fs::OpenOptions, io::Write, path::Path};
 
 use fwob::{
-    concat_files, light_verify_file, repair_file, split_by_keys, verify_file, AnyAppender,
-    AnyEditor, AnyReader, AppendOptions, FormatVersion, SplitOptions, VerificationOptions,
+    Editor, FormatVersion, Maintenance, Organizer, Reader, ReaderOptions, Writer, WriterOpenOptions,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -82,7 +81,7 @@ fn create_query_v2(path: &Path) {
 }
 
 fn assert_reader_contract(path: &Path, expected_version: FormatVersion) {
-    let mut reader = AnyReader::open(path).unwrap();
+    let mut reader = Reader::open(path).unwrap();
     assert_eq!(reader.format_version(), expected_version);
     assert_eq!(reader.schema(), &schema());
     assert_eq!(reader.title(), "facade");
@@ -95,7 +94,7 @@ fn assert_reader_contract(path: &Path, expected_version: FormatVersion) {
 }
 
 fn assert_appender_contract(path: &Path, expected_version: FormatVersion) {
-    let mut appender = AnyAppender::open(path, AppendOptions::default()).unwrap();
+    let mut appender = Writer::open(path, WriterOpenOptions::default()).unwrap();
     assert_eq!(appender.format_version(), expected_version);
     assert_eq!(appender.schema(), &schema());
     assert_eq!(appender.title(), "facade");
@@ -105,7 +104,7 @@ fn assert_appender_contract(path: &Path, expected_version: FormatVersion) {
     assert_eq!(appender.frame_count(), 3);
     appender.finish().unwrap();
 
-    let mut reader = AnyReader::open(path).unwrap();
+    let mut reader = Reader::open(path).unwrap();
     let frames = reader.read_all_frames().unwrap();
     assert_eq!(frames.len(), 3);
     assert_eq!(frames[2].bytes(), frame(3, 30));
@@ -116,7 +115,7 @@ fn frame_key(frame: &fwob_core::OwnedFrame) -> i32 {
 }
 
 fn assert_query_contract(path: &Path, expected_version: FormatVersion) {
-    let mut reader = AnyReader::open(path).unwrap();
+    let mut reader = Reader::open(path).unwrap();
     assert_eq!(reader.format_version(), expected_version);
     assert_eq!(reader.frame_count(), 300);
     assert_eq!(reader.first_key().unwrap(), Some(Key::I32(1)));
@@ -149,7 +148,7 @@ fn assert_query_contract(path: &Path, expected_version: FormatVersion) {
 }
 
 fn assert_remaining_keys(path: &Path, expected: &[i32]) {
-    let mut reader = AnyReader::open(path).unwrap();
+    let mut reader = Reader::open(path).unwrap();
     let count = reader.frame_count();
     let keys = reader
         .frames(0..count)
@@ -173,7 +172,7 @@ fn assert_editor_contract(version: FormatVersion) {
 
     let single = dir.path().join("single.fwob");
     create_query_file(&single, version);
-    let mut editor = AnyEditor::open(&single).unwrap();
+    let mut editor = Editor::open(&single).unwrap();
     assert!(editor.delete_frame(40).unwrap());
     assert!(!editor.delete_frame(999).unwrap());
     assert_eq!(editor.frame_count(), 299);
@@ -183,21 +182,21 @@ fn assert_editor_contract(version: FormatVersion) {
 
     let indexes = dir.path().join("indexes.fwob");
     create_query_file(&indexes, version);
-    let mut editor = AnyEditor::open(&indexes).unwrap();
+    let mut editor = Editor::open(&indexes).unwrap();
     assert_eq!(editor.delete_frames(40..180).unwrap(), 140);
     let expected = (0..40).chain(180..300).map(query_key).collect::<Vec<_>>();
     assert_remaining_keys(&indexes, &expected);
 
     let key = dir.path().join("key.fwob");
     create_query_file(&key, version);
-    let mut editor = AnyEditor::open(&key).unwrap();
+    let mut editor = Editor::open(&key).unwrap();
     assert_eq!(editor.delete_key(Key::I32(2)).unwrap(), 140);
     let expected = (0..40).chain(180..300).map(query_key).collect::<Vec<_>>();
     assert_remaining_keys(&key, &expected);
 
     let key_range = dir.path().join("key-range.fwob");
     create_query_file(&key_range, version);
-    let mut editor = AnyEditor::open(&key_range).unwrap();
+    let mut editor = Editor::open(&key_range).unwrap();
     assert_eq!(
         editor.delete_key_range(Key::I32(2)..=Key::I32(3)).unwrap(),
         220
@@ -207,7 +206,7 @@ fn assert_editor_contract(version: FormatVersion) {
 
     let all = dir.path().join("all.fwob");
     create_query_file(&all, version);
-    let mut editor = AnyEditor::open(&all).unwrap();
+    let mut editor = Editor::open(&all).unwrap();
     assert_eq!(editor.delete_all_frames().unwrap(), 300);
     assert_eq!(editor.frame_count(), 0);
     assert_remaining_keys(&all, &[]);
@@ -221,21 +220,21 @@ fn assert_metadata_contract(version: FormatVersion) {
         FormatVersion::V2 => create_v2(&path),
     }
 
-    let mut editor = AnyEditor::open(&path).unwrap();
+    let mut editor = Editor::open(&path).unwrap();
     editor.set_title("renamed").unwrap();
     assert_eq!(editor.append_string("beta").unwrap(), 1);
     editor
         .replace_string_table(&["one".into(), "two".into(), "three".into()])
         .unwrap();
 
-    let reader = AnyReader::open(&path).unwrap();
+    let reader = Reader::open(&path).unwrap();
     assert_eq!(reader.title(), "renamed");
     assert_eq!(reader.string_table(), ["one", "two", "three"]);
     assert_eq!(reader.frame_count(), 2);
     drop(reader);
 
     editor.clear_string_table().unwrap();
-    let reader = AnyReader::open(&path).unwrap();
+    let reader = Reader::open(&path).unwrap();
     assert!(reader.string_table().is_empty());
     assert_eq!(reader.frame_count(), 2);
 }
@@ -245,25 +244,26 @@ fn assert_organization_contract(version: FormatVersion) {
     let source = dir.path().join("series.fwob");
     create_query_file(&source, version);
 
-    let parts = split_by_keys(
-        &source,
-        dir.path().join("parts"),
-        &[Key::I32(2), Key::I32(3)],
-        SplitOptions::default(),
-    )
-    .unwrap();
+    let organizer = Organizer::default();
+    let parts = organizer
+        .split(
+            &source,
+            dir.path().join("parts"),
+            &[Key::I32(2), Key::I32(3)],
+        )
+        .unwrap();
     assert_eq!(parts.len(), 3);
     assert_eq!(
         parts
             .iter()
-            .map(|path| AnyReader::open(path).unwrap().frame_count())
+            .map(|path| Reader::open(path).unwrap().frame_count())
             .collect::<Vec<_>>(),
         [40, 140, 120]
     );
 
     let joined = dir.path().join("joined.fwob");
-    assert_eq!(concat_files(&joined, &parts, 0).unwrap(), 300);
-    let mut reader = AnyReader::open(&joined).unwrap();
+    assert_eq!(organizer.concat(&joined, &parts).unwrap(), 300);
+    let mut reader = Reader::open(&joined).unwrap();
     assert_eq!(
         reader
             .frames(0..300)
@@ -274,7 +274,9 @@ fn assert_organization_contract(version: FormatVersion) {
     );
 
     let reversed = parts.iter().rev().cloned().collect::<Vec<_>>();
-    assert!(concat_files(dir.path().join("invalid.fwob"), &reversed, 0).is_err());
+    assert!(organizer
+        .concat(dir.path().join("invalid.fwob"), &reversed)
+        .is_err());
 }
 
 #[test]
@@ -337,10 +339,18 @@ fn verification_and_repair_are_identical_for_v1_and_v2() {
     for version in [FormatVersion::V1, FormatVersion::V2] {
         let path = dir.path().join(format!("{version:?}.fwob"));
         create_query_file(&path, version);
-        let options = VerificationOptions::default();
+        let options = ReaderOptions::default();
 
-        assert_eq!(light_verify_file(&path, options).unwrap(), version);
-        assert_eq!(verify_file(&path, options).unwrap(), version);
+        assert_eq!(
+            Maintenance::light_verify(&path, options)
+                .unwrap()
+                .format_version,
+            version
+        );
+        assert_eq!(
+            Maintenance::verify(&path, options).unwrap().format_version,
+            version
+        );
 
         OpenOptions::new()
             .append(true)
@@ -349,9 +359,15 @@ fn verification_and_repair_are_identical_for_v1_and_v2() {
             .write_all(&[0xaa, 0xbb, 0xcc])
             .unwrap();
 
-        assert!(light_verify_file(&path, options).is_err());
-        assert!(verify_file(&path, options).is_err());
-        assert_eq!(repair_file(&path, options).unwrap(), version);
-        assert_eq!(verify_file(&path, options).unwrap(), version);
+        assert!(Maintenance::light_verify(&path, options).is_err());
+        assert!(Maintenance::verify(&path, options).is_err());
+        assert_eq!(
+            Maintenance::repair(&path, options).unwrap().format_version,
+            version
+        );
+        assert_eq!(
+            Maintenance::verify(&path, options).unwrap().format_version,
+            version
+        );
     }
 }

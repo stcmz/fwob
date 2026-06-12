@@ -9,7 +9,7 @@ readme.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Command-line tools for FWOB conversion, inspection, verification, and benchmarking"
+description = "Version-neutral FWOB library facade and command-line tools"
 
 [[bin]]
 name = "fwob"

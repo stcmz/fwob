@@ -1,9 +1,9 @@
 use std::{fs::File, ops::Range, path::Path};
 
 use fwob_core::{
-    FileInfo, FormatVersion, Key, Maintenance, OpenOptions, OwnedFrame, Reader as CoreReader,
-    ReaderBackend, Result as CoreResult, Schema, VerificationReport, Writer as CoreWriter,
-    WriterBackend,
+    FileInfo, FormatVersion, Key, Maintenance, OwnedFrame, Reader as CoreReader, ReaderBackend,
+    ReaderOptions, Result as CoreResult, Schema, VerificationReport, Writer as CoreWriter,
+    WriterBackend, WriterFactory,
 };
 
 use crate::{Reader, Writer, WriterOptions};
@@ -14,13 +14,23 @@ pub struct ReaderAdapter {
 }
 
 impl ReaderAdapter {
-    pub fn open(path: impl AsRef<Path>, key_field_index: usize) -> crate::Result<Self> {
+    pub fn open(
+        path: impl AsRef<Path>,
+        key_field_index: usize,
+    ) -> crate::Result<(Self, CompatibleWriterFactory)> {
         let mut reader = Reader::open(path, key_field_index)?;
         let string_table = reader.read_string_table()?;
-        Ok(Self {
-            reader,
-            string_table,
-        })
+        let factory = CompatibleWriterFactory {
+            schema: reader.schema().clone(),
+            string_table_preserved_length: reader.header().string_table_preserved_length,
+        };
+        Ok((
+            Self {
+                reader,
+                string_table,
+            },
+            factory,
+        ))
     }
 }
 
@@ -78,8 +88,15 @@ impl ReaderBackend for ReaderAdapter {
             .map_err(fwob_core::FwobError::backend)?;
         Ok(start..end)
     }
+}
 
-    fn create_compatible_writer(
+pub struct CompatibleWriterFactory {
+    schema: Schema,
+    string_table_preserved_length: u32,
+}
+
+impl WriterFactory for CompatibleWriterFactory {
+    fn create(
         &mut self,
         path: &Path,
         title: &str,
@@ -91,11 +108,9 @@ impl ReaderBackend for ReaderAdapter {
             .sum::<usize>();
         let mut options = WriterOptions::new(title);
         options.string_table_preserved_length = self
-            .reader
-            .header()
             .string_table_preserved_length
             .max(u32::try_from(required).unwrap_or(u32::MAX));
-        create_writer(path, self.reader.schema().clone(), options, string_table)
+        create_writer(path, self.schema.clone(), options, string_table)
             .map_err(fwob_core::FwobError::backend)
     }
 }
@@ -174,10 +189,8 @@ impl WriterBackend for WriterAdapter {
 }
 
 pub fn open_reader(path: impl AsRef<Path>, key_field_index: usize) -> crate::Result<CoreReader> {
-    Ok(CoreReader::from_backend(ReaderAdapter::open(
-        path,
-        key_field_index,
-    )?))
+    let (reader, factory) = ReaderAdapter::open(path, key_field_index)?;
+    Ok(CoreReader::from_parts(reader, factory))
 }
 
 pub fn create_writer(
@@ -209,8 +222,8 @@ impl Maintenance for MaintenanceService {
         FormatVersion::V1
     }
 
-    fn light_verify(&self, path: &Path, options: OpenOptions) -> CoreResult<VerificationReport> {
-        let reader = ReaderAdapter::open(path, options.v1_key_field_index)
+    fn light_verify(&self, path: &Path, options: ReaderOptions) -> CoreResult<VerificationReport> {
+        let (reader, _) = ReaderAdapter::open(path, options.v1_key_field_index)
             .map_err(fwob_core::FwobError::backend)?;
         Ok(VerificationReport {
             format_version: FormatVersion::V1,
@@ -220,7 +233,7 @@ impl Maintenance for MaintenanceService {
         })
     }
 
-    fn verify(&self, path: &Path, options: OpenOptions) -> CoreResult<VerificationReport> {
+    fn verify(&self, path: &Path, options: ReaderOptions) -> CoreResult<VerificationReport> {
         self.light_verify(path, options)?;
         let report = crate::verify_file(path, options.v1_key_field_index)
             .map_err(fwob_core::FwobError::backend)?;
@@ -232,7 +245,7 @@ impl Maintenance for MaintenanceService {
         })
     }
 
-    fn repair(&self, path: &Path, options: OpenOptions) -> CoreResult<VerificationReport> {
+    fn repair(&self, path: &Path, options: ReaderOptions) -> CoreResult<VerificationReport> {
         let report = crate::repair_committed_tail(path, options.v1_key_field_index)
             .map_err(fwob_core::FwobError::backend)?;
         Ok(VerificationReport {

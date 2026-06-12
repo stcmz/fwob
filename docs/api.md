@@ -12,6 +12,8 @@ format implementation.
 - `FileInfo` exposes common metadata.
 - `ReaderBackend` and `WriterBackend` are object-safe format implementation
   contracts.
+- `WriterFactory` preserves format-specific rewrite settings without making
+  writer construction a reader-backend responsibility.
 - `Reader` and `Writer` own boxed backends and expose logical operations without
   a version match on each call.
 - `Editor`, `Maintenance`, and `Organizer` separate mutation, physical
@@ -23,12 +25,13 @@ available to applications that already know the format version.
 
 The `fwob` crate is the normal consumer entry point. Its `Reader`, `Writer`, and
 `Editor` types detect v1 or v2 while opening a file, then delegate through the
-core contracts. The previous `AnyReader`, `AnyAppender`, and `AnyEditor` names
-remain available for source compatibility.
+core contracts. `Maintenance` groups light verification, full verification, and
+repair. `Organizer` groups split and concatenation.
 
-V1 files do not store their key-field index. `Reader::open_with_v1_key` and
-`AppendOptions::v1_key_field_index` allow callers to supply it; field zero is
-the default.
+V1 files do not store their key-field index. `Reader::open_with_options` and
+`ReaderOptions::v1_key_field_index` allow callers to supply it; field zero is
+the default. `WriterOpenOptions` embeds `ReaderOptions` and carries v2 append
+configuration. `Editor` and `Organizer` use the same `ReaderOptions`.
 
 V2 writer options are accepted only while opening a v2 appender. They do not
 become part of the common appender trait because compression and packing are
@@ -58,7 +61,7 @@ struct Tick {
 }
 ```
 
-`TypedReader`, `TypedAppender`, and `TypedEditor` enforce exact schema
+`TypedReader`, `TypedWriter`, and `TypedEditor` enforce exact schema
 compatibility when opening a file and expose typed frame/key operations over
 both v1 and v2. Stored fields support all signed and unsigned integer widths,
 `f32`, `f64`, fixed `[u8; N]` data, and `StringIndex`. Keys are currently
@@ -163,11 +166,11 @@ bounded copy buffer.
 
 ## File Organization
 
-`split_by_keys` emits same-format files at the lower bound of each supplied
-first key. `concat_files` accepts same-format inputs with identical schema and
-title, globally ordered keys, and compatible string tables. String tables are
-compatible when one is a matching prefix of the other; the longest table is
-written, matching the original C# behavior.
+`Organizer::split` emits same-format files at the lower bound of each supplied
+first key. `Organizer::concat` accepts same-format inputs with identical schema
+and title, globally ordered keys, and compatible string tables. String tables
+are compatible when one is a matching prefix of the other; the longest table
+is written, matching the original C# behavior.
 
 Both operations stream through a 4 MiB frame buffer, verify each completed
 output, and atomically publish it. Splitting `N` frames into `M` parts takes

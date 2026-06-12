@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use fwob::{AppendOptions, FormatVersion, TypedAppender, TypedEditor, TypedReader};
+use fwob::{FormatVersion, TypedEditor, TypedReader, TypedWriter, WriterOpenOptions};
 use fwob_core::{FieldType, FwobFrame, StringIndex};
 use tempfile::tempdir;
 
@@ -34,8 +34,7 @@ fn create(path: &Path, version: FormatVersion) {
             let mut options = fwob_v1::WriterOptions::new("typed");
             options.string_table_preserved_length = 256;
             let strings = vec!["AAPL".to_owned(), "SPOT".to_owned()];
-            let mut writer =
-                TypedAppender::<_, TypedTick>::create_v1(path, options, &strings).unwrap();
+            let mut writer = TypedWriter::<TypedTick>::create_v1(path, options, &strings).unwrap();
             writer.append(&tick(1, 0)).unwrap();
             writer.append(&tick(2, 1)).unwrap();
             writer.append(&tick(2, 1)).unwrap();
@@ -46,7 +45,7 @@ fn create(path: &Path, version: FormatVersion) {
             let mut options = fwob_v2::WriterOptions::new("typed");
             options.page_size = 1024;
             options.string_table = vec!["AAPL".to_owned(), "SPOT".to_owned()];
-            let mut writer = TypedAppender::<_, TypedTick>::create_v2(path, options).unwrap();
+            let mut writer = TypedWriter::<TypedTick>::create_v2(path, options).unwrap();
             writer.append(&tick(1, 0)).unwrap();
             writer.append(&tick(2, 1)).unwrap();
             writer.append(&tick(2, 1)).unwrap();
@@ -61,7 +60,7 @@ fn assert_typed_contract(version: FormatVersion) {
     let path = dir.path().join("typed.fwob");
     create(&path, version);
 
-    let mut reader = TypedReader::<_, TypedTick>::open(&path).unwrap();
+    let mut reader = TypedReader::<TypedTick>::open(&path).unwrap();
     assert_eq!(reader.frame_count(), 4);
     assert_eq!(reader.first_key().unwrap(), Some(1));
     assert_eq!(reader.last_key().unwrap(), Some(3));
@@ -77,15 +76,14 @@ fn assert_typed_contract(version: FormatVersion) {
     );
     drop(reader);
 
-    let mut appender =
-        TypedAppender::<_, TypedTick>::open(&path, AppendOptions::default()).unwrap();
+    let mut appender = TypedWriter::<TypedTick>::open(&path, WriterOpenOptions::default()).unwrap();
     appender.append(&tick(4, 0)).unwrap();
     appender.finish().unwrap();
 
     let mut editor = TypedEditor::<TypedTick>::open(&path).unwrap();
     assert_eq!(editor.delete_key(2).unwrap(), 2);
 
-    let mut reader = TypedReader::<_, TypedTick>::open(&path).unwrap();
+    let mut reader = TypedReader::<TypedTick>::open(&path).unwrap();
     assert_eq!(
         reader
             .frames(0..reader.frame_count())
@@ -113,7 +111,7 @@ fn typed_reader_rejects_incompatible_schema() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("typed.fwob");
     create(&path, FormatVersion::V2);
-    assert!(TypedReader::<_, IncompatibleTick>::open(&path).is_err());
+    assert!(TypedReader::<IncompatibleTick>::open(&path).is_err());
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]

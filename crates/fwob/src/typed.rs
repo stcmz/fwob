@@ -6,26 +6,31 @@ use std::{
 
 use fwob_core::{FwobFrame, FwobKey, OwnedFrame};
 
-use crate::{
-    AnyAppender, AnyEditor, AnyReader, AppendOptions, FwobAppender, FwobFile, FwobReader, Result,
-};
+use crate::{Editor, Reader, Result, Writer, WriterOpenOptions};
 
-pub struct TypedReader<R, F> {
-    inner: R,
+pub struct TypedReader<F> {
+    inner: Reader,
     frame: PhantomData<F>,
 }
 
-impl<R, F> TypedReader<R, F>
-where
-    R: FwobReader,
-    F: FwobFrame,
-{
-    pub fn new(inner: R) -> Result<Self> {
-        ensure_schema::<F>(&inner)?;
+impl<F: FwobFrame> TypedReader<F> {
+    pub fn new(inner: Reader) -> Result<Self> {
+        ensure_schema::<F>(inner.schema())?;
         Ok(Self {
             inner,
             frame: PhantomData,
         })
+    }
+
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::new(Reader::open(path)?)
+    }
+
+    pub fn open_with_options(
+        path: impl AsRef<Path>,
+        options: crate::ReaderOptions,
+    ) -> Result<Self> {
+        Self::new(Reader::open_with_options(path, options)?)
     }
 
     pub fn frame_count(&self) -> u64 {
@@ -95,39 +100,41 @@ where
         ))
     }
 
-    pub fn into_inner(self) -> R {
+    pub fn into_inner(self) -> Reader {
         self.inner
     }
 }
 
-impl<F: FwobFrame> TypedReader<AnyReader, F> {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::new(AnyReader::open(path)?)
-    }
-
-    pub fn open_with_v1_key(path: impl AsRef<Path>, key_field_index: usize) -> Result<Self> {
-        Self::new(AnyReader::open_with_v1_key(path, key_field_index)?)
-    }
-}
-
-pub struct TypedAppender<W, F> {
-    inner: W,
+pub struct TypedWriter<F> {
+    inner: Writer,
     buffer: Vec<u8>,
     frame: PhantomData<F>,
 }
 
-impl<W, F> TypedAppender<W, F>
-where
-    W: FwobAppender,
-    F: FwobFrame,
-{
-    pub fn new(inner: W) -> Result<Self> {
-        ensure_schema::<F>(&inner)?;
+impl<F: FwobFrame> TypedWriter<F> {
+    pub fn new(inner: Writer) -> Result<Self> {
+        ensure_schema::<F>(inner.schema())?;
         Ok(Self {
             inner,
             buffer: Vec::with_capacity(F::schema().frame_len as usize),
             frame: PhantomData,
         })
+    }
+
+    pub fn open(path: impl AsRef<Path>, options: WriterOpenOptions) -> Result<Self> {
+        Self::new(Writer::open(path, options)?)
+    }
+
+    pub fn create_v1(
+        path: impl AsRef<Path>,
+        options: fwob_v1::WriterOptions,
+        strings: &[String],
+    ) -> Result<Self> {
+        Self::new(Writer::create_v1(path, F::schema(), options, strings)?)
+    }
+
+    pub fn create_v2(path: impl AsRef<Path>, options: fwob_v2::WriterOptions) -> Result<Self> {
+        Self::new(Writer::create_v2(path, F::schema(), options)?)
     }
 
     pub fn frame_count(&self) -> u64 {
@@ -152,37 +159,19 @@ where
     }
 
     pub fn finish(self) -> Result<()> {
-        Box::new(self.inner).finish()
-    }
-}
-
-impl<F: FwobFrame> TypedAppender<AnyAppender, F> {
-    pub fn open(path: impl AsRef<Path>, options: AppendOptions) -> Result<Self> {
-        Self::new(AnyAppender::open(path, options)?)
-    }
-
-    pub fn create_v1(
-        path: impl AsRef<Path>,
-        options: fwob_v1::WriterOptions,
-        strings: &[String],
-    ) -> Result<Self> {
-        Self::new(AnyAppender::create_v1(path, F::schema(), options, strings)?)
-    }
-
-    pub fn create_v2(path: impl AsRef<Path>, options: fwob_v2::WriterOptions) -> Result<Self> {
-        Self::new(AnyAppender::create_v2(path, F::schema(), options)?)
+        self.inner.finish()
     }
 }
 
 pub struct TypedEditor<F> {
-    inner: AnyEditor,
+    inner: Editor,
     frame: PhantomData<F>,
 }
 
 impl<F: FwobFrame> TypedEditor<F> {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let inner = AnyEditor::open(path)?;
-        ensure_schema::<F>(&inner)?;
+        let inner = Editor::open(path)?;
+        ensure_schema::<F>(inner.schema())?;
         Ok(Self {
             inner,
             frame: PhantomData,
@@ -231,8 +220,8 @@ impl<F: FwobFrame> TypedEditor<F> {
     }
 }
 
-fn ensure_schema<F: FwobFrame>(file: &impl FwobFile) -> Result<()> {
-    if file.schema() == &F::schema() {
+fn ensure_schema<F: FwobFrame>(schema: &fwob_core::Schema) -> Result<()> {
+    if schema == &F::schema() {
         Ok(())
     } else {
         Err(crate::Error::SchemaMismatch)

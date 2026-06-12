@@ -7,32 +7,38 @@ use std::{
 use fwob_core::Key;
 use tempfile::NamedTempFile;
 
-use crate::{verify_file, AnyReader, Error, Result, VerificationOptions};
+use crate::{Error, Maintenance, Reader, ReaderOptions, Result};
 
 const COPY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy)]
-pub struct SplitOptions {
-    pub ignore_empty_parts: bool,
-    pub v1_key_field_index: usize,
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Organizer {
+    pub reader_options: ReaderOptions,
+    pub keep_empty_parts: bool,
 }
 
-impl Default for SplitOptions {
-    fn default() -> Self {
-        Self {
-            ignore_empty_parts: true,
-            v1_key_field_index: 0,
-        }
+impl Organizer {
+    pub fn split(
+        &self,
+        source: impl AsRef<Path>,
+        output_dir: impl AsRef<Path>,
+        first_keys: &[Key],
+    ) -> Result<Vec<PathBuf>> {
+        split_by_keys(
+            source,
+            output_dir,
+            first_keys,
+            self.reader_options,
+            self.keep_empty_parts,
+        )
+    }
+
+    pub fn concat(&self, destination: impl AsRef<Path>, sources: &[PathBuf]) -> Result<u64> {
+        concat_files(destination, sources, self.reader_options.v1_key_field_index)
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct FileOrganizer {
-    pub split_options: SplitOptions,
-    pub v1_key_field_index: usize,
-}
-
-impl fwob_core::Organizer for FileOrganizer {
+impl fwob_core::Organizer for Organizer {
     type Error = Error;
 
     fn split_by_keys(
@@ -41,19 +47,20 @@ impl fwob_core::Organizer for FileOrganizer {
         output_dir: &Path,
         first_keys: &[Key],
     ) -> Result<Vec<PathBuf>> {
-        split_by_keys(source, output_dir, first_keys, self.split_options)
+        self.split(source, output_dir, first_keys)
     }
 
     fn concat(&self, destination: &Path, sources: &[PathBuf]) -> Result<u64> {
-        concat_files(destination, sources, self.v1_key_field_index)
+        self.concat(destination, sources)
     }
 }
 
-pub fn split_by_keys(
+fn split_by_keys(
     source: impl AsRef<Path>,
     output_dir: impl AsRef<Path>,
     first_keys: &[Key],
-    options: SplitOptions,
+    reader_options: ReaderOptions,
+    keep_empty_parts: bool,
 ) -> Result<Vec<PathBuf>> {
     if first_keys.is_empty() {
         return Err(Error::EmptySplitKeys);
@@ -65,7 +72,7 @@ pub fn split_by_keys(
     let source = source.as_ref();
     let output_dir = output_dir.as_ref();
     fs::create_dir_all(output_dir)?;
-    let mut reader = AnyReader::open_with_v1_key(source, options.v1_key_field_index)?;
+    let mut reader = Reader::open_with_options(source, reader_options)?;
     let title = reader.title().to_owned();
     let string_table = reader.string_table().to_vec();
     let stem = source
@@ -86,7 +93,7 @@ pub fn split_by_keys(
 
     let mut outputs = Vec::new();
     for range in boundaries.windows(2).map(|pair| pair[0]..pair[1]) {
-        if range.is_empty() && options.ignore_empty_parts {
+        if range.is_empty() && !keep_empty_parts {
             continue;
         }
         let path = output_dir.join(format!("{stem}.part{}.fwob", outputs.len()));
@@ -96,14 +103,14 @@ pub fn split_by_keys(
             range,
             &title,
             &string_table,
-            options.v1_key_field_index,
+            reader_options.v1_key_field_index,
         )?;
         outputs.push(path);
     }
     Ok(outputs)
 }
 
-pub fn concat_files(
+fn concat_files(
     destination: impl AsRef<Path>,
     sources: &[PathBuf],
     v1_key_field_index: usize,
@@ -112,7 +119,8 @@ pub fn concat_files(
         return Err(Error::EmptySources);
     }
 
-    let mut first = AnyReader::open_with_v1_key(&sources[0], v1_key_field_index)?;
+    let reader_options = ReaderOptions { v1_key_field_index };
+    let mut first = Reader::open_with_options(&sources[0], reader_options)?;
     let format = first.format_version();
     let schema = first.schema().clone();
     let title = first.title().to_owned();
@@ -122,7 +130,7 @@ pub fn concat_files(
     drop(first);
 
     for path in &sources[1..] {
-        let mut reader = AnyReader::open_with_v1_key(path, v1_key_field_index)?;
+        let mut reader = Reader::open_with_options(path, reader_options)?;
         if reader.format_version() != format {
             return Err(Error::IncompatibleFormat);
         }
@@ -154,10 +162,10 @@ pub fn concat_files(
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut first = AnyReader::open_with_v1_key(&sources[0], v1_key_field_index)?;
-    let mut writer = first.create_compatible_writer(&temporary_path, &title, &string_table)?;
+    let mut first = Reader::open_with_options(&sources[0], reader_options)?;
+    let mut writer = first.create_rewrite_writer(&temporary_path, &title, &string_table)?;
     for path in sources {
-        let mut reader = AnyReader::open_with_v1_key(path, v1_key_field_index)?;
+        let mut reader = Reader::open_with_options(path, reader_options)?;
         let frame_count = reader.frame_count();
         copy_range(
             &mut reader,
@@ -167,7 +175,7 @@ pub fn concat_files(
         )?;
     }
     writer.finish()?;
-    verify_file(&temporary_path, VerificationOptions { v1_key_field_index })?;
+    Maintenance::verify(&temporary_path, ReaderOptions { v1_key_field_index })?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -188,7 +196,7 @@ fn merge_string_tables(destination: &mut Vec<String>, source: &[String]) -> Resu
 }
 
 fn write_range_atomically(
-    reader: &mut AnyReader,
+    reader: &mut Reader,
     destination: &Path,
     range: Range<u64>,
     title: &str,
@@ -198,7 +206,7 @@ fn write_range_atomically(
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut writer = reader.create_compatible_writer(&temporary_path, title, string_table)?;
+    let mut writer = reader.create_rewrite_writer(&temporary_path, title, string_table)?;
     copy_range(
         reader,
         &mut writer,
@@ -206,7 +214,7 @@ fn write_range_atomically(
         reader.schema().frame_len as usize,
     )?;
     writer.finish()?;
-    verify_file(&temporary_path, VerificationOptions { v1_key_field_index })?;
+    Maintenance::verify(&temporary_path, ReaderOptions { v1_key_field_index })?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -214,7 +222,7 @@ fn write_range_atomically(
 }
 
 fn copy_range(
-    source: &mut AnyReader,
+    source: &mut Reader,
     destination: &mut fwob_core::Writer,
     range: Range<u64>,
     frame_len: usize,

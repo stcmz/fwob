@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use fwob::AnyReader;
+use fwob::Reader;
 use fwob_core::{Field, FieldType, Schema};
 use fwob_v1::{Reader as V1Reader, Writer as V1Writer, WriterOptions};
 use tempfile::tempdir;
@@ -102,7 +102,7 @@ fn cli_splits_concatenates_and_edits_metadata() {
     assert_eq!(
         parts
             .iter()
-            .map(|path| AnyReader::open(path).unwrap().frame_count())
+            .map(|path| Reader::open(path).unwrap().frame_count())
             .collect::<Vec<_>>(),
         [10, 10, 10]
     );
@@ -121,7 +121,7 @@ fn cli_splits_concatenates_and_edits_metadata() {
         "new-symbol",
     ]));
 
-    let mut reader = AnyReader::open(&joined).unwrap();
+    let mut reader = Reader::open(&joined).unwrap();
     assert_eq!(reader.title(), "Renamed");
     assert_eq!(reader.string_table(), ["new-symbol"]);
     assert_eq!(reader.read_all_frames().unwrap().len(), 30);

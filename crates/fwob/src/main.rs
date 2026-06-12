@@ -433,9 +433,12 @@ fn main() -> Result<()> {
 }
 
 fn split_file(args: SplitArgs) -> Result<()> {
-    use fwob::{AnyReader, SplitOptions};
+    use fwob::{Organizer, Reader, ReaderOptions};
 
-    let reader = AnyReader::open_with_v1_key(&args.input, args.key_field_index)?;
+    let reader_options = ReaderOptions {
+        v1_key_field_index: args.key_field_index,
+    };
+    let reader = Reader::open_with_options(&args.input, reader_options)?;
     let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
     let keys = args
         .first_keys
@@ -443,15 +446,11 @@ fn split_file(args: SplitArgs) -> Result<()> {
         .map(|value| parse_key(value, key_type))
         .collect::<Result<Vec<_>>>()?;
     drop(reader);
-    let outputs = fwob::split_by_keys(
-        &args.input,
-        &args.output_dir,
-        &keys,
-        SplitOptions {
-            ignore_empty_parts: !args.keep_empty_parts,
-            v1_key_field_index: args.key_field_index,
-        },
-    )?;
+    let outputs = Organizer {
+        reader_options,
+        keep_empty_parts: args.keep_empty_parts,
+    }
+    .split(&args.input, &args.output_dir, &keys)?;
     println!("[split]");
     println!("parts = {}", outputs.len());
     for (index, path) in outputs.iter().enumerate() {
@@ -461,7 +460,13 @@ fn split_file(args: SplitArgs) -> Result<()> {
 }
 
 fn concat_file(args: ConcatArgs) -> Result<()> {
-    let frames = fwob::concat_files(&args.output, &args.inputs, args.key_field_index)?;
+    let frames = fwob::Organizer {
+        reader_options: fwob::ReaderOptions {
+            v1_key_field_index: args.key_field_index,
+        },
+        ..Default::default()
+    }
+    .concat(&args.output, &args.inputs)?;
     println!("[concat]");
     println!("frames = {frames}");
     println!("output = {:?}", args.output.display().to_string());
@@ -469,12 +474,17 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
 }
 
 fn edit_file(args: EditArgs) -> Result<()> {
-    use fwob::AnyEditor;
+    use fwob::Editor;
 
     if args.title.is_none() && args.append_strings.is_empty() && !args.clear_strings {
         bail!("edit requires --title, --append-string, or --clear-strings");
     }
-    let mut editor = AnyEditor::open_with_v1_key(&args.path, args.key_field_index)?;
+    let mut editor = Editor::open_with_options(
+        &args.path,
+        fwob::ReaderOptions {
+            v1_key_field_index: args.key_field_index,
+        },
+    )?;
     let strings = if args.clear_strings || !args.append_strings.is_empty() {
         let mut values = if args.clear_strings {
             Vec::new()

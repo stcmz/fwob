@@ -12,7 +12,7 @@ pub enum FormatVersion {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct OpenOptions {
+pub struct ReaderOptions {
     pub v1_key_field_index: usize,
 }
 
@@ -43,14 +43,11 @@ pub trait ReaderBackend: FileInfo + Send {
     fn lower_bound(&mut self, key: Key) -> Result<u64>;
     fn upper_bound(&mut self, key: Key) -> Result<u64>;
     fn equal_range(&mut self, key: Key) -> Result<Range<u64>>;
+}
 
-    /// Creates a writer preserving this file's format-specific organization.
-    fn create_compatible_writer(
-        &mut self,
-        path: &Path,
-        title: &str,
-        string_table: &[String],
-    ) -> Result<Writer>;
+/// Creates writers that preserve a source file's format-specific organization.
+pub trait WriterFactory: Send {
+    fn create(&mut self, path: &Path, title: &str, string_table: &[String]) -> Result<Writer>;
 }
 
 /// Version-neutral logical-frame reader.
@@ -60,17 +57,42 @@ pub trait ReaderBackend: FileInfo + Send {
 /// Streams retain only the format backend's bounded read buffer.
 pub struct Reader {
     inner: Box<dyn ReaderBackend>,
+    writer_factory: Box<dyn WriterFactory>,
 }
 
 impl Reader {
-    pub fn from_backend(inner: impl ReaderBackend + 'static) -> Self {
+    pub fn from_parts(
+        inner: impl ReaderBackend + 'static,
+        writer_factory: impl WriterFactory + 'static,
+    ) -> Self {
         Self {
             inner: Box::new(inner),
+            writer_factory: Box::new(writer_factory),
         }
     }
 
     pub fn first_frame(&mut self) -> Result<Option<OwnedFrame>> {
         self.read_frame(0)
+    }
+
+    pub fn format_version(&self) -> FormatVersion {
+        self.inner.format_version()
+    }
+
+    pub fn schema(&self) -> &Schema {
+        self.inner.schema()
+    }
+
+    pub fn title(&self) -> &str {
+        self.inner.title()
+    }
+
+    pub fn frame_count(&self) -> u64 {
+        self.inner.frame_count()
+    }
+
+    pub fn string_table(&self) -> &[String] {
+        self.inner.string_table()
     }
 
     pub fn last_frame(&mut self) -> Result<Option<OwnedFrame>> {
@@ -139,14 +161,13 @@ impl Reader {
         self.frames(0..self.frame_count())?.collect()
     }
 
-    pub fn create_compatible_writer(
+    pub fn create_rewrite_writer(
         &mut self,
         path: &Path,
         title: &str,
         string_table: &[String],
     ) -> Result<Writer> {
-        self.inner
-            .create_compatible_writer(path, title, string_table)
+        self.writer_factory.create(path, title, string_table)
     }
 }
 
@@ -229,6 +250,26 @@ impl Writer {
         self.inner.append_frame(frame)
     }
 
+    pub fn format_version(&self) -> FormatVersion {
+        self.inner.format_version()
+    }
+
+    pub fn schema(&self) -> &Schema {
+        self.inner.schema()
+    }
+
+    pub fn title(&self) -> &str {
+        self.inner.title()
+    }
+
+    pub fn frame_count(&self) -> u64 {
+        self.inner.frame_count()
+    }
+
+    pub fn string_table(&self) -> &[String] {
+        self.inner.string_table()
+    }
+
     pub fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()> {
         self.inner.append_presorted_frames(frames)
     }
@@ -263,9 +304,9 @@ impl FileInfo for Writer {
 /// Physical validation and interrupted-write recovery for one format version.
 pub trait Maintenance: Send + Sync {
     fn format_version(&self) -> FormatVersion;
-    fn light_verify(&self, path: &Path, options: OpenOptions) -> Result<VerificationReport>;
-    fn verify(&self, path: &Path, options: OpenOptions) -> Result<VerificationReport>;
-    fn repair(&self, path: &Path, options: OpenOptions) -> Result<VerificationReport>;
+    fn light_verify(&self, path: &Path, options: ReaderOptions) -> Result<VerificationReport>;
+    fn verify(&self, path: &Path, options: ReaderOptions) -> Result<VerificationReport>;
+    fn repair(&self, path: &Path, options: ReaderOptions) -> Result<VerificationReport>;
 }
 
 /// Copy-on-write mutation contract. Implementations must use bounded memory.

@@ -1,9 +1,9 @@
 use std::{fs::File, ops::Range, path::Path};
 
 use fwob_core::{
-    FileInfo, FormatVersion, Key, Maintenance, OpenOptions, OwnedFrame, Reader as CoreReader,
-    ReaderBackend, Result as CoreResult, Schema, VerificationReport, Writer as CoreWriter,
-    WriterBackend,
+    FileInfo, FormatVersion, Key, Maintenance, OwnedFrame, Reader as CoreReader, ReaderBackend,
+    ReaderOptions, Result as CoreResult, Schema, VerificationReport, Writer as CoreWriter,
+    WriterBackend, WriterFactory,
 };
 
 use crate::{CodecSelection, EncodingSelection, Reader, Writer, WriterOptions, FILE_HEADER_LEN};
@@ -13,28 +13,25 @@ pub struct ReaderAdapter {
 }
 
 impl ReaderAdapter {
-    pub fn open(path: impl AsRef<Path>) -> crate::Result<Self> {
-        Ok(Self {
-            reader: Reader::open(path)?,
-        })
-    }
-
-    fn compatible_options(
-        &mut self,
-        title: &str,
-        string_table: &[String],
-    ) -> crate::Result<WriterOptions> {
-        let mut options = WriterOptions::new(title);
-        options.page_size = self.reader.header().page_size;
-        options.string_table = string_table.to_vec();
-        if self.reader.header().page_count > 0 {
-            let first = self.reader.read_page_header(0)?;
+    pub fn open(path: impl AsRef<Path>) -> crate::Result<(Self, CompatibleWriterFactory)> {
+        let mut reader = Reader::open(path)?;
+        let header = reader.header().clone();
+        let mut options = WriterOptions::new("");
+        options.page_size = header.page_size;
+        if header.page_count > 0 {
+            let first = reader.read_page_header(0)?;
             options.codec = first.codec;
             options.codec_selection = CodecSelection::Fixed(first.codec);
             options.encoding = first.encoding;
             options.encoding_selection = EncodingSelection::Fixed(first.encoding);
         }
-        Ok(options)
+        Ok((
+            Self { reader },
+            CompatibleWriterFactory {
+                schema: header.schema,
+                options,
+            },
+        ))
     }
 }
 
@@ -92,18 +89,24 @@ impl ReaderBackend for ReaderAdapter {
             .map_err(fwob_core::FwobError::backend)?;
         Ok(start..end)
     }
+}
 
-    fn create_compatible_writer(
+pub struct CompatibleWriterFactory {
+    schema: Schema,
+    options: WriterOptions,
+}
+
+impl WriterFactory for CompatibleWriterFactory {
+    fn create(
         &mut self,
         path: &Path,
         title: &str,
         string_table: &[String],
     ) -> CoreResult<CoreWriter> {
-        let schema = self.reader.header().schema.clone();
-        let options = self
-            .compatible_options(title, string_table)
-            .map_err(fwob_core::FwobError::backend)?;
-        create_writer(path, schema, options).map_err(fwob_core::FwobError::backend)
+        let mut options = self.options.clone();
+        options.title = title.to_owned();
+        options.string_table = string_table.to_vec();
+        create_writer(path, self.schema.clone(), options).map_err(fwob_core::FwobError::backend)
     }
 }
 
@@ -170,7 +173,8 @@ impl WriterBackend for WriterAdapter {
 }
 
 pub fn open_reader(path: impl AsRef<Path>) -> crate::Result<CoreReader> {
-    Ok(CoreReader::from_backend(ReaderAdapter::open(path)?))
+    let (reader, factory) = ReaderAdapter::open(path)?;
+    Ok(CoreReader::from_parts(reader, factory))
 }
 
 pub fn create_writer(
@@ -197,7 +201,7 @@ impl Maintenance for MaintenanceService {
         FormatVersion::V2
     }
 
-    fn light_verify(&self, path: &Path, _options: OpenOptions) -> CoreResult<VerificationReport> {
+    fn light_verify(&self, path: &Path, _options: ReaderOptions) -> CoreResult<VerificationReport> {
         let metadata_len = std::fs::metadata(path)?.len();
         let mut reader = Reader::open(path).map_err(fwob_core::FwobError::backend)?;
         let header = reader.header().clone();
@@ -220,7 +224,7 @@ impl Maintenance for MaintenanceService {
         })
     }
 
-    fn verify(&self, path: &Path, options: OpenOptions) -> CoreResult<VerificationReport> {
+    fn verify(&self, path: &Path, options: ReaderOptions) -> CoreResult<VerificationReport> {
         let report = self.light_verify(path, options)?;
         Reader::open(path)
             .map_err(fwob_core::FwobError::backend)?
@@ -229,7 +233,7 @@ impl Maintenance for MaintenanceService {
         Ok(report)
     }
 
-    fn repair(&self, path: &Path, options: OpenOptions) -> CoreResult<VerificationReport> {
+    fn repair(&self, path: &Path, options: ReaderOptions) -> CoreResult<VerificationReport> {
         crate::repair_committed_tail(path).map_err(fwob_core::FwobError::backend)?;
         self.verify(path, options)
     }

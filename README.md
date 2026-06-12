@@ -22,8 +22,8 @@ with a 64-byte header, compressed payload, and zero padding.
 - `fwob-derive`: derive macro for strongly typed fixed-width frames.
 - `fwob-v1`: FWOB v1 reader, writer, verifier, and compatibility tests.
 - `fwob-v2`: compressed fixed-page FWOB v2 reader and writer.
-- `fwob`: auto-detecting `Reader`, `Writer`, and `Editor` factories plus
-  command-line conversion, inspection, verification, and benchmarking.
+- `fwob`: the primary library facade with auto-detecting `Reader`, `Writer`,
+  `Editor`, `Maintenance`, and `Organizer` APIs, plus the command-line tool.
 
 The logical Rust API is documented in [`docs/api.md`](docs/api.md).
 

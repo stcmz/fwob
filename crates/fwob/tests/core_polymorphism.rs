@@ -1,4 +1,4 @@
-use fwob::{FormatVersion, Reader, VerificationOptions, Writer};
+use fwob::{FormatVersion, Maintenance, Reader, ReaderOptions, Writer};
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
 
@@ -40,7 +40,9 @@ fn public_reader_writer_names_are_polymorphic_for_v1_and_v2() {
         assert_eq!(reader.equal_range(Key::I32(2)).unwrap(), 1..2);
 
         assert_eq!(
-            fwob::verify_file(&path, VerificationOptions::default()).unwrap(),
+            Maintenance::verify(&path, ReaderOptions::default())
+                .unwrap()
+                .format_version,
             version
         );
     }
