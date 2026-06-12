@@ -1,9 +1,14 @@
+mod core_api;
 mod editor;
 mod header;
 mod reader;
 mod verifier;
 mod writer;
 
+pub use core_api::{
+    create_writer as create_core_writer, open_reader as open_core_reader,
+    open_writer as open_core_writer, MaintenanceService,
+};
 pub use editor::InMemoryEditor;
 pub use header::{Header, HEADER_LEN, SIGNATURE, VERSION};
 pub use reader::Reader;

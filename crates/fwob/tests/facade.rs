@@ -1,8 +1,8 @@
-use std::path::Path;
+use std::{fs::OpenOptions, io::Write, path::Path};
 
 use fwob::{
-    concat_files, split_by_keys, AnyAppender, AnyEditor, AnyReader, AppendOptions, FormatVersion,
-    FwobAppender, FwobEditor, FwobFile, FwobReader, SplitOptions,
+    concat_files, light_verify_file, repair_file, split_by_keys, verify_file, AnyAppender,
+    AnyEditor, AnyReader, AppendOptions, FormatVersion, SplitOptions, VerificationOptions,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -329,4 +329,29 @@ fn metadata_editor_contract_is_identical_for_v1_and_v2() {
 fn split_and_concat_contract_is_identical_for_v1_and_v2() {
     assert_organization_contract(FormatVersion::V1);
     assert_organization_contract(FormatVersion::V2);
+}
+
+#[test]
+fn verification_and_repair_are_identical_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("{version:?}.fwob"));
+        create_query_file(&path, version);
+        let options = VerificationOptions::default();
+
+        assert_eq!(light_verify_file(&path, options).unwrap(), version);
+        assert_eq!(verify_file(&path, options).unwrap(), version);
+
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(&[0xaa, 0xbb, 0xcc])
+            .unwrap();
+
+        assert!(light_verify_file(&path, options).is_err());
+        assert!(verify_file(&path, options).is_err());
+        assert_eq!(repair_file(&path, options).unwrap(), version);
+        assert_eq!(verify_file(&path, options).unwrap(), version);
+    }
 }

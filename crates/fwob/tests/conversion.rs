@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use fwob::{AnyReader, FwobFile, FwobReader};
+use fwob::AnyReader;
 use fwob_core::{Field, FieldType, Schema};
 use fwob_v1::{Reader as V1Reader, Writer as V1Writer, WriterOptions};
 use tempfile::tempdir;

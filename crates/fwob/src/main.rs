@@ -433,7 +433,7 @@ fn main() -> Result<()> {
 }
 
 fn split_file(args: SplitArgs) -> Result<()> {
-    use fwob::{AnyReader, FwobFile, SplitOptions};
+    use fwob::{AnyReader, SplitOptions};
 
     let reader = AnyReader::open_with_v1_key(&args.input, args.key_field_index)?;
     let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
@@ -469,7 +469,7 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
 }
 
 fn edit_file(args: EditArgs) -> Result<()> {
-    use fwob::{AnyEditor, FwobFile};
+    use fwob::AnyEditor;
 
     if args.title.is_none() && args.append_strings.is_empty() && !args.clear_strings {
         bail!("edit requires --title, --append-string, or --clear-strings");

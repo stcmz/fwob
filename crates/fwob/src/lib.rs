@@ -5,15 +5,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use fwob_core::{Key, OwnedFrame, Schema};
+use fwob_core::{FileInfo as _, Key, OwnedFrame, Schema};
 
 mod editor;
 mod organization;
 mod typed;
 
 pub use editor::AnyEditor;
-pub use organization::{concat_files, split_by_keys, SplitOptions};
+pub use organization::{concat_files, split_by_keys, FileOrganizer, SplitOptions};
 pub use typed::{TypedAppender, TypedEditor, TypedReader};
+
+pub type Reader = AnyReader;
+pub type Writer = AnyAppender;
+pub type Editor = AnyEditor;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -55,11 +59,7 @@ pub enum Error {
     V2(#[from] fwob_v2::V2Error),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FormatVersion {
-    V1,
-    V2,
-}
+pub use fwob_core::{FormatVersion, OpenOptions as VerificationOptions};
 
 /// Version-neutral immutable file metadata.
 pub trait FwobFile {
@@ -151,12 +151,8 @@ pub trait FwobEditor: FwobFile {
     }
 }
 
-pub enum AnyReader {
-    V1 {
-        reader: fwob_v1::Reader<File>,
-        string_table: Vec<String>,
-    },
-    V2(fwob_v2::Reader<File>),
+pub struct AnyReader {
+    inner: fwob_core::Reader,
 }
 
 impl AnyReader {
@@ -166,111 +162,148 @@ impl AnyReader {
 
     pub fn open_with_v1_key(path: impl AsRef<Path>, key_field_index: usize) -> Result<Self> {
         let path = path.as_ref();
-        match detect_format(path)? {
-            FormatVersion::V1 => {
-                let mut reader = fwob_v1::Reader::open(path, key_field_index)?;
-                let string_table = reader.read_string_table()?;
-                Ok(Self::V1 {
-                    reader,
-                    string_table,
-                })
-            }
-            FormatVersion::V2 => Ok(Self::V2(fwob_v2::Reader::open(path)?)),
-        }
+        let inner = match detect_format(path)? {
+            FormatVersion::V1 => fwob_v1::open_core_reader(path, key_field_index)?,
+            FormatVersion::V2 => fwob_v2::open_core_reader(path)?,
+        };
+        Ok(Self { inner })
+    }
+
+    pub fn format_version(&self) -> FormatVersion {
+        self.inner.format_version()
+    }
+
+    pub fn schema(&self) -> &Schema {
+        self.inner.schema()
+    }
+
+    pub fn title(&self) -> &str {
+        self.inner.title()
+    }
+
+    pub fn frame_count(&self) -> u64 {
+        self.inner.frame_count()
+    }
+
+    pub fn string_table(&self) -> &[String] {
+        self.inner.string_table()
+    }
+
+    pub fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>> {
+        Ok(self.inner.read_frame(index)?)
+    }
+
+    pub fn read_key(&mut self, index: u64) -> Result<Option<Key>> {
+        Ok(self.inner.read_key(index)?)
+    }
+
+    pub fn first_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        Ok(self.inner.first_frame()?)
+    }
+
+    pub fn last_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        Ok(self.inner.last_frame()?)
+    }
+
+    pub fn first_key(&mut self) -> Result<Option<Key>> {
+        Ok(self.inner.first_key()?)
+    }
+
+    pub fn last_key(&mut self) -> Result<Option<Key>> {
+        Ok(self.inner.last_key()?)
+    }
+
+    pub fn lower_bound(&mut self, key: Key) -> Result<u64> {
+        Ok(self.inner.lower_bound(key)?)
+    }
+
+    pub fn upper_bound(&mut self, key: Key) -> Result<u64> {
+        Ok(self.inner.upper_bound(key)?)
+    }
+
+    pub fn equal_range(&mut self, key: Key) -> Result<Range<u64>> {
+        Ok(self.inner.equal_range(key)?)
+    }
+
+    pub fn frames(
+        &mut self,
+        range: Range<u64>,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
+        Ok(Box::new(
+            self.inner
+                .frames(range)?
+                .map(|frame| frame.map_err(Into::into)),
+        ))
+    }
+
+    pub fn frames_by_key(
+        &mut self,
+        range: RangeInclusive<Key>,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
+        Ok(Box::new(
+            self.inner
+                .frames_by_key(range)?
+                .map(|frame| frame.map_err(Into::into)),
+        ))
+    }
+
+    pub fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>> {
+        Ok(self.inner.read_all_frames()?)
+    }
+
+    pub(crate) fn create_compatible_writer(
+        &mut self,
+        path: &Path,
+        title: &str,
+        string_table: &[String],
+    ) -> Result<fwob_core::Writer> {
+        Ok(self
+            .inner
+            .create_compatible_writer(path, title, string_table)?)
     }
 }
 
 impl FwobFile for AnyReader {
     fn format_version(&self) -> FormatVersion {
-        match self {
-            Self::V1 { .. } => FormatVersion::V1,
-            Self::V2(_) => FormatVersion::V2,
-        }
+        self.inner.format_version()
     }
 
     fn schema(&self) -> &Schema {
-        match self {
-            Self::V1 { reader, .. } => reader.schema(),
-            Self::V2(reader) => &reader.header().schema,
-        }
+        self.inner.schema()
     }
 
     fn title(&self) -> &str {
-        match self {
-            Self::V1 { reader, .. } => &reader.header().title,
-            Self::V2(reader) => &reader.header().title,
-        }
+        self.inner.title()
     }
 
     fn frame_count(&self) -> u64 {
-        match self {
-            Self::V1 { reader, .. } => reader.frame_count(),
-            Self::V2(reader) => reader.header().frame_count,
-        }
+        self.inner.frame_count()
     }
 
     fn string_table(&self) -> &[String] {
-        match self {
-            Self::V1 { string_table, .. } => string_table,
-            Self::V2(reader) => &reader.header().string_table,
-        }
+        self.inner.string_table()
     }
 }
 
 impl FwobReader for AnyReader {
     fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>> {
-        match self {
-            Self::V1 { reader, .. } => Ok(reader.read_frame_at(index)?),
-            Self::V2(reader) => Ok(reader.read_frame_at(index)?),
-        }
+        Ok(self.inner.read_frame(index)?)
     }
 
     fn read_key(&mut self, index: u64) -> Result<Option<Key>> {
-        match self {
-            Self::V1 { reader, .. } => Ok(reader.read_key_at(index)?),
-            Self::V2(reader) => Ok(reader.read_key_at(index)?),
-        }
-    }
-
-    fn first_key(&mut self) -> Result<Option<Key>> {
-        match self {
-            Self::V1 { reader, .. } => Ok(reader.read_key_at(0)?),
-            Self::V2(reader) => Ok(reader.first_key()?),
-        }
-    }
-
-    fn last_key(&mut self) -> Result<Option<Key>> {
-        match self {
-            Self::V1 { reader, .. } => {
-                let Some(index) = reader.frame_count().checked_sub(1) else {
-                    return Ok(None);
-                };
-                Ok(reader.read_key_at(index)?)
-            }
-            Self::V2(reader) => Ok(reader.last_key()?),
-        }
+        Ok(self.inner.read_key(index)?)
     }
 
     fn lower_bound(&mut self, key: Key) -> Result<u64> {
-        match self {
-            Self::V1 { reader, .. } => Ok(reader.lower_bound(key)?),
-            Self::V2(reader) => Ok(reader.lower_bound(key)?),
-        }
+        Ok(self.inner.lower_bound(key)?)
     }
 
     fn upper_bound(&mut self, key: Key) -> Result<u64> {
-        match self {
-            Self::V1 { reader, .. } => Ok(reader.upper_bound(key)?),
-            Self::V2(reader) => Ok(reader.upper_bound(key)?),
-        }
+        Ok(self.inner.upper_bound(key)?)
     }
 
     fn equal_range(&mut self, key: Key) -> Result<Range<u64>> {
-        let (start, end) = match self {
-            Self::V1 { reader, .. } => reader.equal_range(key)?,
-            Self::V2(reader) => reader.equal_range(key)?,
-        };
-        Ok(start..end)
+        Ok(self.inner.equal_range(key)?)
     }
 
     fn frames(
@@ -353,12 +386,8 @@ impl Default for AppendOptions {
     }
 }
 
-pub enum AnyAppender {
-    V1 {
-        writer: Box<fwob_v1::Writer<File>>,
-        string_table: Vec<String>,
-    },
-    V2(Box<fwob_v2::Writer<File>>),
+pub struct AnyAppender {
+    inner: fwob_core::Writer,
 }
 
 impl AnyAppender {
@@ -368,13 +397,8 @@ impl AnyAppender {
         options: fwob_v1::WriterOptions,
         strings: &[String],
     ) -> Result<Self> {
-        let mut writer = fwob_v1::Writer::create(path, schema, options)?;
-        for value in strings {
-            writer.append_string(value)?;
-        }
-        Ok(Self::V1 {
-            writer: Box::new(writer),
-            string_table: strings.to_vec(),
+        Ok(Self {
+            inner: fwob_v1::create_core_writer(path, schema, options, strings)?,
         })
     }
 
@@ -383,94 +407,86 @@ impl AnyAppender {
         schema: Schema,
         options: fwob_v2::WriterOptions,
     ) -> Result<Self> {
-        Ok(Self::V2(Box::new(fwob_v2::Writer::create(
-            path, schema, options,
-        )?)))
+        Ok(Self {
+            inner: fwob_v2::create_core_writer(path, schema, options)?,
+        })
     }
 
     pub fn open(path: impl AsRef<Path>, options: AppendOptions) -> Result<Self> {
         let path = path.as_ref();
-        match detect_format(path)? {
-            FormatVersion::V1 => {
-                let mut reader = fwob_v1::Reader::open(path, options.v1_key_field_index)?;
-                let string_table = reader.read_string_table()?;
-                drop(reader);
-                Ok(Self::V1 {
-                    writer: Box::new(fwob_v1::Writer::open_append(
-                        path,
-                        options.v1_key_field_index,
-                    )?),
-                    string_table,
-                })
-            }
-            FormatVersion::V2 => Ok(Self::V2(Box::new(fwob_v2::Writer::open_append(
-                path, options.v2,
-            )?))),
-        }
+        let inner = match detect_format(path)? {
+            FormatVersion::V1 => fwob_v1::open_core_writer(path, options.v1_key_field_index)?,
+            FormatVersion::V2 => fwob_v2::open_core_writer(path, options.v2)?,
+        };
+        Ok(Self { inner })
     }
 
     pub fn finish(self) -> Result<()> {
         Box::new(self).finish()
     }
+
+    pub fn format_version(&self) -> FormatVersion {
+        self.inner.format_version()
+    }
+
+    pub fn schema(&self) -> &Schema {
+        self.inner.schema()
+    }
+
+    pub fn title(&self) -> &str {
+        self.inner.title()
+    }
+
+    pub fn frame_count(&self) -> u64 {
+        self.inner.frame_count()
+    }
+
+    pub fn string_table(&self) -> &[String] {
+        self.inner.string_table()
+    }
+
+    pub fn append_frame(&mut self, frame: &[u8]) -> Result<()> {
+        Ok(self.inner.append_frame(frame)?)
+    }
+
+    pub fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()> {
+        Ok(self.inner.append_presorted_frames(frames)?)
+    }
 }
 
 impl FwobFile for AnyAppender {
     fn format_version(&self) -> FormatVersion {
-        match self {
-            Self::V1 { .. } => FormatVersion::V1,
-            Self::V2(_) => FormatVersion::V2,
-        }
+        self.inner.format_version()
     }
 
     fn schema(&self) -> &Schema {
-        match self {
-            Self::V1 { writer, .. } => writer.schema(),
-            Self::V2(writer) => writer.schema(),
-        }
+        self.inner.schema()
     }
 
     fn title(&self) -> &str {
-        match self {
-            Self::V1 { writer, .. } => &writer.header().title,
-            Self::V2(writer) => &writer.header().title,
-        }
+        self.inner.title()
     }
 
     fn frame_count(&self) -> u64 {
-        match self {
-            Self::V1 { writer, .. } => writer.frame_count(),
-            Self::V2(writer) => writer.frame_count(),
-        }
+        self.inner.frame_count()
     }
 
     fn string_table(&self) -> &[String] {
-        match self {
-            Self::V1 { string_table, .. } => string_table,
-            Self::V2(writer) => &writer.header().string_table,
-        }
+        self.inner.string_table()
     }
 }
 
 impl FwobAppender for AnyAppender {
     fn append_frame(&mut self, frame: &[u8]) -> Result<()> {
-        match self {
-            Self::V1 { writer, .. } => Ok(writer.append_frame(frame)?),
-            Self::V2(writer) => Ok(writer.append_frame(frame)?),
-        }
+        Ok(self.inner.append_frame(frame)?)
     }
 
     fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()> {
-        match self {
-            Self::V1 { writer, .. } => Ok(writer.append_presorted_raw_frames(frames)?),
-            Self::V2(writer) => Ok(writer.append_presorted_raw_frames(frames)?),
-        }
+        Ok(self.inner.append_presorted_frames(frames)?)
     }
 
     fn finish(self: Box<Self>) -> Result<()> {
-        match *self {
-            Self::V1 { .. } => Ok(()),
-            Self::V2(writer) => Ok((*writer).finish()?),
-        }
+        Ok(self.inner.finish()?)
     }
 }
 
@@ -485,5 +501,39 @@ pub fn detect_format(path: impl AsRef<Path>) -> Result<FormatVersion> {
         Ok(FormatVersion::V2)
     } else {
         Err(Error::UnsupportedFormat(path.to_path_buf()))
+    }
+}
+
+/// Performs header, metadata, and physical-size checks without scanning every frame.
+pub fn light_verify_file(
+    path: impl AsRef<Path>,
+    options: VerificationOptions,
+) -> Result<FormatVersion> {
+    let path = path.as_ref();
+    let format = detect_format(path)?;
+    maintenance_for(format).light_verify(path, options)?;
+    Ok(format)
+}
+
+/// Fully decodes and verifies all committed frames and their key ordering.
+pub fn verify_file(path: impl AsRef<Path>, options: VerificationOptions) -> Result<FormatVersion> {
+    let path = path.as_ref();
+    let format = detect_format(path)?;
+    maintenance_for(format).verify(path, options)?;
+    Ok(format)
+}
+
+/// Truncates an interrupted write to the last committed valid boundary, then fully verifies it.
+pub fn repair_file(path: impl AsRef<Path>, options: VerificationOptions) -> Result<FormatVersion> {
+    let path = path.as_ref();
+    let format = detect_format(path)?;
+    maintenance_for(format).repair(path, options)?;
+    Ok(format)
+}
+
+fn maintenance_for(format: FormatVersion) -> Box<dyn fwob_core::Maintenance> {
+    match format {
+        FormatVersion::V1 => Box::new(fwob_v1::MaintenanceService),
+        FormatVersion::V2 => Box::new(fwob_v2::MaintenanceService),
     }
 }

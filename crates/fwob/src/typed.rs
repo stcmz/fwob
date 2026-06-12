@@ -7,8 +7,7 @@ use std::{
 use fwob_core::{FwobFrame, FwobKey, OwnedFrame};
 
 use crate::{
-    AnyAppender, AnyEditor, AnyReader, AppendOptions, FwobAppender, FwobEditor, FwobFile,
-    FwobReader, Result,
+    AnyAppender, AnyEditor, AnyReader, AppendOptions, FwobAppender, FwobFile, FwobReader, Result,
 };
 
 pub struct TypedReader<R, F> {

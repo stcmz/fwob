@@ -5,15 +5,28 @@ v2. Consumers work with files, schemas, frames, keys, and strings. Storage
 details such as v2 pages, codecs, encodings, and append tails remain inside the
 format implementation.
 
-## Facades
+## Core Contracts
 
-- `AnyReader` detects v1 or v2 when opening a file.
-- `AnyAppender` detects v1 or v2 and appends through one interface.
-- `FwobFile` exposes common metadata.
-- `FwobReader` exposes frame/key access, bounds, equal range, and lazy streams.
-- `FwobAppender` exposes ordered append and explicit finalization.
+`fwob-core` owns the format-neutral contracts and handles:
 
-V1 files do not store their key-field index. `AnyReader::open_with_v1_key` and
+- `FileInfo` exposes common metadata.
+- `ReaderBackend` and `WriterBackend` are object-safe format implementation
+  contracts.
+- `Reader` and `Writer` own boxed backends and expose logical operations without
+  a version match on each call.
+- `Editor`, `Maintenance`, and `Organizer` separate mutation, physical
+  validation/recovery, and file organization from ordinary reads and writes.
+
+`fwob-v1` and `fwob-v2` implement the backend and maintenance contracts. Their
+`open_core_reader`, `create_core_writer`, and `open_core_writer` functions are
+available to applications that already know the format version.
+
+The `fwob` crate is the normal consumer entry point. Its `Reader`, `Writer`, and
+`Editor` types detect v1 or v2 while opening a file, then delegate through the
+core contracts. The previous `AnyReader`, `AnyAppender`, and `AnyEditor` names
+remain available for source compatibility.
+
+V1 files do not store their key-field index. `Reader::open_with_v1_key` and
 `AppendOptions::v1_key_field_index` allow callers to supply it; field zero is
 the default.
 
@@ -21,8 +34,8 @@ V2 writer options are accepted only while opening a v2 appender. They do not
 become part of the common appender trait because compression and packing are
 format implementation details.
 
-Reader and appender conformance tests execute the same logical assertions
-against both formats.
+Reader, writer, editor, maintenance, and organization conformance tests execute
+the same logical assertions against both formats.
 
 ## Typed Frames
 
@@ -105,7 +118,7 @@ metadata inside the fixed 4 KiB file-header boundary.
 
 ## Bounded-Memory Editing
 
-`AnyEditor` supports deletion by:
+`Editor` supports deletion by:
 
 - one global frame index
 - a half-open global frame-index range
@@ -130,7 +143,7 @@ The previous v1 whole-file implementation remains available as
 frame and is not suitable for large production files.
 
 Title and string-table changes use the same atomic bounded-memory rewrite.
-`AnyEditor::update_metadata` can apply both changes in one pass. V1 rewrites
+`Editor::update_metadata` can apply both changes in one pass. V1 rewrites
 retain at least the original reserved string-table capacity and grow it when
 needed.
 

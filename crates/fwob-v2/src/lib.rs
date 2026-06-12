@@ -1,4 +1,5 @@
 mod codec;
+mod core_api;
 mod encoding;
 mod file_header;
 mod page;
@@ -7,6 +8,10 @@ mod repair;
 mod writer;
 
 pub use codec::Codec;
+pub use core_api::{
+    create_writer as create_core_writer, open_reader as open_core_reader,
+    open_writer as open_core_writer, MaintenanceService,
+};
 pub use encoding::{decode_page_payload, encode_page_payload};
 pub use file_header::{FileHeader, FILE_HEADER_LEN, MAGIC, MAX_PAGE_SIZE, MIN_PAGE_SIZE, VERSION};
 pub use page::{Encoding, PageHeader, PAGE_HEADER_LEN};

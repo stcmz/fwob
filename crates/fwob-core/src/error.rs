@@ -22,6 +22,22 @@ pub enum FwobError {
     #[error("frame has invalid length: expected {expected} bytes, got {actual}")]
     InvalidFrameLength { expected: usize, actual: usize },
 
+    #[error("invalid frame range {start}..{end} for {frame_count} frames")]
+    InvalidFrameRange {
+        start: u64,
+        end: u64,
+        frame_count: u64,
+    },
+
+    #[error("format backend error: {0}")]
+    Backend(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl FwobError {
+    pub fn backend(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Backend(Box::new(error))
+    }
 }

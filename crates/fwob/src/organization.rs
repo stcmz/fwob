@@ -1,13 +1,13 @@
 use std::{
-    fs::{self, File},
+    fs,
     ops::Range,
     path::{Path, PathBuf},
 };
 
-use fwob_core::{Key, Schema};
+use fwob_core::Key;
 use tempfile::NamedTempFile;
 
-use crate::{AnyReader, Error, FormatVersion, FwobFile, FwobReader, Result};
+use crate::{verify_file, AnyReader, Error, Result, VerificationOptions};
 
 const COPY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
@@ -23,6 +23,29 @@ impl Default for SplitOptions {
             ignore_empty_parts: true,
             v1_key_field_index: 0,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FileOrganizer {
+    pub split_options: SplitOptions,
+    pub v1_key_field_index: usize,
+}
+
+impl fwob_core::Organizer for FileOrganizer {
+    type Error = Error;
+
+    fn split_by_keys(
+        &self,
+        source: &Path,
+        output_dir: &Path,
+        first_keys: &[Key],
+    ) -> Result<Vec<PathBuf>> {
+        split_by_keys(source, output_dir, first_keys, self.split_options)
+    }
+
+    fn concat(&self, destination: &Path, sources: &[PathBuf]) -> Result<u64> {
+        concat_files(destination, sources, self.v1_key_field_index)
     }
 }
 
@@ -43,7 +66,8 @@ pub fn split_by_keys(
     let output_dir = output_dir.as_ref();
     fs::create_dir_all(output_dir)?;
     let mut reader = AnyReader::open_with_v1_key(source, options.v1_key_field_index)?;
-    let settings = OutputSettings::from_reader(&mut reader)?;
+    let title = reader.title().to_owned();
+    let string_table = reader.string_table().to_vec();
     let stem = source
         .file_stem()
         .or_else(|| source.file_name())
@@ -70,7 +94,8 @@ pub fn split_by_keys(
             &mut reader,
             &path,
             range,
-            &settings,
+            &title,
+            &string_table,
             options.v1_key_field_index,
         )?;
         outputs.push(path);
@@ -88,23 +113,26 @@ pub fn concat_files(
     }
 
     let mut first = AnyReader::open_with_v1_key(&sources[0], v1_key_field_index)?;
-    let mut settings = OutputSettings::from_reader(&mut first)?;
+    let format = first.format_version();
+    let schema = first.schema().clone();
+    let title = first.title().to_owned();
+    let mut string_table = first.string_table().to_vec();
     let mut total_frames = first.frame_count();
     let mut previous_last = first.last_key()?;
     drop(first);
 
     for path in &sources[1..] {
         let mut reader = AnyReader::open_with_v1_key(path, v1_key_field_index)?;
-        if reader.format_version() != settings.format {
+        if reader.format_version() != format {
             return Err(Error::IncompatibleFormat);
         }
-        if reader.schema() != &settings.schema {
+        if reader.schema() != &schema {
             return Err(Error::IncompatibleSchema);
         }
-        if reader.title() != settings.title {
+        if reader.title() != title {
             return Err(Error::IncompatibleTitle);
         }
-        merge_string_tables(&mut settings.string_table, reader.string_table())?;
+        merge_string_tables(&mut string_table, reader.string_table())?;
         if let (Some(previous), Some(next)) = (previous_last, reader.first_key()?) {
             if next < previous {
                 return Err(Error::IncompatibleKeyOrder);
@@ -120,19 +148,14 @@ pub fn concat_files(
                     "concatenated frame count overflows u64".into(),
                 ))
             })?;
-        if let OutputKind::V1 { preserved_length } = &mut settings.kind {
-            if let AnyReader::V1 { reader, .. } = &reader {
-                *preserved_length =
-                    (*preserved_length).max(reader.header().string_table_preserved_length);
-            }
-        }
     }
 
     let destination = destination.as_ref();
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut writer = settings.create_writer(&temporary_path)?;
+    let mut first = AnyReader::open_with_v1_key(&sources[0], v1_key_field_index)?;
+    let mut writer = first.create_compatible_writer(&temporary_path, &title, &string_table)?;
     for path in sources {
         let mut reader = AnyReader::open_with_v1_key(path, v1_key_field_index)?;
         let frame_count = reader.frame_count();
@@ -140,11 +163,11 @@ pub fn concat_files(
             &mut reader,
             &mut writer,
             0..frame_count,
-            settings.schema.frame_len as usize,
+            schema.frame_len as usize,
         )?;
     }
     writer.finish()?;
-    verify_file(&temporary_path, settings.format, v1_key_field_index)?;
+    verify_file(&temporary_path, VerificationOptions { v1_key_field_index })?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -164,123 +187,26 @@ fn merge_string_tables(destination: &mut Vec<String>, source: &[String]) -> Resu
     Ok(())
 }
 
-enum OutputKind {
-    V1 { preserved_length: u32 },
-    V2(fwob_v2::WriterOptions),
-}
-
-struct OutputSettings {
-    format: FormatVersion,
-    schema: Schema,
-    title: String,
-    string_table: Vec<String>,
-    kind: OutputKind,
-}
-
-impl OutputSettings {
-    fn from_reader(reader: &mut AnyReader) -> Result<Self> {
-        let format = reader.format_version();
-        let schema = reader.schema().clone();
-        let title = reader.title().to_owned();
-        let string_table = reader.string_table().to_vec();
-        let kind = match reader {
-            AnyReader::V1 { reader, .. } => OutputKind::V1 {
-                preserved_length: reader.header().string_table_preserved_length,
-            },
-            AnyReader::V2(reader) => {
-                let mut options = fwob_v2::WriterOptions::new(title.clone());
-                options.page_size = reader.header().page_size;
-                options.string_table = string_table.clone();
-                if reader.header().page_count > 0 {
-                    let first = reader.read_page_header(0)?;
-                    options.codec = first.codec;
-                    options.codec_selection = fwob_v2::CodecSelection::Fixed(first.codec);
-                    options.encoding = first.encoding;
-                    options.encoding_selection = fwob_v2::EncodingSelection::Fixed(first.encoding);
-                }
-                OutputKind::V2(options)
-            }
-        };
-        Ok(Self {
-            format,
-            schema,
-            title,
-            string_table,
-            kind,
-        })
-    }
-
-    fn create_writer(&self, path: &Path) -> Result<OutputWriter> {
-        match &self.kind {
-            OutputKind::V1 { preserved_length } => {
-                let mut options = fwob_v1::WriterOptions::new(self.title.clone());
-                let required = self
-                    .string_table
-                    .iter()
-                    .map(|value| value.len().saturating_add(5))
-                    .sum::<usize>();
-                options.string_table_preserved_length =
-                    (*preserved_length).max(u32::try_from(required).unwrap_or(u32::MAX));
-                let mut writer = fwob_v1::Writer::create(path, self.schema.clone(), options)?;
-                for value in &self.string_table {
-                    writer.append_string(value)?;
-                }
-                Ok(OutputWriter::V1(Box::new(writer)))
-            }
-            OutputKind::V2(options) => {
-                let mut options = options.clone();
-                options.title = self.title.clone();
-                options.string_table = self.string_table.clone();
-                Ok(OutputWriter::V2(Box::new(fwob_v2::Writer::create(
-                    path,
-                    self.schema.clone(),
-                    options,
-                )?)))
-            }
-        }
-    }
-}
-
-enum OutputWriter {
-    V1(Box<fwob_v1::Writer<File>>),
-    V2(Box<fwob_v2::Writer<File>>),
-}
-
-impl OutputWriter {
-    fn append(&mut self, bytes: &[u8]) -> Result<()> {
-        match self {
-            Self::V1(writer) => Ok(writer.append_presorted_raw_frames(bytes)?),
-            Self::V2(writer) => Ok(writer.append_presorted_raw_frames(bytes)?),
-        }
-    }
-
-    fn finish(self) -> Result<()> {
-        match self {
-            Self::V1(_) => Ok(()),
-            Self::V2(writer) => Ok((*writer).finish()?),
-        }
-    }
-}
-
 fn write_range_atomically(
     reader: &mut AnyReader,
     destination: &Path,
     range: Range<u64>,
-    settings: &OutputSettings,
+    title: &str,
+    string_table: &[String],
     v1_key_field_index: usize,
 ) -> Result<()> {
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut writer = settings.create_writer(&temporary_path)?;
+    let mut writer = reader.create_compatible_writer(&temporary_path, title, string_table)?;
     copy_range(
         reader,
         &mut writer,
         range,
-        settings.schema.frame_len as usize,
+        reader.schema().frame_len as usize,
     )?;
     writer.finish()?;
-    verify_file(&temporary_path, settings.format, v1_key_field_index)?;
+    verify_file(&temporary_path, VerificationOptions { v1_key_field_index })?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -289,7 +215,7 @@ fn write_range_atomically(
 
 fn copy_range(
     source: &mut AnyReader,
-    destination: &mut OutputWriter,
+    destination: &mut fwob_core::Writer,
     range: Range<u64>,
     frame_len: usize,
 ) -> Result<()> {
@@ -302,20 +228,8 @@ fn copy_range(
         for frame in source.frames(next..end)? {
             bytes.extend_from_slice(frame?.bytes());
         }
-        destination.append(&bytes)?;
+        destination.append_presorted_frames(&bytes)?;
         next = end;
-    }
-    Ok(())
-}
-
-fn verify_file(path: &Path, format: FormatVersion, v1_key_field_index: usize) -> Result<()> {
-    match format {
-        FormatVersion::V1 => {
-            fwob_v1::verify_file(path, v1_key_field_index)?;
-        }
-        FormatVersion::V2 => {
-            fwob_v2::Reader::open(path)?.verify()?;
-        }
     }
     Ok(())
 }
