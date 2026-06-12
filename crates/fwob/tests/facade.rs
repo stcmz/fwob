@@ -45,6 +45,23 @@ fn create_v2(path: &Path) {
     writer.finish().unwrap();
 }
 
+fn create_empty_file(path: &Path, version: FormatVersion) {
+    match version {
+        FormatVersion::V1 => {
+            Writer::create_v1(path, schema(), fwob_v1::WriterOptions::new("empty"), &[])
+                .unwrap()
+                .finish()
+                .unwrap();
+        }
+        FormatVersion::V2 => {
+            Writer::create_v2(path, schema(), fwob_v2::WriterOptions::new("empty"))
+                .unwrap()
+                .finish()
+                .unwrap();
+        }
+    }
+}
+
 fn query_key(index: usize) -> i32 {
     match index {
         0..40 => 1,
@@ -289,6 +306,93 @@ fn reader_contract_is_identical_for_v1_and_v2() {
 
     assert_reader_contract(&v1, FormatVersion::V1);
     assert_reader_contract(&v2, FormatVersion::V2);
+}
+
+#[test]
+fn writer_creation_and_bulk_append_are_identical_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    let strings = vec!["alpha".to_owned(), "beta".to_owned()];
+    let mut frames = Vec::new();
+    frames.extend_from_slice(&frame(1, 10));
+    frames.extend_from_slice(&frame(2, 20));
+    frames.extend_from_slice(&frame(3, 30));
+
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("bulk-{version:?}.fwob"));
+        let mut writer = match version {
+            FormatVersion::V1 => {
+                let mut options = fwob_v1::WriterOptions::new("bulk");
+                options.string_table_preserved_length = 128;
+                Writer::create_v1(&path, schema(), options, &strings).unwrap()
+            }
+            FormatVersion::V2 => {
+                let mut options = fwob_v2::WriterOptions::new("bulk");
+                options.string_table = strings.clone();
+                options.codec = fwob_v2::Codec::None;
+                options.codec_selection = fwob_v2::CodecSelection::Fixed(fwob_v2::Codec::None);
+                Writer::create_v2(&path, schema(), options).unwrap()
+            }
+        };
+
+        assert_eq!(writer.format_version(), version);
+        assert_eq!(writer.schema(), &schema());
+        assert_eq!(writer.title(), "bulk");
+        assert_eq!(writer.frame_count(), 0);
+        assert_eq!(writer.string_table(), strings);
+
+        writer.append_presorted_frames(&frames).unwrap();
+        assert_eq!(writer.frame_count(), 3);
+        writer.finish().unwrap();
+
+        let mut reader = Reader::open(&path).unwrap();
+        assert_eq!(reader.format_version(), version);
+        assert_eq!(reader.title(), "bulk");
+        assert_eq!(reader.string_table(), strings);
+        assert_eq!(
+            reader
+                .read_all_frames()
+                .unwrap()
+                .iter()
+                .map(|frame| frame.bytes().to_vec())
+                .collect::<Vec<_>>(),
+            frames
+                .chunks_exact(8)
+                .map(<[u8]>::to_vec)
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn empty_reader_boundaries_are_identical_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("empty-{version:?}.fwob"));
+        create_empty_file(&path, version);
+
+        let mut reader = Reader::open_with_options(&path, ReaderOptions::default()).unwrap();
+        assert_eq!(reader.format_version(), version);
+        assert_eq!(reader.frame_count(), 0);
+        assert_eq!(reader.read_frame(0).unwrap(), None);
+        assert_eq!(reader.read_key(0).unwrap(), None);
+        assert_eq!(reader.first_frame().unwrap(), None);
+        assert_eq!(reader.last_frame().unwrap(), None);
+        assert_eq!(reader.first_key().unwrap(), None);
+        assert_eq!(reader.last_key().unwrap(), None);
+        assert_eq!(reader.lower_bound(Key::I32(1)).unwrap(), 0);
+        assert_eq!(reader.upper_bound(Key::I32(1)).unwrap(), 0);
+        assert_eq!(reader.equal_range(Key::I32(1)).unwrap(), 0..0);
+        assert_eq!(reader.frames(0..0).unwrap().count(), 0);
+        assert_eq!(
+            reader
+                .frames_by_key(Key::I32(1)..=Key::I32(2))
+                .unwrap()
+                .count(),
+            0
+        );
+        assert!(reader.read_all_frames().unwrap().is_empty());
+    }
 }
 
 #[test]
