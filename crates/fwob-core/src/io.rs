@@ -157,6 +157,28 @@ impl Reader {
         self.frames(start..end)
     }
 
+    pub fn frames_by_keys(&mut self, keys: &[Key]) -> Result<MultiRangeFrameIter<'_>> {
+        if keys.windows(2).any(|pair| pair[0] > pair[1]) {
+            return Err(FwobError::UnsortedKeys);
+        }
+        let mut ranges = Vec::with_capacity(keys.len());
+        let mut minimum = 0;
+        for key in keys {
+            let mut range = self.equal_range(*key)?;
+            range.start = range.start.max(minimum);
+            if range.start < range.end {
+                minimum = range.end;
+                ranges.push(range);
+            }
+        }
+        Ok(MultiRangeFrameIter {
+            reader: self,
+            ranges,
+            range_index: 0,
+            next: 0,
+        })
+    }
+
     pub fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>> {
         self.frames(0..self.frame_count())?.collect()
     }
@@ -226,6 +248,41 @@ impl Iterator for FrameIter<'_> {
 }
 
 impl ExactSizeIterator for FrameIter<'_> {}
+
+pub struct MultiRangeFrameIter<'a> {
+    reader: &'a mut Reader,
+    ranges: Vec<Range<u64>>,
+    range_index: usize,
+    next: u64,
+}
+
+impl Iterator for MultiRangeFrameIter<'_> {
+    type Item = Result<OwnedFrame>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let range = self.ranges.get(self.range_index)?;
+            if self.next < range.start {
+                self.next = range.start;
+            }
+            if self.next >= range.end {
+                self.range_index += 1;
+                continue;
+            }
+            let index = self.next;
+            self.next += 1;
+            return Some(match self.reader.read_frame(index) {
+                Ok(Some(frame)) => Ok(frame),
+                Ok(None) => Err(FwobError::InvalidFrameRange {
+                    start: index,
+                    end: index + 1,
+                    frame_count: self.reader.frame_count(),
+                }),
+                Err(error) => Err(error),
+            });
+        }
+    }
+}
 
 /// Format-specific implementation behind [`Writer`].
 pub trait WriterBackend: FileInfo + Send {
@@ -319,6 +376,7 @@ pub trait Editor: FileInfo {
     fn delete_frame(&mut self, index: u64) -> Result<bool>;
     fn delete_frames(&mut self, range: Range<u64>) -> Result<u64>;
     fn delete_key(&mut self, key: Key) -> Result<u64>;
+    fn delete_keys(&mut self, keys: &[Key]) -> Result<u64>;
     fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> Result<u64>;
     fn delete_all_frames(&mut self) -> Result<u64>;
     fn set_title(&mut self, title: &str) -> Result<()>;

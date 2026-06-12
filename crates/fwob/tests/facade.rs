@@ -468,6 +468,56 @@ fn indexed_key_and_streaming_queries_are_identical_for_v1_and_v2() {
 }
 
 #[test]
+fn ordered_multi_key_query_and_deletion_are_identical_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("multi-key-{version:?}.fwob"));
+        create_query_file(&path, version);
+
+        let mut reader = Reader::open(&path).unwrap();
+        let frames = reader
+            .frames_by_keys(&[
+                Key::I32(1),
+                Key::I32(2),
+                Key::I32(2),
+                Key::I32(4),
+                Key::I32(5),
+            ])
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 220);
+        assert_eq!(
+            frames.iter().map(frame_key).collect::<Vec<_>>(),
+            (0..40)
+                .map(|_| 1)
+                .chain((0..140).map(|_| 2))
+                .chain((0..40).map(|_| 5))
+                .collect::<Vec<_>>()
+        );
+        assert!(reader.frames_by_keys(&[Key::I32(3), Key::I32(2)]).is_err());
+        drop(reader);
+
+        let mut editor = Editor::open(&path).unwrap();
+        assert!(editor.delete_keys(&[Key::I32(3), Key::I32(2)]).is_err());
+        assert_eq!(editor.frame_count(), 300);
+        assert_eq!(
+            editor
+                .delete_keys(&[Key::I32(1), Key::I32(1), Key::I32(3), Key::I32(4)])
+                .unwrap(),
+            120
+        );
+        assert_remaining_keys(
+            &path,
+            &(0..140)
+                .map(|_| 2)
+                .chain((0..40).map(|_| 5))
+                .collect::<Vec<_>>(),
+        );
+    }
+}
+
+#[test]
 fn bounded_memory_editor_contract_is_identical_for_v1_and_v2() {
     assert_editor_contract(FormatVersion::V1);
     assert_editor_contract(FormatVersion::V2);

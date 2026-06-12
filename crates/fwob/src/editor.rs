@@ -109,6 +109,72 @@ impl Editor {
         self.rewrite(deleted, self.title.clone(), self.string_table.clone())
     }
 
+    fn rewrite_ranges(&mut self, deleted: &[Range<u64>]) -> Result<u64> {
+        if deleted.is_empty() {
+            return Ok(0);
+        }
+        let mut previous_end = 0;
+        let mut removed = 0u64;
+        for range in deleted {
+            if range.start < previous_end || range.start > range.end || range.end > self.frame_count
+            {
+                return Err(fwob_core::FwobError::InvalidFrameRange {
+                    start: range.start,
+                    end: range.end,
+                    frame_count: self.frame_count,
+                }
+                .into());
+            }
+            previous_end = range.end;
+            removed += range.end - range.start;
+        }
+        if removed == 0 {
+            return Ok(0);
+        }
+
+        let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
+        let temporary = NamedTempFile::new_in(parent)?;
+        let temporary_path = temporary.into_temp_path();
+        let mut source = Reader::open_with_options(
+            &self.path,
+            ReaderOptions {
+                v1_key_field_index: self.v1_key_field_index,
+            },
+        )?;
+        let mut destination =
+            source.create_rewrite_writer(&temporary_path, &self.title, &self.string_table)?;
+        let mut retained_start = 0;
+        for range in deleted {
+            copy_range(
+                &mut source,
+                &mut destination,
+                retained_start..range.start,
+                self.schema.frame_len as usize,
+            )?;
+            retained_start = range.end;
+        }
+        copy_range(
+            &mut source,
+            &mut destination,
+            retained_start..self.frame_count,
+            self.schema.frame_len as usize,
+        )?;
+        destination.finish()?;
+        drop(source);
+
+        Maintenance::verify(
+            &temporary_path,
+            ReaderOptions {
+                v1_key_field_index: self.v1_key_field_index,
+            },
+        )?;
+        temporary_path
+            .persist(&self.path)
+            .map_err(|error| Error::Io(error.error))?;
+        self.frame_count -= removed;
+        Ok(removed)
+    }
+
     pub fn update_metadata(
         &mut self,
         title: Option<&str>,
@@ -163,6 +229,30 @@ impl Editor {
         let range = reader.equal_range(key)?;
         drop(reader);
         self.rewrite_without(range)
+    }
+
+    pub fn delete_keys(&mut self, keys: &[Key]) -> Result<u64> {
+        if keys.windows(2).any(|pair| pair[0] > pair[1]) {
+            return Err(fwob_core::FwobError::UnsortedKeys.into());
+        }
+        let mut reader = Reader::open_with_options(
+            &self.path,
+            ReaderOptions {
+                v1_key_field_index: self.v1_key_field_index,
+            },
+        )?;
+        let mut ranges = Vec::with_capacity(keys.len());
+        let mut minimum = 0;
+        for key in keys {
+            let mut range = reader.equal_range(*key)?;
+            range.start = range.start.max(minimum);
+            if range.start < range.end {
+                minimum = range.end;
+                ranges.push(range);
+            }
+        }
+        drop(reader);
+        self.rewrite_ranges(&ranges)
     }
 
     pub fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> Result<u64> {
@@ -243,6 +333,10 @@ impl fwob_core::Editor for Editor {
 
     fn delete_key(&mut self, key: Key) -> fwob_core::Result<u64> {
         Editor::delete_key(self, key).map_err(fwob_core::FwobError::backend)
+    }
+
+    fn delete_keys(&mut self, keys: &[Key]) -> fwob_core::Result<u64> {
+        Editor::delete_keys(self, keys).map_err(fwob_core::FwobError::backend)
     }
 
     fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> fwob_core::Result<u64> {

@@ -100,6 +100,22 @@ impl<F: FwobFrame> TypedReader<F> {
         ))
     }
 
+    pub fn frames_by_keys(
+        &mut self,
+        keys: &[F::Key],
+    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
+        let raw_keys = keys
+            .iter()
+            .copied()
+            .map(FwobKey::into_key)
+            .collect::<Vec<_>>();
+        Ok(Box::new(
+            self.inner
+                .frames_by_keys(&raw_keys)?
+                .map(|frame| frame.and_then(decode_frame::<F>)),
+        ))
+    }
+
     pub fn into_inner(self) -> Reader {
         self.inner
     }
@@ -209,6 +225,15 @@ impl<F: FwobFrame> TypedEditor<F> {
 
     pub fn delete_key(&mut self, key: F::Key) -> Result<u64> {
         self.inner.delete_key(key.into_key())
+    }
+
+    pub fn delete_keys(&mut self, keys: &[F::Key]) -> Result<u64> {
+        let raw_keys = keys
+            .iter()
+            .copied()
+            .map(FwobKey::into_key)
+            .collect::<Vec<_>>();
+        self.inner.delete_keys(&raw_keys)
     }
 
     pub fn delete_key_range(&mut self, range: RangeInclusive<F::Key>) -> Result<u64> {

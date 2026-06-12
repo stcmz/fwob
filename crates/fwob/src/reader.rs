@@ -103,6 +103,17 @@ impl Reader {
         ))
     }
 
+    pub fn frames_by_keys(
+        &mut self,
+        keys: &[Key],
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
+        Ok(Box::new(
+            self.inner
+                .frames_by_keys(keys)?
+                .map(|frame| frame.map_err(Into::into)),
+        ))
+    }
+
     pub fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>> {
         Ok(self.inner.read_all_frames()?)
     }

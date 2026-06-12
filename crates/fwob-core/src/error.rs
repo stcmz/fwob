@@ -29,6 +29,9 @@ pub enum FwobError {
         frame_count: u64,
     },
 
+    #[error("keys must be sorted in nondecreasing order")]
+    UnsortedKeys,
+
     #[error("format backend error: {0}")]
     Backend(#[source] Box<dyn std::error::Error + Send + Sync>),
 

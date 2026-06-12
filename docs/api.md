@@ -66,11 +66,21 @@ let matching = reader.equal_range(Key::I64(123))?;
 for frame in reader.frames(matching)? {
     println!("{:?}", frame?.bytes());
 }
+
+for frame in reader.frames_by_keys(&[
+    Key::I64(123),
+    Key::I64(456),
+    Key::I64(789),
+])? {
+    println!("{:?}", frame?.bytes());
+}
 # Ok::<(), fwob::Error>(())
 ```
 
 `frames` and `frames_by_key` are lazy iterators. V1 reads by direct offset; v2
 retains one decoded internal storage unit as a reusable cache.
+`frames_by_keys` accepts sorted keys, skips missing keys, and returns duplicate
+query keys only once.
 
 ### Create and Write
 
@@ -130,6 +140,7 @@ let mut editor = Editor::open("ticks.fwob")?;
 editor.delete_frame(10)?;
 editor.delete_frames(20..30)?;
 editor.delete_key(Key::I64(123))?;
+editor.delete_keys(&[Key::I64(123), Key::I64(456)])?;
 editor.delete_key_range(Key::I64(200)..=Key::I64(300))?;
 editor.set_title("updated prices")?;
 # Ok::<(), fwob::Error>(())
@@ -292,6 +303,7 @@ metadata inside the fixed 4 KiB file-header boundary.
 - one global frame index
 - a half-open global frame-index range
 - one key
+- an ordered set of keys
 - an inclusive key range
 - all frames
 
@@ -306,6 +318,10 @@ Deletion uses copy-on-write:
 The original file remains intact if streaming, writing, or verification fails.
 Memory usage is independent of total file size. V2 rewrites automatically
 regenerate contiguous `first_frame_index` values.
+
+`delete_keys` removes all matching disjoint ranges in one rewrite. Duplicate
+and missing keys do not change the result. Descending input is rejected before
+the original file is modified.
 
 The previous v1 whole-file implementation remains available as
 `fwob_v1::InMemoryEditor`. Its name explicitly identifies that it loads every
