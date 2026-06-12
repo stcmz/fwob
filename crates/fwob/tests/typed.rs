@@ -100,6 +100,50 @@ fn typed_frames_work_identically_for_v1_and_v2() {
     assert_typed_contract(FormatVersion::V2);
 }
 
+#[test]
+fn typed_transactional_append_rejects_the_entire_invalid_batch() {
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir
+            .path()
+            .join(format!("typed-transactional-{version:?}.fwob"));
+        let mut writer = match version {
+            FormatVersion::V1 => TypedWriter::<TypedTick>::create_v1(
+                &path,
+                fwob_v1::WriterOptions::new("typed"),
+                &[],
+            )
+            .unwrap(),
+            FormatVersion::V2 => {
+                TypedWriter::<TypedTick>::create_v2(&path, fwob_v2::WriterOptions::new("typed"))
+                    .unwrap()
+            }
+        };
+        writer.append(&tick(1, 0)).unwrap();
+        assert!(writer
+            .append_all_transactional([tick(2, 0), tick(4, 0), tick(3, 0)])
+            .is_err());
+        assert_eq!(writer.frame_count(), 1);
+        assert_eq!(
+            writer
+                .append_all_transactional([tick(2, 0), tick(3, 0)])
+                .unwrap(),
+            2
+        );
+        writer.finish().unwrap();
+
+        let mut reader = TypedReader::<TypedTick>::open(&path).unwrap();
+        assert_eq!(
+            reader
+                .frames(0..reader.frame_count())
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+            [tick(1, 0), tick(2, 0), tick(3, 0)]
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, FwobFrame)]
 struct IncompatibleTick {
     #[fwob(key)]

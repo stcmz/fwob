@@ -231,6 +231,7 @@ impl ExactSizeIterator for FrameIter<'_> {}
 pub trait WriterBackend: FileInfo + Send {
     fn append_frame(&mut self, frame: &[u8]) -> Result<()>;
     fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()>;
+    fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()>;
     fn finish(self: Box<Self>) -> Result<()>;
 }
 
@@ -272,6 +273,10 @@ impl Writer {
 
     pub fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()> {
         self.inner.append_presorted_frames(frames)
+    }
+
+    pub fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()> {
+        self.inner.append_frames_transactional(frames)
     }
 
     pub fn finish(self) -> Result<()> {

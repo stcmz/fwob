@@ -158,6 +158,23 @@ impl<F: FwobFrame> TypedWriter<F> {
         Ok(count)
     }
 
+    pub fn append_all_transactional<I>(&mut self, frames: I) -> Result<u64>
+    where
+        I: IntoIterator<Item = F>,
+    {
+        let frame_len = F::schema().frame_len as usize;
+        let mut bytes = Vec::new();
+        let mut count = 0u64;
+        for frame in frames {
+            frame.encode(&mut self.buffer);
+            bytes.extend_from_slice(&self.buffer);
+            count += 1;
+        }
+        debug_assert_eq!(bytes.len(), count as usize * frame_len);
+        self.inner.append_frames_transactional(&bytes)?;
+        Ok(count)
+    }
+
     pub fn finish(self) -> Result<()> {
         self.inner.finish()
     }

@@ -207,6 +207,42 @@ impl<W: Write + Seek> Writer<W> {
         self.inner.flush()?;
         Ok(())
     }
+
+    pub fn append_raw_frames_transactional(&mut self, bytes: &[u8]) -> Result<()> {
+        let frame_len = self.schema.frame_len as usize;
+        if bytes.len() % frame_len != 0 {
+            return Err(V1Error::Core(fwob_core::FwobError::InvalidFrameLength {
+                expected: frame_len,
+                actual: bytes.len(),
+            }));
+        }
+        if bytes.is_empty() {
+            return Ok(());
+        }
+
+        let mut last_key = self.last_key;
+        for (offset, frame_bytes) in bytes.chunks_exact(frame_len).enumerate() {
+            let frame = FrameRef::new(&self.schema, frame_bytes)?;
+            let key = frame.key(&self.schema, self.key_type)?;
+            if let Some(previous) = last_key {
+                if key < previous {
+                    return Err(V1Error::KeyOrderViolation {
+                        index: self.header.frame_count + offset as u64,
+                    });
+                }
+            }
+            last_key = Some(key);
+        }
+
+        self.inner
+            .seek(SeekFrom::Start(self.header.file_length()))?;
+        self.inner.write_all(bytes)?;
+        self.header.frame_count += (bytes.len() / frame_len) as u64;
+        self.last_key = last_key;
+        update_frame_count(&mut self.inner, self.header.frame_count)?;
+        self.inner.flush()?;
+        Ok(())
+    }
 }
 
 fn validate_v1_metadata(schema: &Schema, options: &WriterOptions) -> Result<()> {

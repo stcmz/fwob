@@ -105,6 +105,21 @@ writer.finish()?;
 # Ok::<(), fwob::Error>(())
 ```
 
+Use `append_frames_transactional` when the entire raw batch must be validated
+before any frame is accepted:
+
+```rust
+let mut frames = Vec::new();
+frames.extend_from_slice(&456_i64.to_le_bytes());
+frames.extend_from_slice(&789_i64.to_le_bytes());
+writer.append_frames_transactional(&frames)?;
+```
+
+`TypedWriter::append_all_transactional` provides the same behavior for typed
+frames. Transactionality covers frame validation and key ordering. An operating
+system I/O failure after validation can still leave an interrupted write, which
+`Maintenance::repair` handles.
+
 ### Edit
 
 ```rust

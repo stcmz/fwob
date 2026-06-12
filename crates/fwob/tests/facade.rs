@@ -364,6 +364,54 @@ fn writer_creation_and_bulk_append_are_identical_for_v1_and_v2() {
 }
 
 #[test]
+fn transactional_bulk_append_rejects_the_entire_invalid_batch_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("transactional-{version:?}.fwob"));
+        let mut writer = match version {
+            FormatVersion::V1 => Writer::create_v1(
+                &path,
+                schema(),
+                fwob_v1::WriterOptions::new("transactional"),
+                &[],
+            )
+            .unwrap(),
+            FormatVersion::V2 => Writer::create_v2(
+                &path,
+                schema(),
+                fwob_v2::WriterOptions::new("transactional"),
+            )
+            .unwrap(),
+        };
+        writer.append_frame(&frame(10, 1)).unwrap();
+
+        let mut invalid = Vec::new();
+        invalid.extend_from_slice(&frame(11, 2));
+        invalid.extend_from_slice(&frame(13, 3));
+        invalid.extend_from_slice(&frame(12, 4));
+        assert!(writer.append_frames_transactional(&invalid).is_err());
+        assert_eq!(writer.frame_count(), 1);
+
+        let mut valid = Vec::new();
+        valid.extend_from_slice(&frame(11, 5));
+        valid.extend_from_slice(&frame(12, 6));
+        writer.append_frames_transactional(&valid).unwrap();
+        writer.finish().unwrap();
+
+        let mut reader = Reader::open(&path).unwrap();
+        assert_eq!(
+            reader
+                .frames(0..reader.frame_count())
+                .unwrap()
+                .map(|frame| frame_key(&frame.unwrap()))
+                .collect::<Vec<_>>(),
+            [10, 11, 12]
+        );
+    }
+}
+
+#[test]
 fn empty_reader_boundaries_are_identical_for_v1_and_v2() {
     let dir = tempdir().unwrap();
 

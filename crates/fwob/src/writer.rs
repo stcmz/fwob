@@ -86,4 +86,8 @@ impl Writer {
     pub fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()> {
         Ok(self.inner.append_presorted_frames(frames)?)
     }
+
+    pub fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()> {
+        Ok(self.inner.append_frames_transactional(frames)?)
+    }
 }
