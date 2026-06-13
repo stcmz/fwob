@@ -180,11 +180,21 @@ impl Editor {
         title: Option<&str>,
         string_table: Option<&[String]>,
     ) -> Result<()> {
-        self.rewrite(
-            0..0,
-            title.unwrap_or(&self.title).to_owned(),
-            string_table.unwrap_or(&self.string_table).to_vec(),
-        )?;
+        let new_title = title.unwrap_or(&self.title).to_owned();
+        let new_string_table = string_table.unwrap_or(&self.string_table).to_vec();
+        if new_title == self.title && new_string_table == self.string_table {
+            return Ok(());
+        }
+        match self.format_version {
+            FormatVersion::V1 => {
+                fwob_v1::update_metadata(&self.path, title, string_table)?;
+                self.title = new_title;
+                self.string_table = new_string_table;
+            }
+            FormatVersion::V2 => {
+                self.rewrite(0..0, new_title, new_string_table)?;
+            }
+        }
         Ok(())
     }
 
@@ -311,7 +321,7 @@ impl Editor {
         })?;
         let mut strings = self.string_table.clone();
         strings.push(value.to_owned());
-        self.rewrite(0..0, self.title.clone(), strings)?;
+        self.update_metadata(None, Some(&strings))?;
         Ok(index)
     }
 

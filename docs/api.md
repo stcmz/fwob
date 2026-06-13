@@ -332,10 +332,13 @@ The previous v1 whole-file implementation remains available as
 `fwob_v1::InMemoryEditor`. Its name explicitly identifies that it loads every
 frame and is not suitable for large production files.
 
-Title and string-table changes use the same atomic bounded-memory rewrite.
-`Editor::update_metadata` can apply both changes in one pass. V1 rewrites
-retain at least the original reserved string-table capacity and grow it when
-needed.
+`Editor::update_metadata` can apply title and string-table changes together.
+V1 updates its fixed metadata prefix in place without reading or rewriting
+frames; replacement strings must fit the capacity reserved when the file was
+created. V2 uses the same verified temporary-file rewrite as deletion. The v1
+in-place path validates and encodes all new metadata before writing, but it is
+not a copy-on-write transaction if the process or storage device fails during
+the metadata writes.
 
 ### Editing Complexity
 
@@ -349,7 +352,9 @@ bounded copy buffer.
 | delete one key | `O(log N + N)` | `O(B)` | rewrite `N - D` frames |
 | delete key range | `O(log N + N)` | `O(B)` | rewrite `N - D` frames |
 | delete all frames | `O(1)` logical selection, format rewrite | `O(B)` | metadata-only or empty-file rewrite |
-| title/string-table update | `O(N)` | `O(B + S)` | rewrite all frames and `S` metadata bytes |
+| v1 title update | `O(1)` | `O(1)` | overwrite the fixed 16-byte title field |
+| v1 string-table update | `O(S)` | `O(S)` | overwrite `S` encoded metadata bytes; frames are untouched |
+| v2 title/string-table update | `O(N)` | `O(B + S)` | rewrite all frames and `S` metadata bytes |
 
 ## File Organization
 

@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, io::Write, path::Path};
+use std::{fs, fs::OpenOptions, io::Write, path::Path};
 
 use fwob::{
     Editor, FormatVersion, Maintenance, Organizer, Reader, ReaderOptions, Writer, WriterOpenOptions,
@@ -254,6 +254,55 @@ fn assert_metadata_contract(version: FormatVersion) {
     let reader = Reader::open(&path).unwrap();
     assert!(reader.string_table().is_empty());
     assert_eq!(reader.frame_count(), 2);
+}
+
+#[test]
+fn v1_metadata_edits_do_not_rewrite_frames_or_resize_the_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("metadata-in-place.fwob");
+    create_v1(&path);
+    let original = fs::read(&path).unwrap();
+    let frame_offset = (fwob_v1::HEADER_LEN + 128) as usize;
+
+    let mut editor = Editor::open(&path).unwrap();
+    editor
+        .update_metadata(
+            Some("renamed"),
+            Some(&["one".into(), "two".into(), "three".into()]),
+        )
+        .unwrap();
+
+    let edited = fs::read(&path).unwrap();
+    assert_eq!(edited.len(), original.len());
+    assert_eq!(&edited[frame_offset..], &original[frame_offset..]);
+    let mut reader = Reader::open(&path).unwrap();
+    assert_eq!(reader.title(), "renamed");
+    assert_eq!(reader.string_table(), ["one", "two", "three"]);
+    assert_eq!(
+        reader
+            .read_all_frames()
+            .unwrap()
+            .iter()
+            .map(|frame| frame.bytes().to_vec())
+            .collect::<Vec<_>>(),
+        [frame(1, 10).to_vec(), frame(2, 20).to_vec()]
+    );
+}
+
+#[test]
+fn v1_metadata_validation_fails_before_modifying_the_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("metadata-validation.fwob");
+    create_v1(&path);
+    let original = fs::read(&path).unwrap();
+
+    let mut editor = Editor::open(&path).unwrap();
+    assert!(editor.set_title("title-is-far-too-long").is_err());
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert!(editor.set_title("非ASCII").is_err());
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert!(editor.replace_string_table(&["x".repeat(129)]).is_err());
+    assert_eq!(fs::read(&path).unwrap(), original);
 }
 
 fn assert_organization_contract(version: FormatVersion) {
