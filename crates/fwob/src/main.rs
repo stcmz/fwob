@@ -203,7 +203,7 @@ struct ResolvedBenchArgs {
 #[command(override_usage = "fwob convert [OPTIONS] [TOKENS] INPUT OUTPUT")]
 #[command(after_help = "Plain tokens:
   formats: v1, v2
-  codecs: zstd, lz4, smallest, none
+  codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
   page packing: estimate-shrink, tight-fit
   page size: INTEGER{B|KB|KiB|MB|MiB} (1KiB..16MiB; default 512KiB)
@@ -237,7 +237,7 @@ struct V2WriteArgs {
 #[derive(Debug, Args)]
 #[command(override_usage = "fwob append [OPTIONS] TARGET INPUT [TOKENS]")]
 #[command(after_help = "Plain tokens:
-  codecs: zstd, lz4, smallest, none
+  codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
   page packing: estimate-shrink, tight-fit
   switches: verify, compress-partial-page
@@ -258,32 +258,50 @@ struct AppendArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "fwob split [OPTIONS] INPUT OUTPUT_DIR FIRST_KEY... [TOKENS]")]
+#[command(after_help = "V2 output tokens:
+  codecs: zstd, lz4, smallest, uncompressed
+  encodings: row-raw, columnar-basic, columnar-delta, smallest
+  page packing: estimate-shrink, tight-fit
+  switches: compress-partial-page
+
+V2 parts preserve the source page size. Without write tokens, codec and encoding
+are inherited from the source. Tokens may appear anywhere.")]
 struct SplitArgs {
-    /// Input v1 or v2 file.
-    input: PathBuf,
-    /// Directory receiving INPUT.partN.fwob files.
-    output_dir: PathBuf,
-    /// First key of each new part, parsed using the input key field type.
-    #[arg(required = true)]
-    first_keys: Vec<String>,
+    /// Input, output directory, split keys, and optional v2 output tokens.
+    #[arg(value_name = "TARGET", num_args = 3..)]
+    target: Vec<String>,
     /// Key field index for v1 input only.
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
     /// Emit empty parts when adjacent keys resolve to the same frame index.
     #[arg(long)]
     keep_empty_parts: bool,
+    /// zstd level for v2 output pages.
+    #[arg(long)]
+    zstd_level: Option<i32>,
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "fwob concat [OPTIONS] OUTPUT INPUT... [TOKENS]")]
+#[command(after_help = "V2 output tokens:
+  codecs: zstd, lz4, smallest, uncompressed
+  encodings: row-raw, columnar-basic, columnar-delta, smallest
+  page packing: estimate-shrink, tight-fit
+  switches: compress-partial-page
+
+V2 output preserves the first source page size. Without write tokens, codec and
+encoding are inherited from the first source. Tokens may appear anywhere.")]
 struct ConcatArgs {
-    /// Destination FWOB file.
-    output: PathBuf,
-    /// Ordered source files with matching version, schema, title, and strings.
-    #[arg(required = true)]
-    inputs: Vec<PathBuf>,
+    /// Output, ordered input files, and optional v2 output tokens.
+    #[arg(value_name = "TARGET", num_args = 2..)]
+    target: Vec<String>,
     /// Key field index for v1 inputs only.
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
+    /// zstd level for v2 output pages.
+    #[arg(long)]
+    zstd_level: Option<i32>,
 }
 
 #[derive(Debug, Args)]
@@ -321,7 +339,7 @@ struct FindArgs {
 #[command(override_usage = "fwob delete [OPTIONS] PATH FIRST_KEY [LAST_KEY] [TOKENS]")]
 #[command(after_help = "Plain tokens:
   deletion packing: local-repack (default), repack-to-end
-  codecs: zstd, lz4, smallest, none
+  codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
   page packing: estimate-shrink, tight-fit
   switches: verify, compress-partial-page
@@ -367,7 +385,7 @@ impl V2WriteOptions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum CodecArg {
-    None,
+    Uncompressed,
     Zstd,
     Lz4,
     Smallest,
@@ -456,7 +474,7 @@ impl EncodingArg {
 impl CodecArg {
     fn codec(self) -> Codec {
         match self {
-            CodecArg::None => Codec::None,
+            CodecArg::Uncompressed => Codec::None,
             CodecArg::Zstd | CodecArg::Smallest => Codec::Zstd,
             CodecArg::Lz4 => Codec::Lz4,
         }
@@ -464,7 +482,7 @@ impl CodecArg {
 
     fn selection(self) -> CodecSelection {
         match self {
-            CodecArg::None => CodecSelection::Fixed(Codec::None),
+            CodecArg::Uncompressed => CodecSelection::Fixed(Codec::None),
             CodecArg::Zstd => CodecSelection::Fixed(Codec::Zstd),
             CodecArg::Lz4 => CodecSelection::Fixed(Codec::Lz4),
             CodecArg::Smallest => CodecSelection::Smallest,
@@ -473,7 +491,7 @@ impl CodecArg {
 
     fn as_str(self) -> &'static str {
         match self {
-            Self::None => "none",
+            Self::Uncompressed => "uncompressed",
             Self::Zstd => "zstd",
             Self::Lz4 => "lz4",
             Self::Smallest => "smallest",
@@ -559,10 +577,6 @@ fn find_frames(args: FindArgs) -> Result<()> {
 
 fn delete_frames(args: DeleteArgs) -> Result<()> {
     let parsed = parse_command_tokens(&args.target, false, true, false, false, true)?;
-    let explicit_v2_options = parsed.has_mutation_write_tokens() || args.zstd_level.is_some();
-    let write = parsed.write_options(V2WriteArgs {
-        zstd_level: args.zstd_level.unwrap_or(fwob_v2::DEFAULT_ZSTD_LEVEL),
-    });
     let deletion_packing = parsed
         .deletion_packing
         .unwrap_or(DeletionPackingArg::LocalRepack);
@@ -571,34 +585,20 @@ fn delete_frames(args: DeleteArgs) -> Result<()> {
     };
     let last_key = parsed.paths.get(2).copied();
     let path = PathBuf::from(path);
-    let reader_options = fwob::ReaderOptions {
-        v1_key_field_index: args.key_field_index,
-    };
+    let (operation_options, write) = parsed.operation_options(
+        args.key_field_index,
+        args.zstd_level,
+        deletion_packing.deletion_packing(),
+        matches!(deletion_packing, DeletionPackingArg::LocalRepack),
+    );
+    let reader_options = operation_options.reader_options;
     let mut reader = fwob::Reader::open_with_options(&path, reader_options)?;
     let (first_key, last_key_value, _) = resolve_key_range(&mut reader, first_key, last_key)?;
     drop(reader);
 
     let effective_compress_partial_page =
         matches!(deletion_packing, DeletionPackingArg::LocalRepack) || write.compress_partial_page;
-    let v2 = explicit_v2_options.then(|| {
-        let mut v2 = fwob_v2::WriterOptions::new("");
-        v2.codec = write.codec.codec();
-        v2.codec_selection = write.codec.selection();
-        v2.zstd_level = write.zstd_level;
-        v2.encoding = write.encoding.encoding();
-        v2.encoding_selection = write.encoding.selection();
-        v2.compress_partial_page = effective_compress_partial_page;
-        v2.page_packing = write.page_packing.page_packing();
-        v2
-    });
-    let mut editor = fwob::Editor::open_with_operation_options(
-        &path,
-        fwob::OperationOptions {
-            reader_options,
-            deletion_packing: deletion_packing.deletion_packing(),
-            v2,
-        },
-    )?;
+    let mut editor = fwob::Editor::open_with_operation_options(&path, operation_options)?;
     let removed = if first_key == last_key_value {
         editor.delete_key(first_key)?
     } else {
@@ -621,24 +621,32 @@ fn delete_frames(args: DeleteArgs) -> Result<()> {
 }
 
 fn split_file(args: SplitArgs) -> Result<()> {
-    use fwob::{Organizer, Reader, ReaderOptions};
+    use fwob::{Organizer, Reader};
 
-    let reader_options = ReaderOptions {
-        v1_key_field_index: args.key_field_index,
-    };
-    let reader = Reader::open_with_options(&args.input, reader_options)?;
+    let parsed = parse_command_tokens(&args.target, false, true, false, false, false)?;
+    if parsed.paths.len() < 3 {
+        bail!("split expects INPUT OUTPUT_DIR and at least one FIRST_KEY after tokens");
+    }
+    let input = PathBuf::from(parsed.paths[0]);
+    let output_dir = PathBuf::from(parsed.paths[1]);
+    let (operation_options, _) = parsed.operation_options(
+        args.key_field_index,
+        args.zstd_level,
+        fwob::DeletionPacking::LocalRepack,
+        false,
+    );
+    let reader = Reader::open_with_options(&input, operation_options.reader_options)?;
     let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
-    let keys = args
-        .first_keys
+    let keys = parsed.paths[2..]
         .iter()
         .map(|value| parse_key(value, key_type))
         .collect::<Result<Vec<_>>>()?;
     drop(reader);
     let outputs = Organizer {
-        reader_options,
+        operation_options,
         keep_empty_parts: args.keep_empty_parts,
     }
-    .split(&args.input, &args.output_dir, &keys)?;
+    .split(&input, &output_dir, &keys)?;
     println!("[split]");
     println!("parts = {}", outputs.len());
     for (index, path) in outputs.iter().enumerate() {
@@ -648,16 +656,29 @@ fn split_file(args: SplitArgs) -> Result<()> {
 }
 
 fn concat_file(args: ConcatArgs) -> Result<()> {
+    let parsed = parse_command_tokens(&args.target, false, true, false, false, false)?;
+    if parsed.paths.len() < 2 {
+        bail!("concat expects OUTPUT and at least one INPUT after tokens");
+    }
+    let output = PathBuf::from(parsed.paths[0]);
+    let inputs = parsed.paths[1..]
+        .iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    let (operation_options, _) = parsed.operation_options(
+        args.key_field_index,
+        args.zstd_level,
+        fwob::DeletionPacking::LocalRepack,
+        false,
+    );
     let frames = fwob::Organizer {
-        reader_options: fwob::ReaderOptions {
-            v1_key_field_index: args.key_field_index,
-        },
+        operation_options,
         ..Default::default()
     }
-    .concat(&args.output, &args.inputs)?;
+    .concat(&output, &inputs)?;
     println!("[concat]");
     println!("frames = {frames}");
-    println!("output = {:?}", args.output.display().to_string());
+    println!("output = {:?}", output.display().to_string());
     Ok(())
 }
 
@@ -1046,6 +1067,39 @@ impl ParsedTokens<'_> {
             || self.page_packing.is_some()
             || self.compress_partial_page
     }
+
+    fn operation_options(
+        &self,
+        v1_key_field_index: usize,
+        zstd_level: Option<i32>,
+        deletion_packing: fwob::DeletionPacking,
+        force_compress_partial_page: bool,
+    ) -> (fwob::OperationOptions, V2WriteOptions) {
+        let explicit_v2_options = self.has_mutation_write_tokens() || zstd_level.is_some();
+        let mut write = self.write_options(V2WriteArgs {
+            zstd_level: zstd_level.unwrap_or(fwob_v2::DEFAULT_ZSTD_LEVEL),
+        });
+        write.compress_partial_page |= force_compress_partial_page;
+        let v2 = explicit_v2_options.then(|| {
+            let mut options = fwob_v2::WriterOptions::new("");
+            options.codec = write.codec.codec();
+            options.codec_selection = write.codec.selection();
+            options.zstd_level = write.zstd_level;
+            options.encoding = write.encoding.encoding();
+            options.encoding_selection = write.encoding.selection();
+            options.compress_partial_page = write.compress_partial_page;
+            options.page_packing = write.page_packing.page_packing();
+            options
+        });
+        (
+            fwob::OperationOptions {
+                reader_options: fwob::ReaderOptions { v1_key_field_index },
+                v2,
+                deletion_packing,
+            },
+            write,
+        )
+    }
 }
 
 fn parse_command_tokens<'a>(
@@ -1079,8 +1133,8 @@ fn parse_command_tokens<'a>(
         }
         if allow_write {
             match value.as_str() {
-                "none" => {
-                    set_once(&mut parsed.codec, CodecArg::None, "codec")?;
+                "uncompressed" => {
+                    set_once(&mut parsed.codec, CodecArg::Uncompressed, "codec")?;
                     continue;
                 }
                 "zstd" => {
@@ -1191,7 +1245,7 @@ fn is_any_reserved_token(value: &str) -> bool {
             | "range"
             | "random-page"
             | "scan"
-            | "none"
+            | "uncompressed"
             | "zstd"
             | "lz4"
             | "smallest"
@@ -1816,7 +1870,8 @@ const CONVERSION_BENCH_PAGE_SIZES: [(&str, u32); 3] = [
     ("1MiB", 1024 * 1024),
     ("2MiB", 2 * 1024 * 1024),
 ];
-const CONVERSION_BENCH_CODECS: [CodecArg; 3] = [CodecArg::Zstd, CodecArg::Lz4, CodecArg::None];
+const CONVERSION_BENCH_CODECS: [CodecArg; 3] =
+    [CodecArg::Zstd, CodecArg::Lz4, CodecArg::Uncompressed];
 const CONVERSION_BENCH_ZSTD_LEVELS: [i32; 4] = [3, 6, 9, 12];
 const CONVERSION_BENCH_ENCODINGS: [EncodingArg; 3] = [
     EncodingArg::RowRaw,
@@ -2260,7 +2315,7 @@ fn print_conversion_bench_dimensions(cases: &[ConversionBenchCase], args: &Resol
             .collect::<Vec<_>>()
             .join(", ")
     );
-    println!("excluded: codec=none + page_packing=tight-fit");
+    println!("excluded: codec=uncompressed + page_packing=tight-fit");
     println!("conditional: zstd_level applies only to codec=zstd");
 
     println!();
@@ -2292,7 +2347,7 @@ fn conversion_bench_cases() -> Vec<ConversionBenchCase> {
         for codec in CONVERSION_BENCH_CODECS {
             for encoding in CONVERSION_BENCH_ENCODINGS {
                 for page_packing in CONVERSION_BENCH_PAGE_PACKINGS {
-                    if codec == CodecArg::None && page_packing == PagePackingArg::TightFit {
+                    if codec == CodecArg::Uncompressed && page_packing == PagePackingArg::TightFit {
                         continue;
                     }
                     if codec == CodecArg::Zstd {

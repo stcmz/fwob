@@ -105,8 +105,8 @@ fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
 fwob convert v2 ticks.fwob ticks-delta.fwob columnar-delta zstd verify
 fwob append ticks-v2.fwob new-ticks.fwob verify
-fwob split ticks.fwob parts 1000 2000 3000
-fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob
+fwob split ticks.fwob parts 1000 2000 3000 zstd columnar-basic
+fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob zstd
 fwob edit ticks-joined.fwob --title Renamed --append-string NASDAQ
 fwob find ticks-v2.fwob 100 200
 fwob delete ticks-v2.fwob 100 200 local-repack verify
@@ -124,7 +124,7 @@ their lowercase token forms.
 | Parameter | What It Controls | Typical Values |
 | --- | --- | --- |
 | page-size token | Fixed physical page size. Integer with `B`, `KB`, `KiB`, `MB`, or `MiB`; range `1KiB..16MiB`. | `512KiB` (default), `1MB`, `1MiB`, `2MiB` |
-| codec token | Page compression codec. | `zstd` (default), `lz4`, `smallest`, `none` |
+| codec token | Page compression codec. | `zstd` (default), `lz4`, `smallest`, `uncompressed` |
 | `--zstd-level` | zstd compression level. Affects write/convert speed heavily, read speed lightly. | `3`, `6` (default), `9`, `12`, `15`, `19` |
 | encoding token | Page payload layout before compression. `smallest` tries columnar-basic and columnar-delta per page and stores the winning concrete encoding in page metadata. | `row-raw`, `columnar-basic` (default), `columnar-delta`, `smallest` |
 | page-packing token | Packing strategy for compressed pages. | `estimate-shrink` (default), `tight-fit` |

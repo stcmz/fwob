@@ -151,15 +151,4 @@ impl Reader {
     pub fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>> {
         Ok(self.inner.read_all_frames()?)
     }
-
-    pub(crate) fn create_rewrite_writer(
-        &mut self,
-        path: &Path,
-        title: &str,
-        string_table: &[String],
-    ) -> Result<fwob_core::Writer> {
-        Ok(self
-            .inner
-            .create_rewrite_writer(path, title, string_table)?)
-    }
 }

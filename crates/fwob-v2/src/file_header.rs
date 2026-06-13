@@ -12,6 +12,8 @@ pub const MIN_PAGE_SIZE: u32 = 1024;
 pub const MAX_PAGE_SIZE: u32 = 16 * 1024 * 1024;
 const MAX_HEADER_FIELDS: u16 = 768;
 const MAX_HEADER_STRINGS: u32 = 2048;
+const TITLE_LENGTH_OFFSET: u64 = 4 + 1 + 4 + 8 + 8 + 2;
+const TITLE_BYTES_OFFSET: u64 = TITLE_LENGTH_OFFSET + 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileHeader {
@@ -138,6 +140,12 @@ pub fn update_metadata(
     if let Some(title) = title {
         if title.is_empty() {
             return Err(V2Error::InvalidFileHeader);
+        }
+        if string_table.is_none() && title.len() == header.title.len() {
+            file.seek(SeekFrom::Start(TITLE_BYTES_OFFSET))?;
+            file.write_all(title.as_bytes())?;
+            file.flush()?;
+            return Ok(());
         }
         header.title = title.to_owned();
     }

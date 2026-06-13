@@ -101,7 +101,7 @@ impl Writer {
     }
 }
 
-fn inherited_v2_options(path: &Path) -> fwob_v2::WriterOptions {
+pub(crate) fn inherited_v2_options(path: &Path) -> fwob_v2::WriterOptions {
     let Ok(mut reader) = fwob_v2::Reader::open(path) else {
         return fwob_v2::WriterOptions::new("");
     };

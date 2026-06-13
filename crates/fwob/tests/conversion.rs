@@ -202,7 +202,7 @@ fn cli_roundtrips_v1_to_v2_to_v1() {
         v1_path.to_str().unwrap(),
         v2_path.to_str().unwrap(),
         "64KiB",
-        "none",
+        "uncompressed",
     ]));
 
     assert_command_success(Command::new(exe).args([
@@ -419,7 +419,7 @@ fn cli_convert_treats_prefixed_reserved_word_as_path() {
         "convert",
         "./row-raw",
         output_path.to_str().unwrap(),
-        "none",
+        "uncompressed",
     ]));
 
     let reader = fwob_v2::Reader::open(&output_path).unwrap();
@@ -501,7 +501,7 @@ fn cli_bench_conversion_matrix_runs_all_supported_cases_and_cleans_outputs() {
     assert!(stdout.contains("cases: 99"));
     assert!(stdout.contains("[conversion_matrix_dimensions]"));
     assert!(stdout.contains("page_size (3): 512KiB (33 cases), 1MiB (33 cases), 2MiB (33 cases)"));
-    assert!(stdout.contains("codec (3): zstd (72 cases), lz4 (18 cases), none (9 cases)"));
+    assert!(stdout.contains("codec (3): zstd (72 cases), lz4 (18 cases), uncompressed (9 cases)"));
     assert!(stdout.contains(
         "zstd_level (4; zstd only): 3 (18 cases), 6 (18 cases), 9 (18 cases), 12 (18 cases)"
     ));
@@ -509,7 +509,7 @@ fn cli_bench_conversion_matrix_runs_all_supported_cases_and_cleans_outputs() {
         "encoding (3): row-raw (33 cases), columnar-basic (33 cases), columnar-delta (33 cases)"
     ));
     assert!(stdout.contains("page_packing (2): estimate-shrink (54 cases), tight-fit (45 cases)"));
-    assert!(stdout.contains("excluded: codec=none + page_packing=tight-fit"));
+    assert!(stdout.contains("excluded: codec=uncompressed + page_packing=tight-fit"));
     assert!(stdout.contains("conditional: zstd_level applies only to codec=zstd"));
     assert!(stdout.contains("[conversion_matrix_test_runs]"));
     assert!(stdout.contains("conversion: 99"));

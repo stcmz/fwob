@@ -29,7 +29,7 @@ page_offset = file_header_length + page_index * page_size
 | Parameter | What It Controls | Typical Values |
 | --- | --- | --- |
 | page-size token | Fixed physical page size. Integer with `B`, `KB`, `KiB`, `MB`, or `MiB`; range `1KiB..16MiB`. | `512KiB` (default), `1MB`, `1MiB`, `2MiB` |
-| `--codec` | Page compression codec. | `zstd` (default), `lz4`, `smallest`, `none` |
+| codec token | Page compression codec. | `zstd` (default), `lz4`, `smallest`, `uncompressed` |
 | `--zstd-level` | zstd compression level. Affects write/convert speed heavily, read speed lightly. | `3`, `6` (default), `9`, `12`, `15`, `19` |
 | `--encoding` | Page payload layout before compression. `smallest` tries columnar-basic and columnar-delta per page and records the winning concrete encoding in page metadata. | `row-raw`, `columnar-basic` (default), `columnar-delta`, `smallest` |
 | `--compress-partial-page` | Compress the final partial page instead of leaving the final non-overflowing remainder raw for append. | off (default), on |
@@ -61,7 +61,7 @@ Verification and interrupted-write repair enforce this invariant.
 ## Codecs
 
 ```text
-0 = none
+0 = uncompressed
 1 = zstd
 2 = lz4
 ```

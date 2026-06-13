@@ -464,6 +464,28 @@ fn v2_metadata_edits_touch_only_the_fixed_header() {
 }
 
 #[test]
+fn v2_same_length_title_update_touches_only_title_bytes() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v2-title-direct.fwob");
+    create_v2(&path);
+    let original = fs::read(&path).unwrap();
+
+    let mut editor = Editor::open(&path).unwrap();
+    editor.set_title("rename").unwrap();
+    let edited = fs::read(&path).unwrap();
+
+    let changed = original
+        .iter()
+        .zip(&edited)
+        .enumerate()
+        .filter_map(|(index, (before, after))| (before != after).then_some(index))
+        .collect::<Vec<_>>();
+    assert!(!changed.is_empty());
+    assert!(changed.iter().all(|index| (29..35).contains(index)));
+    assert_eq!(Reader::open(&path).unwrap().title(), "rename");
+}
+
+#[test]
 fn v2_deletion_rewrites_only_affected_pages_and_later_page_headers() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("v2-local-delete.fwob");
@@ -664,6 +686,50 @@ fn assert_organization_contract(version: FormatVersion) {
     assert!(organizer
         .concat(dir.path().join("invalid.fwob"), &reversed)
         .is_err());
+}
+
+#[test]
+fn v2_split_and_concat_share_operation_options() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("series.fwob");
+    create_query_v2(&source);
+
+    let mut v2 = fwob_v2::WriterOptions::new("");
+    v2.codec = fwob_v2::Codec::Zstd;
+    v2.codec_selection = fwob_v2::CodecSelection::Fixed(fwob_v2::Codec::Zstd);
+    v2.compress_partial_page = true;
+    let organizer = Organizer {
+        operation_options: OperationOptions {
+            v2: Some(v2),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let parts = organizer
+        .split(
+            &source,
+            dir.path().join("parts"),
+            &[Key::I32(2), Key::I32(3)],
+        )
+        .unwrap();
+    for part in &parts {
+        let mut reader = fwob_v2::Reader::open(part).unwrap();
+        assert_eq!(reader.header().page_size, 1024);
+        assert_eq!(
+            reader.read_page_header(0).unwrap().codec,
+            fwob_v2::Codec::Zstd
+        );
+    }
+
+    let joined = dir.path().join("joined.fwob");
+    organizer.concat(&joined, &parts).unwrap();
+    let mut reader = fwob_v2::Reader::open(joined).unwrap();
+    assert_eq!(reader.header().page_size, 1024);
+    assert_eq!(
+        reader.read_page_header(0).unwrap().codec,
+        fwob_v2::Codec::Zstd
+    );
+    reader.verify().unwrap();
 }
 
 #[test]

@@ -36,11 +36,11 @@ re-exports.
 V1 files do not store their key-field index. `Reader::open_with_options` and
 `ReaderOptions::v1_key_field_index` allow callers to supply it; field zero is
 the default. `OperationOptions` carries the reader settings and optional v2
-write settings used by both append and deletion.
+write settings used by append, deletion, split, and concatenation.
 
-V2 writer options are accepted when opening an appender or editor. They remain
-outside the common reader/writer traits because compression and packing are
-format implementation details.
+V2 writer options are accepted when opening an appender or editor and when
+constructing an organizer. They remain outside the common reader/writer traits
+because compression and packing are format implementation details.
 
 Reader, writer, editor, maintenance, and organization conformance tests execute
 the same logical assertions against both formats.
@@ -173,10 +173,13 @@ Maintenance::repair("ticks.fwob", ReaderOptions::default())?;
 ### Split and Concatenate
 
 ```rust
-use fwob::Organizer;
+use fwob::{OperationOptions, Organizer};
 use fwob_core::Key;
 
-let organizer = Organizer::default();
+let organizer = Organizer {
+    operation_options: OperationOptions::default(),
+    ..Default::default()
+};
 let parts = organizer.split(
     "ticks.fwob",
     "parts",
@@ -364,10 +367,11 @@ payloads; only their `first_frame_index` and header CRC are updated.
 
 The CLI tokens are `local-repack` and `repack-to-end`.
 
-Append and deletion both accept `OperationOptions`. `v2: None` inherits codec
-and encoding from the existing file; `v2: Some(...)` supplies explicit
-per-operation compression and packing settings. Schema, page size, title, and
-string table always come from the existing file.
+Append, deletion, split, and concatenation accept the same `OperationOptions`.
+`v2: None` inherits codec and encoding from the existing file;
+`v2: Some(...)` supplies explicit per-operation compression and packing
+settings. Schema, page size, title, and string table come from the existing
+file. The CLI codec token for raw pages is `uncompressed`.
 
 V1 compacts in place beginning at the first deleted frame, preserving the file
 prefix byte-for-byte and moving each retained suffix block at most once. This
@@ -399,9 +403,11 @@ frame and is not suitable for large production files.
 `Editor::update_metadata` can apply title and string-table changes together.
 V1 updates its fixed metadata prefix in place without reading or rewriting
 frames; replacement strings must fit the capacity reserved when the file was
-created. V2 rewrites only its fixed 4 KiB header. Both paths validate and encode
-the complete replacement metadata before writing, but an interrupted in-place
-metadata write is not a copy-on-write transaction.
+created. For v2, a title-only replacement with the same UTF-8 byte length
+overwrites only the title bytes. A different title length moves all following
+length-prefixed metadata, so that case and string-table changes reserialize the
+fixed 4 KiB header. Pages are never touched. An interrupted in-place metadata
+write is not a copy-on-write transaction.
 
 ### Editing Complexity
 
@@ -418,7 +424,14 @@ v2 pages physically moved, and `B` the bounded copy buffer.
 | v2 deletion | `O(P decode/encode + T)`; `O(N)` worst case | `O(B + one decoded page)` | rebuild affected pages; byte-move later pages and rewrite only their headers |
 | v1 title update | `O(1)` | `O(1)` | overwrite the fixed 16-byte title field |
 | v1 string-table update | `O(S)` | `O(S)` | overwrite `S` encoded metadata bytes; frames are untouched |
-| v2 title/string-table update | `O(1)` | `O(1)` | reserialize and rewrite the fixed 4 KiB header; pages are untouched |
+| v2 same-length title update | `O(1)` | `O(1)` | overwrite only the UTF-8 title bytes |
+| v2 resized title/string-table update | `O(1)` | `O(1)` | reserialize and rewrite the format-bounded 4 KiB header |
+
+V2 deletion reaches the `O(N)` worst case when deletion starts near the
+beginning and either `repack-to-end` is selected or local output occupies fewer
+physical pages. The implementation must then process or move nearly every
+following page. Even unchanged page payloads need updated `first_frame_index`
+and header CRC values; a page-count reduction also shifts those pages forward.
 
 ## File Organization
 
@@ -427,6 +440,13 @@ first key. `Organizer::concat` accepts same-format inputs with identical schema
 and title, globally ordered keys, and compatible string tables. String tables
 are compatible when one is a matching prefix of the other; the longest table
 is written.
+
+`Organizer` is operation-stateful but not bound to one open file. It owns
+`OperationOptions` and applies them to every split or concat call. This matches
+the configuration model of `Writer` and `Editor` without retaining file handles
+or making a multi-source concat pretend to belong to one source file. V2 output
+preserves the source page size; explicit options control codec, encoding,
+compression level, packing, and partial-page handling.
 
 Both operations stream through a 4 MiB buffer, verify each completed output,
 and atomically publish it. V1 copies raw frame byte ranges without decoding or
