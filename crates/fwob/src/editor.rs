@@ -10,9 +10,26 @@ use tempfile::NamedTempFile;
 
 use crate::{Error, FormatVersion, Reader, ReaderOptions, Result};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DeletionPacking {
+    #[default]
+    LocalRepack,
+    RepackToEnd,
+}
+
+#[derive(Debug, Clone)]
 pub struct MutationOptions {
-    pub compress_partial_page: bool,
+    pub deletion_packing: DeletionPacking,
+    pub v2: Option<fwob_v2::WriterOptions>,
+}
+
+impl Default for MutationOptions {
+    fn default() -> Self {
+        Self {
+            deletion_packing: DeletionPacking::LocalRepack,
+            v2: None,
+        }
+    }
 }
 
 pub struct Editor {
@@ -75,12 +92,7 @@ impl Editor {
                 Ok(removed)
             }
             FormatVersion::V2 => {
-                fwob_v2_delete_ranges(
-                    &self.path,
-                    ranges,
-                    removed,
-                    self.mutation_options.compress_partial_page,
-                )?;
+                fwob_v2_delete_ranges(&self.path, ranges, removed, &self.mutation_options)?;
                 self.frame_count -= removed;
                 Ok(removed)
             }
@@ -278,7 +290,7 @@ fn fwob_v2_delete_ranges(
     path: &Path,
     ranges: &[Range<u64>],
     removed: u64,
-    compress_partial_page: bool,
+    mutation_options: &MutationOptions,
 ) -> Result<()> {
     let mut reader = fwob_v2::Reader::open(path)?;
     let header = reader.header().clone();
@@ -287,58 +299,69 @@ fn fwob_v2_delete_ranges(
     let start_page = reader
         .find_page_for_index(first_deleted)?
         .expect("validated deletion start");
-    let end_page = reader
+    let last_affected_page = reader
         .find_page_for_index(last_deleted)?
         .expect("validated deletion end");
+    let mut end_page = match mutation_options.deletion_packing {
+        DeletionPacking::LocalRepack => last_affected_page,
+        DeletionPacking::RepackToEnd => header.page_count - 1,
+    };
     let start_header = reader.read_page_header(start_page)?;
     let first_frame_index = start_header.first_frame_index;
 
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut options = fwob_v2::WriterOptions::new(&header.title);
+    let mut options = mutation_options.v2.clone().unwrap_or_else(|| {
+        let mut options = fwob_v2::WriterOptions::new("");
+        options.codec = start_header.codec;
+        options.codec_selection = fwob_v2::CodecSelection::Fixed(start_header.codec);
+        options.encoding = start_header.encoding;
+        options.encoding_selection = fwob_v2::EncodingSelection::Fixed(start_header.encoding);
+        options
+    });
+    options.title = header.title.clone();
     options.page_size = header.page_size;
-    options.codec = start_header.codec;
-    options.codec_selection = fwob_v2::CodecSelection::Fixed(start_header.codec);
-    options.encoding = start_header.encoding;
-    options.encoding_selection = fwob_v2::EncodingSelection::Fixed(start_header.encoding);
     options.string_table = header.string_table.clone();
-    options.compress_partial_page = compress_partial_page;
-    let mut writer = fwob_v2::Writer::create(&temporary_path, header.schema.clone(), options)?;
+    if matches!(
+        mutation_options.deletion_packing,
+        DeletionPacking::LocalRepack
+    ) {
+        options.compress_partial_page = true;
+    }
     let frame_len = header.schema.frame_len as usize;
-    let mut range_index = 0usize;
-
-    for page_index in start_page..=end_page {
-        let page = reader.read_page_header(page_index)?;
-        let raw = reader.read_page_raw_frames(page_index)?;
-        let mut retained = Vec::with_capacity(raw.len());
-        for local_index in 0..u64::from(page.frame_count) {
-            let global_index = page.first_frame_index + local_index;
-            while range_index < ranges.len() && ranges[range_index].end <= global_index {
-                range_index += 1;
+    let replacement_header = loop {
+        let mut writer =
+            fwob_v2::Writer::create(&temporary_path, header.schema.clone(), options.clone())?;
+        let mut range_index = 0usize;
+        for page_index in start_page..=end_page {
+            let page = reader.read_page_header(page_index)?;
+            let raw = reader.read_page_raw_frames(page_index)?;
+            let mut retained = Vec::with_capacity(raw.len());
+            for local_index in 0..u64::from(page.frame_count) {
+                let global_index = page.first_frame_index + local_index;
+                while range_index < ranges.len() && ranges[range_index].end <= global_index {
+                    range_index += 1;
+                }
+                let deleted = range_index < ranges.len()
+                    && ranges[range_index].start <= global_index
+                    && global_index < ranges[range_index].end;
+                if !deleted {
+                    let offset = local_index as usize * frame_len;
+                    retained.extend_from_slice(&raw[offset..offset + frame_len]);
+                }
             }
-            let deleted = range_index < ranges.len()
-                && ranges[range_index].start <= global_index
-                && global_index < ranges[range_index].end;
-            if !deleted {
-                let offset = local_index as usize * frame_len;
-                retained.extend_from_slice(&raw[offset..offset + frame_len]);
-            }
+            writer.append_presorted_raw_frames(&retained)?;
         }
-        writer.append_presorted_raw_frames(&retained)?;
-    }
-    writer.finish()?;
+        writer.finish()?;
+        let replacement_header = fwob_v2::Reader::open(&temporary_path)?.header().clone();
+        let consumed_pages = end_page - start_page + 1;
+        if replacement_header.page_count <= consumed_pages || end_page + 1 == header.page_count {
+            break replacement_header;
+        }
+        end_page += 1;
+    };
     drop(reader);
-
-    let replacement_reader = fwob_v2::Reader::open(&temporary_path)?;
-    let replacement_header = replacement_reader.header().clone();
-    let consumed_pages = end_page - start_page + 1;
-    if replacement_header.page_count > consumed_pages {
-        return Err(Error::Core(fwob_core::FwobError::InvalidSchema(
-            "localized v2 deletion unexpectedly increased the affected page count".into(),
-        )));
-    }
-    drop(replacement_reader);
 
     let mut source = OpenOptions::new().read(true).write(true).open(path)?;
     let mut replacement = File::open(&temporary_path)?;
@@ -375,6 +398,7 @@ fn fwob_v2_delete_ranges(
         source.write_all(&page_bytes)?;
     }
 
+    let consumed_pages = end_page - start_page + 1;
     let new_page_count = header.page_count - consumed_pages + replacement_header.page_count;
     let new_frame_count = header.frame_count - removed;
     source.set_len(fwob_v2::FILE_HEADER_LEN + new_page_count * u64::from(header.page_size))?;

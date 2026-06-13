@@ -42,6 +42,10 @@ enum Command {
     Concat(ConcatArgs),
     /// Rewrite title or string-table metadata without changing frames.
     Edit(EditArgs),
+    /// Find frames matching one key or an inclusive key range.
+    Find(FindArgs),
+    /// Delete frames matching one key or an inclusive key range.
+    Delete(DeleteArgs),
 }
 
 const FRAME_PREVIEW_COUNT: usize = 3;
@@ -300,6 +304,44 @@ struct EditArgs {
     key_field_index: usize,
 }
 
+#[derive(Debug, Args)]
+struct FindArgs {
+    /// Input v1 or v2 file.
+    path: PathBuf,
+    /// Key to find, or inclusive lower key when LAST_KEY is supplied.
+    first_key: String,
+    /// Optional inclusive upper key.
+    last_key: Option<String>,
+    /// Key field index for v1 input only.
+    #[arg(long, default_value_t = 0)]
+    key_field_index: usize,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "fwob delete [OPTIONS] PATH FIRST_KEY [LAST_KEY] [TOKENS]")]
+#[command(after_help = "Plain tokens:
+  deletion packing: local-repack (default), repack-to-end
+  codecs: zstd, lz4, smallest, none
+  encodings: row-raw, columnar-basic, columnar-delta, smallest
+  page packing: estimate-shrink, tight-fit
+  switches: verify, compress-partial-page
+
+FIRST_KEY alone deletes every equal key. FIRST_KEY LAST_KEY deletes the inclusive range.
+compress-partial-page applies to the final EOF remainder in repack-to-end mode.
+Tokens may appear anywhere. Reserved tokens win on exact match.")]
+struct DeleteArgs {
+    /// File, one key or key range, and optional v2 mutation tokens.
+    #[arg(value_name = "TARGET", num_args = 2..)]
+    target: Vec<String>,
+    /// Key field index for v1 input only.
+    #[arg(long, default_value_t = 0)]
+    key_field_index: usize,
+    /// zstd level for rewritten pages. Supplying any v2 write setting selects
+    /// explicit mutation settings instead of inheriting the affected page.
+    #[arg(long)]
+    zstd_level: Option<i32>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct V2WriteOptions {
     codec: CodecArg,
@@ -343,6 +385,28 @@ enum EncodingArg {
 enum PagePackingArg {
     EstimateShrink,
     TightFit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeletionPackingArg {
+    LocalRepack,
+    RepackToEnd,
+}
+
+impl DeletionPackingArg {
+    fn deletion_packing(self) -> fwob::DeletionPacking {
+        match self {
+            Self::LocalRepack => fwob::DeletionPacking::LocalRepack,
+            Self::RepackToEnd => fwob::DeletionPacking::RepackToEnd,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::LocalRepack => "local-repack",
+            Self::RepackToEnd => "repack-to-end",
+        }
+    }
 }
 
 impl PagePackingArg {
@@ -429,7 +493,131 @@ fn main() -> Result<()> {
         Command::Split(args) => split_file(args),
         Command::Concat(args) => concat_file(args),
         Command::Edit(args) => edit_file(args),
+        Command::Find(args) => find_frames(args),
+        Command::Delete(args) => delete_frames(args),
     }
+}
+
+fn resolve_key_range(
+    reader: &mut fwob::Reader,
+    first: &str,
+    last: Option<&str>,
+) -> Result<(Key, Key, std::ops::Range<u64>)> {
+    let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
+    let first = parse_key(first, key_type)?;
+    let last = last
+        .map(|value| parse_key(value, key_type))
+        .transpose()?
+        .unwrap_or(first);
+    if first > last {
+        bail!("FIRST_KEY must be less than or equal to LAST_KEY");
+    }
+    let range = if first == last {
+        reader.equal_range(first)?
+    } else {
+        reader.lower_bound(first)?..reader.upper_bound(last)?
+    };
+    Ok((first, last, range))
+}
+
+fn find_frames(args: FindArgs) -> Result<()> {
+    let reader_options = fwob::ReaderOptions {
+        v1_key_field_index: args.key_field_index,
+    };
+    let mut reader = fwob::Reader::open_with_options(&args.path, reader_options)?;
+    let schema = reader.schema().clone();
+    let (first_key, last_key, range) =
+        resolve_key_range(&mut reader, &args.first_key, args.last_key.as_deref())?;
+    let rows = preview_indices(range.end - range.start)
+        .into_iter()
+        .map(|item| match item {
+            PreviewIndex::Frame(index) => {
+                let global_index = range.start + index;
+                let frame = reader
+                    .read_frame(global_index)?
+                    .context("matched frame index is out of range")?;
+                Ok(PreviewRow::Frame(global_index, frame.bytes().to_vec()))
+            }
+            PreviewIndex::Ellipsis => Ok(PreviewRow::Ellipsis),
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    toml_section("find");
+    toml_kv_str("path", &args.path.display().to_string());
+    toml_kv_key("first_key", first_key);
+    toml_kv_key("last_key", last_key);
+    toml_kv_num("start_index", range.start);
+    toml_kv_num("end_index", range.end);
+    toml_kv_num("frame_count", range.end - range.start);
+    if !rows.is_empty() {
+        println!();
+        toml_section("frames");
+        toml_kv_multiline("preview", &format_frame_preview_rows(&schema, &rows));
+    }
+    Ok(())
+}
+
+fn delete_frames(args: DeleteArgs) -> Result<()> {
+    let parsed = parse_command_tokens(&args.target, false, true, false, false, true)?;
+    let explicit_v2_options = parsed.has_mutation_write_tokens() || args.zstd_level.is_some();
+    let write = parsed.write_options(V2WriteArgs {
+        zstd_level: args.zstd_level.unwrap_or(fwob_v2::DEFAULT_ZSTD_LEVEL),
+    });
+    let deletion_packing = parsed
+        .deletion_packing
+        .unwrap_or(DeletionPackingArg::LocalRepack);
+    let ([path, first_key] | [path, first_key, _]) = parsed.paths.as_slice() else {
+        bail!("delete expects PATH FIRST_KEY or PATH FIRST_KEY LAST_KEY after tokens");
+    };
+    let last_key = parsed.paths.get(2).copied();
+    let path = PathBuf::from(path);
+    let reader_options = fwob::ReaderOptions {
+        v1_key_field_index: args.key_field_index,
+    };
+    let mut reader = fwob::Reader::open_with_options(&path, reader_options)?;
+    let (first_key, last_key_value, _) = resolve_key_range(&mut reader, first_key, last_key)?;
+    drop(reader);
+
+    let effective_compress_partial_page =
+        matches!(deletion_packing, DeletionPackingArg::LocalRepack) || write.compress_partial_page;
+    let v2 = explicit_v2_options.then(|| {
+        let mut v2 = fwob_v2::WriterOptions::new("");
+        v2.codec = write.codec.codec();
+        v2.codec_selection = write.codec.selection();
+        v2.zstd_level = write.zstd_level;
+        v2.encoding = write.encoding.encoding();
+        v2.encoding_selection = write.encoding.selection();
+        v2.compress_partial_page = effective_compress_partial_page;
+        v2.page_packing = write.page_packing.page_packing();
+        v2
+    });
+    let mut editor = fwob::Editor::open_with_mutation_options(
+        &path,
+        reader_options,
+        fwob::MutationOptions {
+            deletion_packing: deletion_packing.deletion_packing(),
+            v2,
+        },
+    )?;
+    let removed = if first_key == last_key_value {
+        editor.delete_key(first_key)?
+    } else {
+        editor.delete_key_range(first_key..=last_key_value)?
+    };
+    if write.verify {
+        fwob::Maintenance::verify(&path, reader_options)?;
+    }
+
+    toml_section("deletion");
+    toml_kv_str("path", &path.display().to_string());
+    toml_kv_key("first_key", first_key);
+    toml_kv_key("last_key", last_key_value);
+    toml_kv_num("deleted_frames", removed);
+    toml_kv_num("remaining_frames", editor.frame_count());
+    toml_kv_str("deletion_packing", deletion_packing.as_str());
+    toml_kv_bool("compress_partial_page", effective_compress_partial_page);
+    toml_kv_bool("verified", write.verify);
+    Ok(())
 }
 
 fn split_file(args: SplitArgs) -> Result<()> {
@@ -740,7 +928,7 @@ fn parse_convert_target(
     values: &[String],
     write_args: V2WriteArgs,
 ) -> Result<(TargetFormat, PathBuf, PathBuf, u32, V2WriteOptions)> {
-    let parsed = parse_command_tokens(values, true, true, true, false)?;
+    let parsed = parse_command_tokens(values, true, true, true, false, false)?;
     let format = parsed.format.unwrap_or(TargetFormat::V2);
     if matches!(format, TargetFormat::V1) && parsed.has_v2_write_tokens() {
         bail!("v2 write tokens are not valid when converting to v1");
@@ -820,6 +1008,7 @@ struct ParsedTokens<'a> {
     codec: Option<CodecArg>,
     encoding: Option<EncodingArg>,
     page_packing: Option<PagePackingArg>,
+    deletion_packing: Option<DeletionPackingArg>,
     page_size: Option<u32>,
     verify: bool,
     compress_partial_page: bool,
@@ -850,6 +1039,13 @@ impl ParsedTokens<'_> {
         write.compress_partial_page = self.compress_partial_page;
         write
     }
+
+    fn has_mutation_write_tokens(&self) -> bool {
+        self.codec.is_some()
+            || self.encoding.is_some()
+            || self.page_packing.is_some()
+            || self.compress_partial_page
+    }
 }
 
 fn parse_command_tokens<'a>(
@@ -858,6 +1054,7 @@ fn parse_command_tokens<'a>(
     allow_write: bool,
     allow_page_size: bool,
     allow_bench: bool,
+    allow_deletion_packing: bool,
 ) -> Result<ParsedTokens<'a>> {
     let mut parsed = ParsedTokens::default();
     let mut seen_verify = false;
@@ -940,6 +1137,27 @@ fn parse_command_tokens<'a>(
                 _ => {}
             }
         }
+        if allow_deletion_packing {
+            match value.as_str() {
+                "local-repack" => {
+                    set_once(
+                        &mut parsed.deletion_packing,
+                        DeletionPackingArg::LocalRepack,
+                        "deletion packing",
+                    )?;
+                    continue;
+                }
+                "repack-to-end" => {
+                    set_once(
+                        &mut parsed.deletion_packing,
+                        DeletionPackingArg::RepackToEnd,
+                        "deletion packing",
+                    )?;
+                    continue;
+                }
+                _ => {}
+            }
+        }
         if is_any_reserved_token(value) {
             bail!("token '{value}' is not valid for this command");
         }
@@ -984,6 +1202,8 @@ fn is_any_reserved_token(value: &str) -> bool {
             | "tight-fit"
             | "verify"
             | "compress-partial-page"
+            | "local-repack"
+            | "repack-to-end"
     )
 }
 
@@ -1053,7 +1273,7 @@ mod token_case_tests {
         assert!(match_bench_mode("RANGE").is_none());
 
         let values = vec!["ZSTD".to_string(), "input.fwob".to_string()];
-        let parsed = parse_command_tokens(&values, false, true, false, false).unwrap();
+        let parsed = parse_command_tokens(&values, false, true, false, false, false).unwrap();
         assert_eq!(parsed.paths, ["ZSTD", "input.fwob"]);
         assert_eq!(parsed.codec, None);
     }
@@ -2457,7 +2677,7 @@ fn convert_v1_to_v2(
 }
 
 fn append_to_v2(args: AppendArgs) -> Result<()> {
-    let parsed = parse_command_tokens(&args.target, false, true, false, false)?;
+    let parsed = parse_command_tokens(&args.target, false, true, false, false, false)?;
     let write = parsed.write_options(args.write);
     let [target, input] = parsed.paths.as_slice() else {
         bail!("append expects exactly target and input paths after tokens");

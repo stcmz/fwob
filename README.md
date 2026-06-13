@@ -108,6 +108,9 @@ fwob append ticks-v2.fwob new-ticks.fwob verify
 fwob split ticks.fwob parts 1000 2000 3000
 fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob
 fwob edit ticks-joined.fwob --title Renamed --append-string NASDAQ
+fwob find ticks-v2.fwob 100 200
+fwob delete ticks-v2.fwob 100 200 local-repack verify
+fwob delete ticks-v2.fwob 100 200 repack-to-end zstd columnar-basic compress-partial-page
 fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```

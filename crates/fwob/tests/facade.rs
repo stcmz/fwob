@@ -1,8 +1,8 @@
 use std::{fs, fs::OpenOptions, io::Write, path::Path};
 
 use fwob::{
-    Editor, FormatVersion, Maintenance, MutationOptions, Organizer, Reader, ReaderOptions, Writer,
-    WriterOpenOptions,
+    DeletionPacking, Editor, FormatVersion, Maintenance, MutationOptions, Organizer, Reader,
+    ReaderOptions, Writer, WriterOpenOptions,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -521,7 +521,12 @@ fn v2_deletion_can_compress_the_partial_replacement_page() {
         &path,
         ReaderOptions::default(),
         MutationOptions {
-            compress_partial_page: true,
+            deletion_packing: DeletionPacking::RepackToEnd,
+            v2: Some({
+                let mut options = fwob_v2::WriterOptions::new("");
+                options.compress_partial_page = true;
+                options
+            }),
         },
     )
     .unwrap();
@@ -537,6 +542,60 @@ fn v2_deletion_can_compress_the_partial_replacement_page() {
             .codec
             != fwob_v2::Codec::None
     );
+}
+
+#[test]
+fn v2_repack_to_end_can_leave_the_final_eof_remainder_raw() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v2-raw-eof-remainder-delete.fwob");
+    create_compressed_linear_v2(&path, 1_000);
+
+    let mut editor = Editor::open_with_mutation_options(
+        &path,
+        ReaderOptions::default(),
+        MutationOptions {
+            deletion_packing: DeletionPacking::RepackToEnd,
+            v2: Some(fwob_v2::WriterOptions::new("")),
+        },
+    )
+    .unwrap();
+    assert_eq!(editor.delete_frames(100..900).unwrap(), 800);
+
+    let mut reader = fwob_v2::Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(
+        reader
+            .read_page_header(reader.header().page_count - 1)
+            .unwrap()
+            .codec,
+        fwob_v2::Codec::None
+    );
+}
+
+#[test]
+fn v2_local_repack_expands_the_affected_interval_when_selected_pages_need_more_space() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v2-local-expand-delete.fwob");
+    create_compressed_linear_v2(&path, 1_000);
+
+    let mut raw_options = fwob_v2::WriterOptions::new("");
+    raw_options.codec = fwob_v2::Codec::None;
+    raw_options.codec_selection = fwob_v2::CodecSelection::Fixed(fwob_v2::Codec::None);
+    let mut editor = Editor::open_with_mutation_options(
+        &path,
+        ReaderOptions::default(),
+        MutationOptions {
+            deletion_packing: DeletionPacking::LocalRepack,
+            v2: Some(raw_options),
+        },
+    )
+    .unwrap();
+    assert!(editor.delete_frame(10).unwrap());
+
+    let mut reader = fwob_v2::Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 999);
+    assert_eq!(reader.read_key_at(10).unwrap(), Some(Key::I32(11)));
 }
 
 fn assert_organization_contract(version: FormatVersion) {

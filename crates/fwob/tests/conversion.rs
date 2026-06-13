@@ -128,6 +128,59 @@ fn cli_splits_concatenates_and_edits_metadata() {
 }
 
 #[test]
+fn cli_finds_and_deletes_by_key_or_key_range() {
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("query-v1.fwob");
+    let v2_path = dir.path().join("query-v2.fwob");
+    {
+        let mut writer =
+            V1Writer::create(&v1_path, tick_schema(), WriterOptions::new("Query")).unwrap();
+        for i in 0..30 {
+            writer.append_frame(&tick(i, i as f64)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let find =
+        command_output(Command::new(exe).args(["find", v1_path.to_str().unwrap(), "10", "12"]));
+    let stdout = String::from_utf8_lossy(&find.stdout);
+    assert!(stdout.contains("[find]"));
+    assert!(stdout.contains("start_index = 10"));
+    assert!(stdout.contains("end_index = 13"));
+    assert!(stdout.contains("frame_count = 3"));
+    assert!(stdout.contains("preview = \"\"\""));
+
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        v1_path.to_str().unwrap(),
+        v2_path.to_str().unwrap(),
+        "4KiB",
+        "zstd",
+    ]));
+    let deletion = command_output(Command::new(exe).args([
+        "delete",
+        v2_path.to_str().unwrap(),
+        "10",
+        "12",
+        "repack-to-end",
+        "zstd",
+        "columnar-basic",
+        "compress-partial-page",
+        "verify",
+    ]));
+    let stdout = String::from_utf8_lossy(&deletion.stdout);
+    assert!(stdout.contains("[deletion]"));
+    assert!(stdout.contains("deleted_frames = 3"));
+    assert!(stdout.contains("remaining_frames = 27"));
+    assert!(stdout.contains("deletion_packing = \"repack-to-end\""));
+    assert!(stdout.contains("verified = true"));
+
+    let mut reader = Reader::open(&v2_path).unwrap();
+    assert_eq!(reader.equal_range(fwob_core::Key::I32(10)).unwrap(), 10..10);
+    assert_eq!(reader.read_key(10).unwrap(), Some(fwob_core::Key::I32(13)));
+}
+
+#[test]
 fn cli_roundtrips_v1_to_v2_to_v1() {
     let dir = tempdir().unwrap();
     let v1_path = dir.path().join("input.fwob");

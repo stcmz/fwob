@@ -184,7 +184,6 @@ organizer.concat("joined.fwob", &parts)?;
 ### Typed Frames
 
 ```rust
-use fwob::{TypedEditor, TypedReader, TypedWriter};
 use fwob_core::FwobFrame;
 
 #[derive(Debug, FwobFrame)]
@@ -194,6 +193,12 @@ struct Tick {
     price: u32,
     size: i32,
 }
+```
+
+#### Typed Writer
+
+```rust
+use fwob::TypedWriter;
 
 let mut writer = TypedWriter::<Tick>::create_v2(
     "ticks.fwob",
@@ -205,9 +210,22 @@ writer.append(&Tick {
     size: 10,
 })?;
 writer.finish()?;
+```
+
+#### Typed Reader
+
+```rust
+use fwob::TypedReader;
 
 let mut reader = TypedReader::<Tick>::open("ticks.fwob")?;
 let tick = reader.read_frame(0)?;
+let matches = reader.frames_by_key(100..=200)?;
+```
+
+#### Typed Editor
+
+```rust
+use fwob::TypedEditor;
 
 let mut editor = TypedEditor::<Tick>::open("ticks.fwob")?;
 editor.delete_indices(&[3, 8, 13])?;
@@ -281,15 +299,23 @@ independently of file size.
 
 ### Reader Complexity
 
-Let `N` be total frames, `P` the number of v2 storage units, and `D` the cost
-of decoding one v2 unit.
+Let `N` be total frames, `P` the number of v2 pages, `Q` the frames in one
+page, and `D` the cost of reading, decompressing, and decoding one page.
 
 | Operation | v1 time | v2 time | Extra memory |
 | --- | --- | --- | --- |
 | frame/key by index | `O(1)` | `O(log P + D)` | one frame / one decoded unit |
-| first/last frame or key | `O(1)` | `O(log P + D)` | one frame / one decoded unit |
-| lower/upper/equal range | `O(log N)` | `O(log N * (log P + D))`, with unit cache reuse | one decoded unit |
+| first/last key | `O(1)` | `O(1)` | `O(1)` |
+| first/last frame | `O(1)` | `O(log P + D)` | one frame / one decoded unit |
+| lower/upper bound | `O(log N)` | `O(log P + D + log Q)` | one decoded unit |
+| equal range | `O(log N)` | currently `O(log N * (log P + D))` worst case | one decoded unit |
 | stream `K` frames | `O(K)` | `O(P touched * D + K)` | one decoded unit |
+
+V2 lower and upper bounds first binary-search page headers, decode one boundary
+page, and then binary-search frames within that page. Their costs are additive.
+The current shared-window `equal_range` instead binary-searches global frame
+indexes and calls indexed key lookup at each step, so its worst case remains
+multiplicative despite page-cache reuse.
 
 ## Validation
 
@@ -323,9 +349,22 @@ that interval stream through the normal page packer into replacement pages.
 Later physical pages are moved forward without decoding or recompressing their
 payloads; only their `first_frame_index` and header CRC are updated.
 
-`MutationOptions::compress_partial_page` controls whether the final replacement
-remainder is compressed into one partial page. The default leaves the
-non-overflowing remainder raw, matching append behavior.
+`MutationOptions::deletion_packing` selects one of two v2 strategies:
+
+- `DeletionPacking::LocalRepack` rebuilds the affected interval and finishes
+  its partial replacement page with the selected codec. Later page payloads
+  remain intact. If the selected representation needs more pages, the interval
+  expands forward only until the replacement fits.
+- `DeletionPacking::RepackToEnd` consumes pages through EOF and maximally
+  repacks the remainder. Its `v2.compress_partial_page` setting controls whether
+  the final EOF page is compressed or left raw.
+
+The CLI tokens are `local-repack` and `repack-to-end`.
+
+Append compression settings are passed in `WriterOpenOptions::v2`. Deletion
+settings are passed in `MutationOptions::v2` when opening `Editor`; `None`
+inherits codec and encoding from the first affected page. Schema, page size,
+title, and string table always come from the existing file.
 
 V1 compacts in place beginning at the first deleted frame, preserving the file
 prefix byte-for-byte and moving each retained suffix block at most once. This

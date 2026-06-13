@@ -11,7 +11,7 @@ mod reader;
 mod typed;
 mod writer;
 
-pub use editor::{Editor, MutationOptions};
+pub use editor::{DeletionPacking, Editor, MutationOptions};
 pub use maintenance::Maintenance;
 pub use organization::Organizer;
 pub use reader::Reader;
