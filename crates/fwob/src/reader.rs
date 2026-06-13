@@ -103,6 +103,28 @@ impl Reader {
         ))
     }
 
+    pub fn frames_before(
+        &mut self,
+        last_key: Key,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
+        Ok(Box::new(
+            self.inner
+                .frames_before(last_key)?
+                .map(|frame| frame.map_err(Into::into)),
+        ))
+    }
+
+    pub fn frames_after(
+        &mut self,
+        first_key: Key,
+    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
+        Ok(Box::new(
+            self.inner
+                .frames_after(first_key)?
+                .map(|frame| frame.map_err(Into::into)),
+        ))
+    }
+
     pub fn frames_by_keys(
         &mut self,
         keys: &[Key],

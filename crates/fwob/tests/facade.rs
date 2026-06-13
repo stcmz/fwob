@@ -518,6 +518,62 @@ fn ordered_multi_key_query_and_deletion_are_identical_for_v1_and_v2() {
 }
 
 #[test]
+fn unbounded_key_operations_are_identical_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let query_path = dir.path().join(format!("unbounded-query-{version:?}.fwob"));
+        create_query_file(&query_path, version);
+        let mut reader = Reader::open(&query_path).unwrap();
+        assert_eq!(
+            reader
+                .frames_before(Key::I32(2))
+                .unwrap()
+                .map(|frame| frame_key(&frame.unwrap()))
+                .collect::<Vec<_>>(),
+            (0..40)
+                .map(|_| 1)
+                .chain((0..140).map(|_| 2))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            reader
+                .frames_after(Key::I32(3))
+                .unwrap()
+                .map(|frame| frame_key(&frame.unwrap()))
+                .collect::<Vec<_>>(),
+            (0..80)
+                .map(|_| 3)
+                .chain((0..40).map(|_| 5))
+                .collect::<Vec<_>>()
+        );
+
+        let before_path = dir.path().join(format!("delete-before-{version:?}.fwob"));
+        create_query_file(&before_path, version);
+        let mut editor = Editor::open(&before_path).unwrap();
+        assert_eq!(editor.delete_before(Key::I32(2)).unwrap(), 180);
+        assert_remaining_keys(
+            &before_path,
+            &(0..80)
+                .map(|_| 3)
+                .chain((0..40).map(|_| 5))
+                .collect::<Vec<_>>(),
+        );
+
+        let after_path = dir.path().join(format!("delete-after-{version:?}.fwob"));
+        create_query_file(&after_path, version);
+        let mut editor = Editor::open(&after_path).unwrap();
+        assert_eq!(editor.delete_after(Key::I32(3)).unwrap(), 120);
+        assert_remaining_keys(
+            &after_path,
+            &(0..40)
+                .map(|_| 1)
+                .chain((0..140).map(|_| 2))
+                .collect::<Vec<_>>(),
+        );
+    }
+}
+
+#[test]
 fn bounded_memory_editor_contract_is_identical_for_v1_and_v2() {
     assert_editor_contract(FormatVersion::V1);
     assert_editor_contract(FormatVersion::V2);

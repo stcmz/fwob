@@ -271,6 +271,30 @@ impl Editor {
         self.rewrite_without(start..end)
     }
 
+    pub fn delete_before(&mut self, last_key: Key) -> Result<u64> {
+        let mut reader = Reader::open_with_options(
+            &self.path,
+            ReaderOptions {
+                v1_key_field_index: self.v1_key_field_index,
+            },
+        )?;
+        let end = reader.upper_bound(last_key)?;
+        drop(reader);
+        self.rewrite_without(0..end)
+    }
+
+    pub fn delete_after(&mut self, first_key: Key) -> Result<u64> {
+        let mut reader = Reader::open_with_options(
+            &self.path,
+            ReaderOptions {
+                v1_key_field_index: self.v1_key_field_index,
+            },
+        )?;
+        let start = reader.lower_bound(first_key)?;
+        drop(reader);
+        self.rewrite_without(start..self.frame_count)
+    }
+
     pub fn delete_all_frames(&mut self) -> Result<u64> {
         self.rewrite_without(0..self.frame_count)
     }
@@ -341,6 +365,14 @@ impl fwob_core::Editor for Editor {
 
     fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> fwob_core::Result<u64> {
         Editor::delete_key_range(self, range).map_err(fwob_core::FwobError::backend)
+    }
+
+    fn delete_before(&mut self, last_key: Key) -> fwob_core::Result<u64> {
+        Editor::delete_before(self, last_key).map_err(fwob_core::FwobError::backend)
+    }
+
+    fn delete_after(&mut self, first_key: Key) -> fwob_core::Result<u64> {
+        Editor::delete_after(self, first_key).map_err(fwob_core::FwobError::backend)
     }
 
     fn delete_all_frames(&mut self) -> fwob_core::Result<u64> {

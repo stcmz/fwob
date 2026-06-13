@@ -136,6 +136,47 @@ fn typed_ordered_multi_key_operations_work_for_v1_and_v2() {
 }
 
 #[test]
+fn typed_unbounded_key_operations_work_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("typed-unbounded-{version:?}.fwob"));
+        create(&path, version);
+
+        let mut reader = TypedReader::<TypedTick>::open(&path).unwrap();
+        assert_eq!(
+            reader
+                .frames_before(2)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+            [tick(1, 0), tick(2, 1), tick(2, 1)]
+        );
+        assert_eq!(
+            reader
+                .frames_after(2)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+            [tick(2, 1), tick(2, 1), tick(3, 0)]
+        );
+        drop(reader);
+
+        let mut editor = TypedEditor::<TypedTick>::open(&path).unwrap();
+        assert_eq!(editor.delete_before(1).unwrap(), 1);
+        assert_eq!(editor.delete_after(3).unwrap(), 1);
+        let mut reader = TypedReader::<TypedTick>::open(&path).unwrap();
+        assert_eq!(
+            reader
+                .frames(0..reader.frame_count())
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+            [tick(2, 1), tick(2, 1)]
+        );
+    }
+}
+
+#[test]
 fn typed_transactional_append_rejects_the_entire_invalid_batch() {
     let dir = tempdir().unwrap();
     for version in [FormatVersion::V1, FormatVersion::V2] {

@@ -157,6 +157,16 @@ impl Reader {
         self.frames(start..end)
     }
 
+    pub fn frames_before(&mut self, last_key: Key) -> Result<FrameIter<'_>> {
+        let end = self.upper_bound(last_key)?;
+        self.frames(0..end)
+    }
+
+    pub fn frames_after(&mut self, first_key: Key) -> Result<FrameIter<'_>> {
+        let start = self.lower_bound(first_key)?;
+        self.frames(start..self.frame_count())
+    }
+
     pub fn frames_by_keys(&mut self, keys: &[Key]) -> Result<MultiRangeFrameIter<'_>> {
         if keys.windows(2).any(|pair| pair[0] > pair[1]) {
             return Err(FwobError::UnsortedKeys);
@@ -378,6 +388,8 @@ pub trait Editor: FileInfo {
     fn delete_key(&mut self, key: Key) -> Result<u64>;
     fn delete_keys(&mut self, keys: &[Key]) -> Result<u64>;
     fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> Result<u64>;
+    fn delete_before(&mut self, last_key: Key) -> Result<u64>;
+    fn delete_after(&mut self, first_key: Key) -> Result<u64>;
     fn delete_all_frames(&mut self) -> Result<u64>;
     fn set_title(&mut self, title: &str) -> Result<()>;
     fn append_string(&mut self, value: &str) -> Result<u32>;

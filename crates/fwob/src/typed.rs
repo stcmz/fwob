@@ -100,6 +100,28 @@ impl<F: FwobFrame> TypedReader<F> {
         ))
     }
 
+    pub fn frames_before(
+        &mut self,
+        last_key: F::Key,
+    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
+        Ok(Box::new(
+            self.inner
+                .frames_before(last_key.into_key())?
+                .map(|frame| frame.and_then(decode_frame::<F>)),
+        ))
+    }
+
+    pub fn frames_after(
+        &mut self,
+        first_key: F::Key,
+    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
+        Ok(Box::new(
+            self.inner
+                .frames_after(first_key.into_key())?
+                .map(|frame| frame.and_then(decode_frame::<F>)),
+        ))
+    }
+
     pub fn frames_by_keys(
         &mut self,
         keys: &[F::Key],
@@ -239,6 +261,14 @@ impl<F: FwobFrame> TypedEditor<F> {
     pub fn delete_key_range(&mut self, range: RangeInclusive<F::Key>) -> Result<u64> {
         self.inner
             .delete_key_range(range.start().into_key()..=range.end().into_key())
+    }
+
+    pub fn delete_before(&mut self, last_key: F::Key) -> Result<u64> {
+        self.inner.delete_before(last_key.into_key())
+    }
+
+    pub fn delete_after(&mut self, first_key: F::Key) -> Result<u64> {
+        self.inner.delete_after(first_key.into_key())
     }
 
     pub fn delete_all_frames(&mut self) -> Result<u64> {

@@ -81,6 +81,8 @@ for frame in reader.frames_by_keys(&[
 retains one decoded internal storage unit as a reusable cache.
 `frames_by_keys` accepts sorted keys, skips missing keys, and returns duplicate
 query keys only once.
+`frames_before(last_key)` and `frames_after(first_key)` provide inclusive
+one-sided key ranges.
 
 ### Create and Write
 
@@ -142,6 +144,8 @@ editor.delete_frames(20..30)?;
 editor.delete_key(Key::I64(123))?;
 editor.delete_keys(&[Key::I64(123), Key::I64(456)])?;
 editor.delete_key_range(Key::I64(200)..=Key::I64(300))?;
+editor.delete_before(Key::I64(100))?;
+editor.delete_after(Key::I64(1_000))?;
 editor.set_title("updated prices")?;
 # Ok::<(), fwob::Error>(())
 ```
@@ -305,6 +309,7 @@ metadata inside the fixed 4 KiB file-header boundary.
 - one key
 - an ordered set of keys
 - an inclusive key range
+- an inclusive upper or lower key bound
 - all frames
 
 Deletion uses copy-on-write:
