@@ -87,6 +87,11 @@ pub fn read_file_header<R: Read + Seek>(reader: &mut R) -> Result<FileHeader> {
 }
 
 pub fn write_file_header<W: Write + Seek>(writer: &mut W, header: &FileHeader) -> Result<()> {
+    if header.schema.fields.len() > MAX_HEADER_FIELDS as usize
+        || header.string_table.len() > MAX_HEADER_STRINGS as usize
+    {
+        return Err(V2Error::InvalidFileHeader);
+    }
     writer.seek(SeekFrom::Start(0))?;
     let mut bytes = Vec::new();
     bytes.extend_from_slice(MAGIC);
@@ -112,6 +117,35 @@ pub fn write_file_header<W: Write + Seek>(writer: &mut W, header: &FileHeader) -
     }
     writer.write_all(&bytes)?;
     writer.write_all(&vec![0u8; FILE_HEADER_LEN as usize - bytes.len()])?;
+    Ok(())
+}
+
+pub fn update_metadata(
+    path: impl AsRef<std::path::Path>,
+    title: Option<&str>,
+    string_table: Option<&[String]>,
+) -> Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    let mut header = read_file_header(&mut file)?;
+    let actual_len = file.metadata()?.len();
+    let expected_len = FILE_HEADER_LEN + header.page_count * u64::from(header.page_size);
+    if actual_len != expected_len {
+        return Err(V2Error::InvalidFileHeader);
+    }
+    if let Some(title) = title {
+        if title.is_empty() {
+            return Err(V2Error::InvalidFileHeader);
+        }
+        header.title = title.to_owned();
+    }
+    if let Some(strings) = string_table {
+        header.string_table = strings.to_vec();
+    }
+    write_file_header(&mut file, &header)?;
+    file.flush()?;
     Ok(())
 }
 

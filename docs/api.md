@@ -141,6 +141,8 @@ use fwob_core::Key;
 let mut editor = Editor::open("ticks.fwob")?;
 editor.delete_frame(10)?;
 editor.delete_frames(20..30)?;
+editor.delete_indices(&[3, 8, 13])?;
+editor.delete_ranges(&[20..30, 40..45])?;
 editor.delete_key(Key::I64(123))?;
 editor.delete_keys(&[Key::I64(123), Key::I64(456)])?;
 editor.delete_key_range(Key::I64(200)..=Key::I64(300))?;
@@ -179,10 +181,10 @@ organizer.concat("joined.fwob", &parts)?;
 # Ok::<(), fwob::Error>(())
 ```
 
-### Typed Read and Write
+### Typed Frames
 
 ```rust
-use fwob::{TypedReader, TypedWriter};
+use fwob::{TypedEditor, TypedReader, TypedWriter};
 use fwob_core::FwobFrame;
 
 #[derive(Debug, FwobFrame)]
@@ -206,6 +208,11 @@ writer.finish()?;
 
 let mut reader = TypedReader::<Tick>::open("ticks.fwob")?;
 let tick = reader.read_frame(0)?;
+
+let mut editor = TypedEditor::<Tick>::open("ticks.fwob")?;
+editor.delete_indices(&[3, 8, 13])?;
+editor.delete_ranges(&[20..30, 40..45])?;
+editor.delete_key(123)?;
 # Ok::<(), fwob::Error>(())
 ```
 
@@ -220,8 +227,6 @@ let page = reader.read_page_header(0)?;
 let frames = reader.read_page_frames(0)?;
 # Ok::<(), fwob_v2::V2Error>(())
 ```
-
-## Typed Frames
 
 Derive `fwob_core::FwobFrame` to map a Rust struct to a fixed-width schema:
 
@@ -312,21 +317,25 @@ metadata inside the fixed 4 KiB file-header boundary.
 - an inclusive upper or lower key bound
 - all frames
 
-Deletion uses copy-on-write:
+V2 deletion localizes decoding and recompression to the physical pages from
+the first deleted frame through the last deleted frame. Retained frames from
+that interval stream through the normal page packer into replacement pages.
+Later physical pages are moved forward without decoding or recompressing their
+payloads; only their `first_frame_index` and header CRC are updated.
 
-1. Open the original file read-only.
-2. Create a sibling temporary file.
-3. Stream retained frames through a 4 MiB bounded copy buffer.
-4. Finish and verify the replacement.
-5. Atomically persist the temporary file over the original.
+`MutationOptions::compress_partial_page` controls whether the final replacement
+remainder is compressed into one partial page. The default leaves the
+non-overflowing remainder raw, matching append behavior.
 
-The original file remains intact if streaming, writing, or verification fails.
-Memory usage is independent of total file size. V2 rewrites automatically
-regenerate contiguous `first_frame_index` values.
+V1 compacts in place beginning at the first deleted frame, preserving the file
+prefix byte-for-byte and moving each retained suffix block at most once. This
+avoids temporary space proportional to the file, but an interrupted in-place
+compaction is not copy-on-write transactional.
 
-`delete_keys` removes all matching disjoint ranges in one rewrite. Duplicate
-and missing keys do not change the result. Descending input is rejected before
-the original file is modified.
+`delete_indices`, `delete_ranges`, and `delete_keys` remove all selected
+disjoint ranges in one mutation. Indexes must be strictly increasing; ranges
+must be ordered and non-overlapping; keys must be nondecreasing. Invalid input
+is rejected before the original file is modified.
 
 Readers expose both directions of string-table lookup:
 
@@ -348,26 +357,26 @@ frame and is not suitable for large production files.
 `Editor::update_metadata` can apply title and string-table changes together.
 V1 updates its fixed metadata prefix in place without reading or rewriting
 frames; replacement strings must fit the capacity reserved when the file was
-created. V2 uses the same verified temporary-file rewrite as deletion. The v1
-in-place path validates and encodes all new metadata before writing, but it is
-not a copy-on-write transaction if the process or storage device fails during
-the metadata writes.
+created. V2 rewrites only its fixed 4 KiB header. Both paths validate and encode
+the complete replacement metadata before writing, but an interrupted in-place
+metadata write is not a copy-on-write transaction.
 
 ### Editing Complexity
 
-Let `N` be total frames, `D` deleted frames, `F` fixed frame size, and `B` the
-bounded copy buffer.
+Let `N` be total frames, `E` the end of a contiguous deleted range, `A` the
+beginning of the first deleted range, `P` the affected v2 pages, `T` the later
+v2 pages physically moved, and `B` the bounded copy buffer.
 
 | Operation | Time | Extra memory | I/O |
 | --- | --- | --- | --- |
-| delete one frame | `O(N)` | `O(B)` | rewrite `N - 1` frames |
-| delete index range | `O(N)` | `O(B)` | rewrite `N - D` frames |
-| delete one key | `O(log N + N)` | `O(B)` | rewrite `N - D` frames |
-| delete key range | `O(log N + N)` | `O(B)` | rewrite `N - D` frames |
-| delete all frames | `O(1)` logical selection, format rewrite | `O(B)` | metadata-only or empty-file rewrite |
+| v1 delete one frame/range | `O(N - E)` after selection | `O(B)` | compact only retained frames after the deleted range |
+| v1 delete ordered indices/ranges | `O(N - A)` | `O(B)` | compact once from the first deletion through the old end |
+| v1 delete key/range | `O(log N + N - E)` | `O(B)` | binary search, then suffix compaction |
+| v1 delete all frames | `O(1)` | `O(1)` | truncate to the fixed metadata prefix |
+| v2 deletion | `O(P decode/encode + T)`; `O(N)` worst case | `O(B + one decoded page)` | rebuild affected pages; byte-move later pages and rewrite only their headers |
 | v1 title update | `O(1)` | `O(1)` | overwrite the fixed 16-byte title field |
 | v1 string-table update | `O(S)` | `O(S)` | overwrite `S` encoded metadata bytes; frames are untouched |
-| v2 title/string-table update | `O(N)` | `O(B + S)` | rewrite all frames and `S` metadata bytes |
+| v2 title/string-table update | `O(S)` | `O(S)` | rewrite only the fixed 4 KiB header; pages are untouched |
 
 ## File Organization
 
@@ -377,8 +386,10 @@ and title, globally ordered keys, and compatible string tables. String tables
 are compatible when one is a matching prefix of the other; the longest table
 is written, matching the original C# behavior.
 
-Both operations stream through a 4 MiB frame buffer, verify each completed
-output, and atomically publish it. Splitting `N` frames into `M` parts takes
-`O(M log N + N)` time. Concatenation takes `O(N)` time after `O(M)` metadata
-and boundary checks. Extra frame-copy memory is `O(B)` and independent of file
-size.
+Both operations stream through a 4 MiB buffer, verify each completed output,
+and atomically publish it. V1 copies raw frame byte ranges without decoding or
+re-encoding frames. V2 streams logical frames because page boundaries,
+compression, checksums, and `first_frame_index` values must be rebuilt.
+Splitting `N` frames into `M` parts takes `O(M log N + N)` time. Concatenation
+takes `O(N)` time after `O(M)` metadata and boundary checks. Extra copy memory
+is `O(B)` and independent of file size.

@@ -67,6 +67,35 @@ assert_eq!(first.bytes(), 123_i64.to_le_bytes());
 See [`docs/api.md`](docs/api.md) for reading, appending, editing, maintenance,
 organization, typed-frame, and format-specific examples.
 
+Typed frames map ordinary Rust structs directly to the stored schema:
+
+```rust
+use fwob::{TypedEditor, TypedReader, TypedWriter};
+use fwob_core::FwobFrame;
+
+#[derive(Debug, PartialEq, FwobFrame)]
+struct Tick {
+    #[fwob(key)]
+    time: i64,
+    price: u32,
+    size: i32,
+}
+
+let mut writer = TypedWriter::<Tick>::create_v2(
+    "ticks.fwob",
+    fwob_v2::WriterOptions::new("prices"),
+)?;
+writer.append(&Tick { time: 1, price: 500, size: 10 })?;
+writer.finish()?;
+
+let mut reader = TypedReader::<Tick>::open("ticks.fwob")?;
+assert_eq!(reader.read_frame(0)?.unwrap().price, 500);
+
+let mut editor = TypedEditor::<Tick>::open("ticks.fwob")?;
+editor.delete_ranges(&[0..1])?;
+# Ok::<(), fwob::Error>(())
+```
+
 ## Command Examples
 
 ```bash

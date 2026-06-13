@@ -249,6 +249,19 @@ impl<F: FwobFrame> TypedEditor<F> {
         })
     }
 
+    pub fn open_with_mutation_options(
+        path: impl AsRef<Path>,
+        reader_options: crate::ReaderOptions,
+        mutation_options: crate::MutationOptions,
+    ) -> Result<Self> {
+        let inner = Editor::open_with_mutation_options(path, reader_options, mutation_options)?;
+        ensure_schema::<F>(inner.schema())?;
+        Ok(Self {
+            inner,
+            frame: PhantomData,
+        })
+    }
+
     pub fn frame_count(&self) -> u64 {
         self.inner.frame_count()
     }
@@ -259,6 +272,14 @@ impl<F: FwobFrame> TypedEditor<F> {
 
     pub fn delete_frames(&mut self, range: Range<u64>) -> Result<u64> {
         self.inner.delete_frames(range)
+    }
+
+    pub fn delete_indices(&mut self, indices: &[u64]) -> Result<u64> {
+        self.inner.delete_indices(indices)
+    }
+
+    pub fn delete_ranges(&mut self, ranges: &[Range<u64>]) -> Result<u64> {
+        self.inner.delete_ranges(ranges)
     }
 
     pub fn delete_key(&mut self, key: F::Key) -> Result<u64> {

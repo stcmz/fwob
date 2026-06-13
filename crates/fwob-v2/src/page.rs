@@ -144,6 +144,11 @@ impl PageHeader {
         }
     }
 
+    pub fn set_first_frame_index(&mut self, first_frame_index: u64) {
+        self.first_frame_index = first_frame_index;
+        self.header_crc32 = crc32(&self.bytes_with_zero_crc());
+    }
+
     fn bytes_with_zero_crc(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(PAGE_HEADER_LEN);
         bytes.extend_from_slice(PAGE_MAGIC);

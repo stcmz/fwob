@@ -2,6 +2,7 @@ mod core_api;
 mod editor;
 mod header;
 mod metadata;
+mod mutation;
 mod reader;
 mod verifier;
 mod writer;
@@ -13,6 +14,7 @@ pub use core_api::{
 pub use editor::InMemoryEditor;
 pub use header::{Header, HEADER_LEN, SIGNATURE, VERSION};
 pub use metadata::update_metadata;
+pub use mutation::delete_frame_ranges;
 pub use reader::Reader;
 pub use verifier::{repair_committed_tail, verify_file, VerificationReport};
 pub use writer::{Writer, WriterOptions};

@@ -410,10 +410,12 @@ pub trait Maintenance: Send + Sync {
     fn repair(&self, path: &Path, options: ReaderOptions) -> Result<VerificationReport>;
 }
 
-/// Copy-on-write mutation contract. Implementations must use bounded memory.
+/// Version-neutral mutation contract. Implementations must use bounded memory.
 pub trait Editor: FileInfo {
     fn delete_frame(&mut self, index: u64) -> Result<bool>;
     fn delete_frames(&mut self, range: Range<u64>) -> Result<u64>;
+    fn delete_indices(&mut self, indices: &[u64]) -> Result<u64>;
+    fn delete_ranges(&mut self, ranges: &[Range<u64>]) -> Result<u64>;
     fn delete_key(&mut self, key: Key) -> Result<u64>;
     fn delete_keys(&mut self, keys: &[Key]) -> Result<u64>;
     fn delete_key_range(&mut self, range: RangeInclusive<Key>) -> Result<u64>;

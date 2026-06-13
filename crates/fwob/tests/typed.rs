@@ -136,6 +136,34 @@ fn typed_ordered_multi_key_operations_work_for_v1_and_v2() {
 }
 
 #[test]
+fn typed_ordered_multi_index_deletion_works_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir
+            .path()
+            .join(format!("typed-index-delete-{version:?}.fwob"));
+        create(&path, version);
+
+        let mut editor = TypedEditor::<TypedTick>::open(&path).unwrap();
+        assert_eq!(editor.delete_indices(&[0, 3]).unwrap(), 2);
+        let mut reader = TypedReader::<TypedTick>::open(&path).unwrap();
+        assert_eq!(
+            reader
+                .frames(0..reader.frame_count())
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+            [tick(2, 1), tick(2, 1)]
+        );
+
+        drop(reader);
+        create(&path, version);
+        let mut editor = TypedEditor::<TypedTick>::open(&path).unwrap();
+        assert_eq!(editor.delete_ranges(&[0..1, 3..4]).unwrap(), 2);
+    }
+}
+
+#[test]
 fn typed_unbounded_key_operations_work_for_v1_and_v2() {
     let dir = tempdir().unwrap();
     for version in [FormatVersion::V1, FormatVersion::V2] {

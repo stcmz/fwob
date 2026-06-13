@@ -75,6 +75,7 @@ fn split_by_keys(
     let mut reader = Reader::open_with_options(source, reader_options)?;
     let title = reader.title().to_owned();
     let string_table = reader.string_table().to_vec();
+    let format = reader.format_version();
     let stem = source
         .file_stem()
         .or_else(|| source.file_name())
@@ -97,14 +98,18 @@ fn split_by_keys(
             continue;
         }
         let path = output_dir.join(format!("{stem}.part{}.fwob", outputs.len()));
-        write_range_atomically(
-            &mut reader,
-            &path,
-            range,
-            &title,
-            &string_table,
-            reader_options.v1_key_field_index,
-        )?;
+        if format == fwob_core::FormatVersion::V1 {
+            write_v1_range_atomically(source, &path, range, reader_options.v1_key_field_index)?;
+        } else {
+            write_range_atomically(
+                &mut reader,
+                &path,
+                range,
+                &title,
+                &string_table,
+                reader_options.v1_key_field_index,
+            )?;
+        }
         outputs.push(path);
     }
     Ok(outputs)
@@ -158,6 +163,18 @@ fn concat_files(
             })?;
     }
 
+    if format == fwob_core::FormatVersion::V1 {
+        return concat_v1_raw(
+            destination.as_ref(),
+            sources,
+            &schema,
+            &title,
+            &string_table,
+            total_frames,
+            v1_key_field_index,
+        );
+    }
+
     let destination = destination.as_ref();
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
@@ -180,6 +197,90 @@ fn concat_files(
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
     Ok(total_frames)
+}
+
+fn write_v1_range_atomically(
+    source: &Path,
+    destination: &Path,
+    range: Range<u64>,
+    key_field_index: usize,
+) -> Result<()> {
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let temporary = NamedTempFile::new_in(parent)?;
+    let temporary_path = temporary.into_temp_path();
+    let mut source = fwob_v1::Reader::open(source, key_field_index)?;
+    let header = source.header().clone();
+    let schema = source.schema().clone();
+    let strings = source.read_string_table()?;
+    let mut options = fwob_v1::WriterOptions::new(header.title);
+    options.string_table_preserved_length = header.string_table_preserved_length;
+    let mut destination_writer = fwob_v1::Writer::create(&temporary_path, schema, options)?;
+    for value in &strings {
+        destination_writer.append_string(value)?;
+    }
+    copy_v1_raw_range(&mut source, &mut destination_writer, range)?;
+    drop(destination_writer);
+    fwob_v1::verify_file(&temporary_path, key_field_index)?;
+    temporary_path
+        .persist(destination)
+        .map_err(|error| Error::Io(error.error))?;
+    Ok(())
+}
+
+fn concat_v1_raw(
+    destination: &Path,
+    sources: &[PathBuf],
+    schema: &fwob_core::Schema,
+    title: &str,
+    string_table: &[String],
+    total_frames: u64,
+    key_field_index: usize,
+) -> Result<u64> {
+    let mut preserved_length = 0u32;
+    for source in sources {
+        preserved_length = preserved_length.max(
+            fwob_v1::Reader::open(source, key_field_index)?
+                .header()
+                .string_table_preserved_length,
+        );
+    }
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let temporary = NamedTempFile::new_in(parent)?;
+    let temporary_path = temporary.into_temp_path();
+    let mut options = fwob_v1::WriterOptions::new(title);
+    options.string_table_preserved_length = preserved_length;
+    let mut writer = fwob_v1::Writer::create(&temporary_path, schema.clone(), options)?;
+    for value in string_table {
+        writer.append_string(value)?;
+    }
+    for source_path in sources {
+        let mut source = fwob_v1::Reader::open(source_path, key_field_index)?;
+        let frame_count = source.frame_count();
+        copy_v1_raw_range(&mut source, &mut writer, 0..frame_count)?;
+    }
+    drop(writer);
+    fwob_v1::verify_file(&temporary_path, key_field_index)?;
+    temporary_path
+        .persist(destination)
+        .map_err(|error| Error::Io(error.error))?;
+    Ok(total_frames)
+}
+
+fn copy_v1_raw_range(
+    source: &mut fwob_v1::Reader<std::fs::File>,
+    destination: &mut fwob_v1::Writer<std::fs::File>,
+    range: Range<u64>,
+) -> Result<()> {
+    let frame_len = source.schema().frame_len as usize;
+    let frames_per_buffer = (COPY_BUFFER_BYTES / frame_len).max(1);
+    let mut next = range.start;
+    while next < range.end {
+        let count = (range.end - next).min(frames_per_buffer as u64) as usize;
+        let bytes = source.read_raw_frames_chunk(next, count)?;
+        destination.append_presorted_raw_frames(&bytes)?;
+        next += count as u64;
+    }
+    Ok(())
 }
 
 fn merge_string_tables(destination: &mut Vec<String>, source: &[String]) -> Result<()> {

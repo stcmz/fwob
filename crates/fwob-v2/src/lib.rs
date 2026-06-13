@@ -13,7 +13,10 @@ pub use core_api::{
     open_writer as open_core_writer, MaintenanceService,
 };
 pub use encoding::{decode_page_payload, encode_page_payload};
-pub use file_header::{FileHeader, FILE_HEADER_LEN, MAGIC, MAX_PAGE_SIZE, MIN_PAGE_SIZE, VERSION};
+pub use file_header::{
+    update_counts, update_metadata, FileHeader, FILE_HEADER_LEN, MAGIC, MAX_PAGE_SIZE,
+    MIN_PAGE_SIZE, VERSION,
+};
 pub use page::{Encoding, PageHeader, PAGE_HEADER_LEN};
 pub use reader::Reader;
 pub use repair::repair_committed_tail;

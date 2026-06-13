@@ -1,7 +1,8 @@
 use std::{fs, fs::OpenOptions, io::Write, path::Path};
 
 use fwob::{
-    Editor, FormatVersion, Maintenance, Organizer, Reader, ReaderOptions, Writer, WriterOpenOptions,
+    Editor, FormatVersion, Maintenance, MutationOptions, Organizer, Reader, ReaderOptions, Writer,
+    WriterOpenOptions,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -117,6 +118,51 @@ fn create_query_v2(path: &Path) {
             .unwrap();
     }
     writer.finish().unwrap();
+}
+
+fn create_linear_file(path: &Path, version: FormatVersion, count: i32) {
+    let mut writer = match version {
+        FormatVersion::V1 => {
+            Writer::create_v1(path, schema(), fwob_v1::WriterOptions::new("linear"), &[]).unwrap()
+        }
+        FormatVersion::V2 => {
+            let mut options = fwob_v2::WriterOptions::new("linear");
+            options.page_size = 1024;
+            options.codec = fwob_v2::Codec::None;
+            options.codec_selection = fwob_v2::CodecSelection::Fixed(fwob_v2::Codec::None);
+            Writer::create_v2(path, schema(), options).unwrap()
+        }
+    };
+    for index in 0..count {
+        writer.append_frame(&frame(index, index as u32)).unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+fn create_compressed_linear_v2(path: &Path, count: i32) {
+    let mut options = fwob_v2::WriterOptions::new("linear");
+    options.page_size = 1024;
+    options.codec = fwob_v2::Codec::Zstd;
+    options.codec_selection = fwob_v2::CodecSelection::Fixed(fwob_v2::Codec::Zstd);
+    options.encoding = fwob_v2::Encoding::ColumnarBasicV1;
+    options.encoding_selection =
+        fwob_v2::EncodingSelection::Fixed(fwob_v2::Encoding::ColumnarBasicV1);
+    options.compress_partial_page = true;
+    let mut writer = fwob_v2::Writer::create(path, schema(), options).unwrap();
+    for index in 0..count {
+        writer.append_frame(&frame(index, index as u32)).unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+fn read_values(path: &Path) -> Vec<u32> {
+    Reader::open(path)
+        .unwrap()
+        .read_all_frames()
+        .unwrap()
+        .iter()
+        .map(|frame| u32::from_le_bytes(frame.bytes()[4..8].try_into().unwrap()))
+        .collect()
 }
 
 fn assert_reader_contract(path: &Path, expected_version: FormatVersion) {
@@ -347,6 +393,150 @@ fn indexed_string_lookup_is_identical_for_v1_and_v2() {
         // Repeated calls exercise the cached path.
         assert_eq!(reader.string_index("alpha"), Some(2));
     }
+}
+
+#[test]
+fn ordered_multi_index_deletion_is_identical_for_v1_and_v2() {
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let dir = tempdir().unwrap();
+        let indices = dir.path().join("indices.fwob");
+        create_linear_file(&indices, version, 10);
+        let mut editor = Editor::open(&indices).unwrap();
+        assert_eq!(editor.delete_indices(&[1, 4, 8]).unwrap(), 3);
+        assert_eq!(read_values(&indices), [0, 2, 3, 5, 6, 7, 9]);
+
+        let ranges = dir.path().join("ranges.fwob");
+        create_linear_file(&ranges, version, 10);
+        let mut editor = Editor::open(&ranges).unwrap();
+        assert_eq!(editor.delete_ranges(&[1..3, 5..7]).unwrap(), 4);
+        assert_eq!(read_values(&ranges), [0, 3, 4, 7, 8, 9]);
+
+        assert!(editor.delete_indices(&[2, 2]).is_err());
+        assert!(editor.delete_ranges(&[2..4, 3..5]).is_err());
+    }
+}
+
+#[test]
+fn v1_deletion_preserves_prefix_and_compacts_only_the_suffix() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v1-in-place-delete.fwob");
+    create_linear_file(&path, FormatVersion::V1, 100);
+    let original = fs::read(&path).unwrap();
+    let first_frame = fwob_v1::Reader::open(&path, 0)
+        .unwrap()
+        .header()
+        .first_frame_position() as usize;
+    let unchanged_end = first_frame + 40 * 8;
+
+    let mut editor = Editor::open(&path).unwrap();
+    assert_eq!(editor.delete_frames(40..60).unwrap(), 20);
+    let edited = fs::read(&path).unwrap();
+
+    assert_eq!(
+        &edited[first_frame..unchanged_end],
+        &original[first_frame..unchanged_end]
+    );
+    assert_eq!(&edited[unchanged_end..], &original[first_frame + 60 * 8..]);
+    assert_eq!(edited.len(), original.len() - 20 * 8);
+}
+
+#[test]
+fn v2_metadata_edits_touch_only_the_fixed_header() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v2-metadata-in-place.fwob");
+    create_linear_file(&path, FormatVersion::V2, 100);
+    let original = fs::read(&path).unwrap();
+
+    let mut editor = Editor::open(&path).unwrap();
+    editor
+        .update_metadata(
+            Some("renamed"),
+            Some(&["one".into(), "two".into(), "three".into()]),
+        )
+        .unwrap();
+    let edited = fs::read(&path).unwrap();
+
+    assert_eq!(edited.len(), original.len());
+    assert_eq!(
+        &edited[fwob_v2::FILE_HEADER_LEN as usize..],
+        &original[fwob_v2::FILE_HEADER_LEN as usize..]
+    );
+}
+
+#[test]
+fn v2_deletion_rewrites_only_affected_pages_and_later_page_headers() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v2-local-delete.fwob");
+    create_linear_file(&path, FormatVersion::V2, 500);
+
+    let original = fs::read(&path).unwrap();
+    let mut original_reader = fwob_v2::Reader::open(&path).unwrap();
+    let original_header = original_reader.header().clone();
+    let first_page_after_deletion = original_reader.find_page_for_index(250).unwrap().unwrap();
+    let original_tail_header = original_reader
+        .read_page_header(first_page_after_deletion)
+        .unwrap();
+    let original_tail_offset = original_header.page_offset(first_page_after_deletion) as usize;
+    let original_tail_payload = original[original_tail_offset + fwob_v2::PAGE_HEADER_LEN
+        ..original_tail_offset + original_header.page_size as usize]
+        .to_vec();
+
+    let mut editor = Editor::open(&path).unwrap();
+    assert_eq!(editor.delete_frames(100..180).unwrap(), 80);
+    assert_eq!(
+        read_values(&path),
+        (0..100)
+            .chain(180..500)
+            .map(|value| value as u32)
+            .collect::<Vec<_>>()
+    );
+
+    let edited = fs::read(&path).unwrap();
+    let mut edited_reader = fwob_v2::Reader::open(&path).unwrap();
+    edited_reader.verify().unwrap();
+    let edited_tail_header = edited_reader
+        .read_page_header(first_page_after_deletion)
+        .unwrap();
+    let edited_tail_offset = edited_reader
+        .header()
+        .page_offset(first_page_after_deletion) as usize;
+    assert_eq!(
+        &edited[edited_tail_offset + fwob_v2::PAGE_HEADER_LEN
+            ..edited_tail_offset + edited_reader.header().page_size as usize],
+        original_tail_payload
+    );
+    assert_eq!(
+        edited_tail_header.first_frame_index,
+        original_tail_header.first_frame_index - 80
+    );
+}
+
+#[test]
+fn v2_deletion_can_compress_the_partial_replacement_page() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v2-compressed-partial-delete.fwob");
+    create_compressed_linear_v2(&path, 1_000);
+
+    let mut editor = Editor::open_with_mutation_options(
+        &path,
+        ReaderOptions::default(),
+        MutationOptions {
+            compress_partial_page: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(editor.delete_frames(100..900).unwrap(), 800);
+
+    let mut reader = fwob_v2::Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 200);
+    assert!(
+        reader
+            .read_page_header(reader.header().page_count - 1)
+            .unwrap()
+            .codec
+            != fwob_v2::Codec::None
+    );
 }
 
 fn assert_organization_contract(version: FormatVersion) {
