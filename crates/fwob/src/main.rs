@@ -591,10 +591,10 @@ fn delete_frames(args: DeleteArgs) -> Result<()> {
         v2.page_packing = write.page_packing.page_packing();
         v2
     });
-    let mut editor = fwob::Editor::open_with_mutation_options(
+    let mut editor = fwob::Editor::open_with_operation_options(
         &path,
-        reader_options,
-        fwob::MutationOptions {
+        fwob::OperationOptions {
+            reader_options,
             deletion_packing: deletion_packing.deletion_packing(),
             v2,
         },

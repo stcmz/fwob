@@ -1,8 +1,8 @@
 use std::{fs, fs::OpenOptions, io::Write, path::Path};
 
 use fwob::{
-    DeletionPacking, Editor, FormatVersion, Maintenance, MutationOptions, Organizer, Reader,
-    ReaderOptions, Writer, WriterOpenOptions,
+    DeletionPacking, Editor, FormatVersion, Maintenance, OperationOptions, Organizer, Reader,
+    ReaderOptions, Writer,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -179,7 +179,7 @@ fn assert_reader_contract(path: &Path, expected_version: FormatVersion) {
 }
 
 fn assert_appender_contract(path: &Path, expected_version: FormatVersion) {
-    let mut appender = Writer::open(path, WriterOpenOptions::default()).unwrap();
+    let mut appender = Writer::open(path, OperationOptions::default()).unwrap();
     assert_eq!(appender.format_version(), expected_version);
     assert_eq!(appender.schema(), &schema());
     assert_eq!(appender.title(), "facade");
@@ -517,10 +517,10 @@ fn v2_deletion_can_compress_the_partial_replacement_page() {
     let path = dir.path().join("v2-compressed-partial-delete.fwob");
     create_compressed_linear_v2(&path, 1_000);
 
-    let mut editor = Editor::open_with_mutation_options(
+    let mut editor = Editor::open_with_operation_options(
         &path,
-        ReaderOptions::default(),
-        MutationOptions {
+        OperationOptions {
+            reader_options: ReaderOptions::default(),
             deletion_packing: DeletionPacking::RepackToEnd,
             v2: Some({
                 let mut options = fwob_v2::WriterOptions::new("");
@@ -550,10 +550,10 @@ fn v2_repack_to_end_can_leave_the_final_eof_remainder_raw() {
     let path = dir.path().join("v2-raw-eof-remainder-delete.fwob");
     create_compressed_linear_v2(&path, 1_000);
 
-    let mut editor = Editor::open_with_mutation_options(
+    let mut editor = Editor::open_with_operation_options(
         &path,
-        ReaderOptions::default(),
-        MutationOptions {
+        OperationOptions {
+            reader_options: ReaderOptions::default(),
             deletion_packing: DeletionPacking::RepackToEnd,
             v2: Some(fwob_v2::WriterOptions::new("")),
         },
@@ -581,10 +581,10 @@ fn v2_local_repack_expands_the_affected_interval_when_selected_pages_need_more_s
     let mut raw_options = fwob_v2::WriterOptions::new("");
     raw_options.codec = fwob_v2::Codec::None;
     raw_options.codec_selection = fwob_v2::CodecSelection::Fixed(fwob_v2::Codec::None);
-    let mut editor = Editor::open_with_mutation_options(
+    let mut editor = Editor::open_with_operation_options(
         &path,
-        ReaderOptions::default(),
-        MutationOptions {
+        OperationOptions {
+            reader_options: ReaderOptions::default(),
             deletion_packing: DeletionPacking::LocalRepack,
             v2: Some(raw_options),
         },
@@ -596,6 +596,34 @@ fn v2_local_repack_expands_the_affected_interval_when_selected_pages_need_more_s
     reader.verify().unwrap();
     assert_eq!(reader.header().frame_count, 999);
     assert_eq!(reader.read_key_at(10).unwrap(), Some(Key::I32(11)));
+}
+
+#[test]
+fn append_and_delete_share_operation_options() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("shared-operation-options.fwob");
+    create_compressed_linear_v2(&path, 500);
+
+    let mut raw = fwob_v2::WriterOptions::new("");
+    raw.codec = fwob_v2::Codec::None;
+    raw.codec_selection = fwob_v2::CodecSelection::Fixed(fwob_v2::Codec::None);
+    let options = OperationOptions {
+        reader_options: ReaderOptions::default(),
+        v2: Some(raw),
+        deletion_packing: DeletionPacking::LocalRepack,
+    };
+
+    let mut writer = Writer::open(&path, options.clone()).unwrap();
+    writer.append_frame(&frame(500, 500)).unwrap();
+    writer.finish().unwrap();
+
+    let mut editor = Editor::open_with_operation_options(&path, options).unwrap();
+    assert_eq!(editor.delete_key(Key::I32(250)).unwrap(), 1);
+
+    let mut reader = fwob_v2::Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 500);
+    assert_eq!(reader.read_key_at(250).unwrap(), Some(Key::I32(251)));
 }
 
 fn assert_organization_contract(version: FormatVersion) {

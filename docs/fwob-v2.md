@@ -123,9 +123,9 @@ The public logical API does not expose pages. It supports:
 - lower bound, upper bound, and equal range
 - lazy index-range and inclusive key-range iteration
 
-`equal_range` follows the original C# shared-window search: the lower-bound
-search records the smallest known greater-key position, and the upper-bound
-search is restricted to that window.
+`equal_range` uses a shared-window search: the lower-bound search records the
+smallest known greater-key position, and the upper-bound search is restricted
+to that window.
 
 ## Raw Tail Buffer for Append
 

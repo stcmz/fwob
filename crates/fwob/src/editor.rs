@@ -8,28 +8,13 @@ use std::{
 use fwob_core::{Key, Schema};
 use tempfile::NamedTempFile;
 
-use crate::{Error, FormatVersion, Reader, ReaderOptions, Result};
+use crate::{Error, FormatVersion, OperationOptions, Reader, ReaderOptions, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DeletionPacking {
     #[default]
     LocalRepack,
     RepackToEnd,
-}
-
-#[derive(Debug, Clone)]
-pub struct MutationOptions {
-    pub deletion_packing: DeletionPacking,
-    pub v2: Option<fwob_v2::WriterOptions>,
-}
-
-impl Default for MutationOptions {
-    fn default() -> Self {
-        Self {
-            deletion_packing: DeletionPacking::LocalRepack,
-            v2: None,
-        }
-    }
 }
 
 pub struct Editor {
@@ -40,25 +25,30 @@ pub struct Editor {
     string_table: Vec<String>,
     frame_count: u64,
     v1_key_field_index: usize,
-    mutation_options: MutationOptions,
+    operation_options: OperationOptions,
 }
 
 impl Editor {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::open_with_options(path, ReaderOptions::default())
+        Self::open_with_operation_options(path, OperationOptions::default())
     }
 
     pub fn open_with_options(path: impl AsRef<Path>, options: ReaderOptions) -> Result<Self> {
-        Self::open_with_mutation_options(path, options, MutationOptions::default())
+        Self::open_with_operation_options(
+            path,
+            OperationOptions {
+                reader_options: options,
+                ..Default::default()
+            },
+        )
     }
 
-    pub fn open_with_mutation_options(
+    pub fn open_with_operation_options(
         path: impl AsRef<Path>,
-        options: ReaderOptions,
-        mutation_options: MutationOptions,
+        options: OperationOptions,
     ) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let reader = Reader::open_with_options(&path, options)?;
+        let reader = Reader::open_with_options(&path, options.reader_options)?;
         let format_version = reader.format_version();
         let schema = reader.schema().clone();
         let title = reader.title().to_owned();
@@ -71,8 +61,8 @@ impl Editor {
             title,
             string_table,
             frame_count,
-            v1_key_field_index: options.v1_key_field_index,
-            mutation_options,
+            v1_key_field_index: options.reader_options.v1_key_field_index,
+            operation_options: options,
         })
     }
 
@@ -92,7 +82,7 @@ impl Editor {
                 Ok(removed)
             }
             FormatVersion::V2 => {
-                fwob_v2_delete_ranges(&self.path, ranges, removed, &self.mutation_options)?;
+                fwob_v2_delete_ranges(&self.path, ranges, removed, &self.operation_options)?;
                 self.frame_count -= removed;
                 Ok(removed)
             }
@@ -290,7 +280,7 @@ fn fwob_v2_delete_ranges(
     path: &Path,
     ranges: &[Range<u64>],
     removed: u64,
-    mutation_options: &MutationOptions,
+    operation_options: &OperationOptions,
 ) -> Result<()> {
     let mut reader = fwob_v2::Reader::open(path)?;
     let header = reader.header().clone();
@@ -302,7 +292,7 @@ fn fwob_v2_delete_ranges(
     let last_affected_page = reader
         .find_page_for_index(last_deleted)?
         .expect("validated deletion end");
-    let mut end_page = match mutation_options.deletion_packing {
+    let mut end_page = match operation_options.deletion_packing {
         DeletionPacking::LocalRepack => last_affected_page,
         DeletionPacking::RepackToEnd => header.page_count - 1,
     };
@@ -312,7 +302,7 @@ fn fwob_v2_delete_ranges(
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut options = mutation_options.v2.clone().unwrap_or_else(|| {
+    let mut options = operation_options.v2.clone().unwrap_or_else(|| {
         let mut options = fwob_v2::WriterOptions::new("");
         options.codec = start_header.codec;
         options.codec_selection = fwob_v2::CodecSelection::Fixed(start_header.codec);
@@ -324,7 +314,7 @@ fn fwob_v2_delete_ranges(
     options.page_size = header.page_size;
     options.string_table = header.string_table.clone();
     if matches!(
-        mutation_options.deletion_packing,
+        operation_options.deletion_packing,
         DeletionPacking::LocalRepack
     ) {
         options.compress_partial_page = true;

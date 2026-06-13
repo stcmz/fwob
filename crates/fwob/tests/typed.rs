@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use fwob::{FormatVersion, TypedEditor, TypedReader, TypedWriter, WriterOpenOptions};
+use fwob::{FormatVersion, OperationOptions, TypedEditor, TypedReader, TypedWriter};
 use fwob_core::{FieldType, FwobFrame, StringIndex};
 use tempfile::tempdir;
 
@@ -76,7 +76,7 @@ fn assert_typed_contract(version: FormatVersion) {
     );
     drop(reader);
 
-    let mut appender = TypedWriter::<TypedTick>::open(&path, WriterOpenOptions::default()).unwrap();
+    let mut appender = TypedWriter::<TypedTick>::open(&path, OperationOptions::default()).unwrap();
     appender.append(&tick(4, 0)).unwrap();
     appender.finish().unwrap();
 

@@ -11,12 +11,12 @@ mod reader;
 mod typed;
 mod writer;
 
-pub use editor::{DeletionPacking, Editor, MutationOptions};
+pub use editor::{DeletionPacking, Editor};
 pub use maintenance::Maintenance;
 pub use organization::Organizer;
 pub use reader::Reader;
 pub use typed::{TypedEditor, TypedReader, TypedWriter};
-pub use writer::{Writer, WriterOpenOptions};
+pub use writer::{MutationOptions, OperationOptions, Writer, WriterOpenOptions};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

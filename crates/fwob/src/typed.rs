@@ -6,7 +6,7 @@ use std::{
 
 use fwob_core::{FwobFrame, FwobKey, OwnedFrame};
 
-use crate::{Editor, Reader, Result, Writer, WriterOpenOptions};
+use crate::{Editor, OperationOptions, Reader, Result, Writer};
 
 pub struct TypedReader<F> {
     inner: Reader,
@@ -175,7 +175,7 @@ impl<F: FwobFrame> TypedWriter<F> {
         })
     }
 
-    pub fn open(path: impl AsRef<Path>, options: WriterOpenOptions) -> Result<Self> {
+    pub fn open(path: impl AsRef<Path>, options: OperationOptions) -> Result<Self> {
         Self::new(Writer::open(path, options)?)
     }
 
@@ -249,12 +249,11 @@ impl<F: FwobFrame> TypedEditor<F> {
         })
     }
 
-    pub fn open_with_mutation_options(
+    pub fn open_with_operation_options(
         path: impl AsRef<Path>,
-        reader_options: crate::ReaderOptions,
-        mutation_options: crate::MutationOptions,
+        options: OperationOptions,
     ) -> Result<Self> {
-        let inner = Editor::open_with_mutation_options(path, reader_options, mutation_options)?;
+        let inner = Editor::open_with_operation_options(path, options)?;
         ensure_schema::<F>(inner.schema())?;
         Ok(Self {
             inner,

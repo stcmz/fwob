@@ -35,11 +35,11 @@ re-exports.
 
 V1 files do not store their key-field index. `Reader::open_with_options` and
 `ReaderOptions::v1_key_field_index` allow callers to supply it; field zero is
-the default. `WriterOpenOptions` embeds `ReaderOptions` and carries v2 append
-configuration. `Editor` and `Organizer` use the same `ReaderOptions`.
+the default. `OperationOptions` carries the reader settings and optional v2
+write settings used by both append and deletion.
 
-V2 writer options are accepted only while opening a v2 appender. They do not
-become part of the common appender trait because compression and packing are
+V2 writer options are accepted when opening an appender or editor. They remain
+outside the common reader/writer traits because compression and packing are
 format implementation details.
 
 Reader, writer, editor, maintenance, and organization conformance tests execute
@@ -109,13 +109,18 @@ writer.finish()?;
 ### Append
 
 ```rust
-use fwob::{Writer, WriterOpenOptions};
+use fwob::{OperationOptions, Writer};
 
-let mut writer = Writer::open("ticks.fwob", WriterOpenOptions::default())?;
+let mut writer = Writer::open("ticks.fwob", OperationOptions::default())?;
 writer.append_frame(&456_i64.to_le_bytes())?;
 writer.finish()?;
 # Ok::<(), fwob::Error>(())
 ```
+
+The same `OperationOptions` value can be supplied to
+`Editor::open_with_operation_options`. Its `v2` field selects explicit
+compression settings for both append and deletion; `None` inherits from the
+file.
 
 Use `append_frames_transactional` when the entire raw batch must be validated
 before any frame is accepted:
@@ -288,9 +293,8 @@ Frame index ranges are half-open (`start..end`). Key ranges are inclusive
 (`first..=last`). `equal_range(key)` returns the half-open frame-index range
 containing all frames equal to the key.
 
-The v1 and v2 implementations use the original C# shared-window equal-range
-algorithm rather than running independent full-range lower- and upper-bound
-searches.
+The v1 and v2 implementations use a shared-window equal-range algorithm rather
+than running independent full-range lower- and upper-bound searches.
 
 Streams hold only their logical next/end indexes. V1 reads frames by direct
 offset. V2 locates the internal storage unit using `first_frame_index` and
@@ -322,8 +326,7 @@ multiplicative despite page-cache reuse.
 Shared schemas reject empty or duplicate names, invalid key indexes,
 non-contiguous offsets, invalid field widths, frame-length overflow, and key
 fields without a defined total ordering. Floating payload fields may be 4, 8,
-or 16 bytes for compatibility with C# `float`, `double`, and `decimal`; they
-cannot currently be keys.
+or 16 bytes; they cannot currently be keys.
 
 V1 creation additionally enforces its fixed legacy header limits: at most 16
 fields, 8-byte ASCII field names, 16-byte ASCII frame type and title, and
@@ -349,7 +352,7 @@ that interval stream through the normal page packer into replacement pages.
 Later physical pages are moved forward without decoding or recompressing their
 payloads; only their `first_frame_index` and header CRC are updated.
 
-`MutationOptions::deletion_packing` selects one of two v2 strategies:
+`OperationOptions::deletion_packing` selects one of two v2 strategies:
 
 - `DeletionPacking::LocalRepack` rebuilds the affected interval and finishes
   its partial replacement page with the selected codec. Later page payloads
@@ -361,10 +364,10 @@ payloads; only their `first_frame_index` and header CRC are updated.
 
 The CLI tokens are `local-repack` and `repack-to-end`.
 
-Append compression settings are passed in `WriterOpenOptions::v2`. Deletion
-settings are passed in `MutationOptions::v2` when opening `Editor`; `None`
-inherits codec and encoding from the first affected page. Schema, page size,
-title, and string table always come from the existing file.
+Append and deletion both accept `OperationOptions`. `v2: None` inherits codec
+and encoding from the existing file; `v2: Some(...)` supplies explicit
+per-operation compression and packing settings. Schema, page size, title, and
+string table always come from the existing file.
 
 V1 compacts in place beginning at the first deleted frame, preserving the file
 prefix byte-for-byte and moving each retained suffix block at most once. This
@@ -386,8 +389,8 @@ assert!(reader.contains_string("NASDAQ"));
 
 `string_at` is `O(1)`. The first `string_index` or `contains_string` call lazily
 builds an `O(S)` reverse index; later lookups are `O(1)` average. Duplicate
-values resolve to their last table index, matching dictionary-style lookup in
-the C# implementation. `TypedReader` exposes the same methods.
+values resolve to their last table index. `TypedReader` exposes the same
+methods.
 
 The previous v1 whole-file implementation remains available as
 `fwob_v1::InMemoryEditor`. Its name explicitly identifies that it loads every
@@ -415,7 +418,7 @@ v2 pages physically moved, and `B` the bounded copy buffer.
 | v2 deletion | `O(P decode/encode + T)`; `O(N)` worst case | `O(B + one decoded page)` | rebuild affected pages; byte-move later pages and rewrite only their headers |
 | v1 title update | `O(1)` | `O(1)` | overwrite the fixed 16-byte title field |
 | v1 string-table update | `O(S)` | `O(S)` | overwrite `S` encoded metadata bytes; frames are untouched |
-| v2 title/string-table update | `O(S)` | `O(S)` | rewrite only the fixed 4 KiB header; pages are untouched |
+| v2 title/string-table update | `O(1)` | `O(1)` | reserialize and rewrite the fixed 4 KiB header; pages are untouched |
 
 ## File Organization
 
@@ -423,7 +426,7 @@ v2 pages physically moved, and `B` the bounded copy buffer.
 first key. `Organizer::concat` accepts same-format inputs with identical schema
 and title, globally ordered keys, and compatible string tables. String tables
 are compatible when one is a matching prefix of the other; the longest table
-is written, matching the original C# behavior.
+is written.
 
 Both operations stream through a 4 MiB buffer, verify each completed output,
 and atomically publish it. V1 copies raw frame byte ranges without decoding or
