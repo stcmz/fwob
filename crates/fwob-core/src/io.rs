@@ -1,6 +1,8 @@
 use std::{
+    collections::HashMap,
     ops::{Range, RangeInclusive},
     path::Path,
+    sync::OnceLock,
 };
 
 use crate::{FwobError, Key, OwnedFrame, Result, Schema};
@@ -58,6 +60,7 @@ pub trait WriterFactory: Send {
 pub struct Reader {
     inner: Box<dyn ReaderBackend>,
     writer_factory: Box<dyn WriterFactory>,
+    string_indexes: OnceLock<HashMap<String, u32>>,
 }
 
 impl Reader {
@@ -68,6 +71,7 @@ impl Reader {
         Self {
             inner: Box::new(inner),
             writer_factory: Box::new(writer_factory),
+            string_indexes: OnceLock::new(),
         }
     }
 
@@ -93,6 +97,31 @@ impl Reader {
 
     pub fn string_table(&self) -> &[String] {
         self.inner.string_table()
+    }
+
+    pub fn string_at(&self, index: u32) -> Option<&str> {
+        self.string_table().get(index as usize).map(String::as_str)
+    }
+
+    /// Returns the last index associated with `value`.
+    ///
+    /// The reverse index is built lazily in `O(S)` time and space, where `S`
+    /// is the total string-table size. Subsequent lookups are `O(1)` average.
+    pub fn string_index(&self, value: &str) -> Option<u32> {
+        self.string_indexes
+            .get_or_init(|| {
+                self.string_table()
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| (value.clone(), index as u32))
+                    .collect()
+            })
+            .get(value)
+            .copied()
+    }
+
+    pub fn contains_string(&self, value: &str) -> bool {
+        self.string_index(value).is_some()
     }
 
     pub fn last_frame(&mut self) -> Result<Option<OwnedFrame>> {

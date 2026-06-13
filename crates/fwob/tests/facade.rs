@@ -45,6 +45,28 @@ fn create_v2(path: &Path) {
     writer.finish().unwrap();
 }
 
+fn create_string_lookup_file(path: &Path, version: FormatVersion) {
+    let strings = ["alpha".to_owned(), "beta".to_owned(), "alpha".to_owned()];
+    match version {
+        FormatVersion::V1 => {
+            let mut options = fwob_v1::WriterOptions::new("strings");
+            options.string_table_preserved_length = 128;
+            let mut writer = fwob_v1::Writer::create(path, schema(), options).unwrap();
+            for value in &strings {
+                writer.append_string(value).unwrap();
+            }
+        }
+        FormatVersion::V2 => {
+            let mut options = fwob_v2::WriterOptions::new("strings");
+            options.string_table = strings.into();
+            fwob_v2::Writer::create(path, schema(), options)
+                .unwrap()
+                .finish()
+                .unwrap();
+        }
+    }
+}
+
 fn create_empty_file(path: &Path, version: FormatVersion) {
     match version {
         FormatVersion::V1 => {
@@ -303,6 +325,28 @@ fn v1_metadata_validation_fails_before_modifying_the_file() {
     assert_eq!(fs::read(&path).unwrap(), original);
     assert!(editor.replace_string_table(&["x".repeat(129)]).is_err());
     assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[test]
+fn indexed_string_lookup_is_identical_for_v1_and_v2() {
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("strings.fwob");
+        create_string_lookup_file(&path, version);
+        let reader = Reader::open(&path).unwrap();
+
+        assert_eq!(reader.string_at(0), Some("alpha"));
+        assert_eq!(reader.string_at(1), Some("beta"));
+        assert_eq!(reader.string_at(3), None);
+        assert_eq!(reader.string_index("alpha"), Some(2));
+        assert_eq!(reader.string_index("beta"), Some(1));
+        assert_eq!(reader.string_index("missing"), None);
+        assert!(reader.contains_string("alpha"));
+        assert!(!reader.contains_string("missing"));
+
+        // Repeated calls exercise the cached path.
+        assert_eq!(reader.string_index("alpha"), Some(2));
+    }
 }
 
 fn assert_organization_contract(version: FormatVersion) {

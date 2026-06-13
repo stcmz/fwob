@@ -37,6 +37,22 @@ impl<F: FwobFrame> TypedReader<F> {
         self.inner.frame_count()
     }
 
+    pub fn string_table(&self) -> &[String] {
+        self.inner.string_table()
+    }
+
+    pub fn string_at(&self, index: u32) -> Option<&str> {
+        self.inner.string_at(index)
+    }
+
+    pub fn string_index(&self, value: &str) -> Option<u32> {
+        self.inner.string_index(value)
+    }
+
+    pub fn contains_string(&self, value: &str) -> bool {
+        self.inner.contains_string(value)
+    }
+
     pub fn read_frame(&mut self, index: u64) -> Result<Option<F>> {
         decode_optional(self.inner.read_frame(index)?)
     }

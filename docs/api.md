@@ -328,6 +328,19 @@ regenerate contiguous `first_frame_index` values.
 and missing keys do not change the result. Descending input is rejected before
 the original file is modified.
 
+Readers expose both directions of string-table lookup:
+
+```rust
+assert_eq!(reader.string_at(3), Some("NASDAQ"));
+assert_eq!(reader.string_index("NASDAQ"), Some(3));
+assert!(reader.contains_string("NASDAQ"));
+```
+
+`string_at` is `O(1)`. The first `string_index` or `contains_string` call lazily
+builds an `O(S)` reverse index; later lookups are `O(1)` average. Duplicate
+values resolve to their last table index, matching dictionary-style lookup in
+the C# implementation. `TypedReader` exposes the same methods.
+
 The previous v1 whole-file implementation remains available as
 `fwob_v1::InMemoryEditor`. Its name explicitly identifies that it loads every
 frame and is not suitable for large production files.
