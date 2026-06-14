@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use fwob::{FormatVersion, OperationOptions, TypedEditor, TypedReader, TypedWriter};
-use fwob_core::{FieldType, FixedString, FwobFrame, StringIndex};
+use fwob_core::{Decimal, FieldType, FixedString, FwobFrame, StringIndex};
 use tempfile::tempdir;
 
 #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
@@ -277,6 +277,7 @@ struct SupportedFields {
     float_64: f64,
     text: [u8; 5],
     fixed_text: FixedString<8>,
+    decimal: Decimal,
     #[fwob(string_index)]
     string_index: StringIndex,
     #[fwob(ignore)]
@@ -287,9 +288,9 @@ struct SupportedFields {
 fn derive_maps_supported_fields_and_ignores_transient_fields() {
     let schema = SupportedFields::schema();
     assert_eq!(schema.frame_type, "SupportedFields");
-    assert_eq!(schema.frame_len, 59);
+    assert_eq!(schema.frame_len, 75);
     assert_eq!(schema.key_field_index, 0);
-    assert_eq!(schema.fields.len(), 13);
+    assert_eq!(schema.fields.len(), 14);
     assert_eq!(
         schema
             .fields
@@ -309,7 +310,8 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             (FieldType::FloatingPoint, 8, 34),
             (FieldType::Utf8String, 5, 42),
             (FieldType::Utf8String, 8, 47),
-            (FieldType::StringTableIndex, 4, 55),
+            (FieldType::FloatingPoint, 16, 55),
+            (FieldType::StringTableIndex, 4, 71),
         ]
     );
 
@@ -326,6 +328,7 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
         float_64: 6.5,
         text: *b"hello",
         fixed_text: FixedString::new("hi").unwrap(),
+        decimal: Decimal::new(-12_345, 2),
         string_index: StringIndex(7),
         ignored: 99,
     };
@@ -339,6 +342,48 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             ..frame
         }
     );
+}
+
+#[test]
+fn decimals_roundtrip_for_v1_and_v2() {
+    #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
+    struct DecimalTick {
+        #[fwob(key)]
+        time: i32,
+        price: Decimal,
+    }
+
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("decimal-{version:?}.fwob"));
+        let expected = DecimalTick {
+            time: 1,
+            price: Decimal::new(-12_345, 2),
+        };
+        match version {
+            FormatVersion::V1 => {
+                let mut writer = TypedWriter::<DecimalTick>::create_v1(
+                    &path,
+                    fwob_v1::WriterOptions::new("decimal"),
+                    &[],
+                )
+                .unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+            FormatVersion::V2 => {
+                let mut writer = TypedWriter::<DecimalTick>::create_v2(
+                    &path,
+                    fwob_v2::WriterOptions::new("decimal"),
+                )
+                .unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+        }
+        let mut reader = TypedReader::<DecimalTick>::open(path).unwrap();
+        assert_eq!(reader.read_frame(0).unwrap(), Some(expected));
+    }
 }
 
 #[test]

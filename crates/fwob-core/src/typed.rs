@@ -1,4 +1,5 @@
 use crate::{FwobError, Key, Result, Schema};
+use rust_decimal::Decimal;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -74,6 +75,41 @@ impl<const N: usize> fmt::Display for FixedString<N> {
     }
 }
 
+#[doc(hidden)]
+pub fn encode_decimal(value: Decimal, output: &mut Vec<u8>) {
+    let magnitude = value.mantissa().unsigned_abs();
+    let lo = magnitude as u32;
+    let mid = (magnitude >> 32) as u32;
+    let hi = (magnitude >> 64) as u32;
+    let flags = (value.scale() << 16) | (u32::from(value.is_sign_negative()) << 31);
+    output.extend_from_slice(&lo.to_le_bytes());
+    output.extend_from_slice(&mid.to_le_bytes());
+    output.extend_from_slice(&hi.to_le_bytes());
+    output.extend_from_slice(&flags.to_le_bytes());
+}
+
+#[doc(hidden)]
+pub fn decode_decimal(bytes: &[u8]) -> Result<Decimal> {
+    if bytes.len() != 16 {
+        return Err(FwobError::InvalidDecimal);
+    }
+    let lo = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    let mid = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+    let hi = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+    let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
+    let scale = (flags >> 16) & 0xff;
+    if flags & 0x7f00_ffff != 0 || scale > Decimal::MAX_SCALE {
+        return Err(FwobError::InvalidDecimal);
+    }
+    Ok(Decimal::from_parts(
+        lo,
+        mid,
+        hi,
+        flags & 0x8000_0000 != 0,
+        scale,
+    ))
+}
+
 pub trait FwobKey: Copy + Ord {
     fn into_key(self) -> Key;
     fn from_key(key: Key) -> Result<Self>;
@@ -130,5 +166,24 @@ mod tests {
         assert_eq!(utf8.as_str(), "你好");
         assert!(FixedString::<5>::new("你好").is_err());
         assert!(FixedString::<2>::from_padded_bytes([0xff, 0xff]).is_err());
+    }
+
+    #[test]
+    fn decimal_codec_matches_dotnet_binary_writer_layout() {
+        let value = Decimal::new(-12_345, 2);
+        let mut bytes = Vec::new();
+        encode_decimal(value, &mut bytes);
+        assert_eq!(
+            bytes,
+            [
+                0x39, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x02, 0x80,
+            ]
+        );
+        assert_eq!(decode_decimal(&bytes).unwrap(), value);
+        assert!(decode_decimal(&[0; 15]).is_err());
+        let mut invalid_flags = [0; 16];
+        invalid_flags[12] = 1;
+        assert!(decode_decimal(&invalid_flags).is_err());
     }
 }

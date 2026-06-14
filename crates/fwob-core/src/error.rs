@@ -28,6 +28,9 @@ pub enum FwobError {
     #[error("fixed string contains invalid UTF-8: {0}")]
     InvalidFixedStringUtf8(#[from] std::str::Utf8Error),
 
+    #[error("invalid 16-byte decimal representation")]
+    InvalidDecimal,
+
     #[error("invalid frame range {start}..{end} for {frame_count} frames")]
     InvalidFrameRange {
         start: u64,

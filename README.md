@@ -99,6 +99,8 @@ editor.delete_ranges(&[0..1])?;
 Fixed-width UTF-8 fields can use `fwob_core::FixedString<N>`. Values are
 space-padded to exactly `N` bytes and rejected when their encoded byte length
 exceeds the declared width.
+The typed API also re-exports `fwob_core::Decimal` with the legacy 16-byte
+decimal representation.
 
 ## Command Examples
 

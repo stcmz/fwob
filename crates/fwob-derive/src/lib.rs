@@ -149,6 +149,7 @@ struct FieldInfo {
 enum FieldKind {
     Primitive(Box<Type>),
     ByteArray(usize),
+    Decimal,
     FixedString(usize),
     StringIndex,
 }
@@ -163,6 +164,7 @@ impl FieldInfo {
                 quote!(__fwob_out.extend_from_slice(&self.#ident.to_le_bytes());)
             }
             FieldKind::ByteArray(_) => quote!(__fwob_out.extend_from_slice(&self.#ident);),
+            FieldKind::Decimal => quote!(::fwob_core::encode_decimal(self.#ident, __fwob_out);),
             FieldKind::FixedString(_) => {
                 quote!(__fwob_out.extend_from_slice(self.#ident.padded_bytes());)
             }
@@ -193,6 +195,12 @@ impl FieldInfo {
                         .try_into()
                         .expect("validated frame length");
                 __fwob_offset += #array_len;
+            },
+            FieldKind::Decimal => quote! {
+                let #local = ::fwob_core::decode_decimal(
+                    &__fwob_bytes[__fwob_offset..__fwob_offset + 16]
+                )?;
+                __fwob_offset += 16;
             },
             FieldKind::FixedString(string_len) => quote! {
                 let #local = ::fwob_core::FixedString::<#string_len>::from_padded_bytes(
@@ -268,6 +276,13 @@ fn field_info(ty: &Type, string_index: bool) -> syn::Result<FieldInfo> {
     let Some(name) = type_name(ty) else {
         return Err(Error::new_spanned(ty, "unsupported FWOB field type"));
     };
+    if name == "Decimal" {
+        return Ok(FieldInfo {
+            field_type: quote!(::fwob_core::FieldType::FloatingPoint),
+            length: 16,
+            kind: FieldKind::Decimal,
+        });
+    }
     let (field_type, length) = match name.as_str() {
         "i8" => (quote!(::fwob_core::FieldType::SignedInteger), 1),
         "i16" => (quote!(::fwob_core::FieldType::SignedInteger), 2),
