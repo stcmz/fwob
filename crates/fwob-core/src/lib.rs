@@ -14,4 +14,4 @@ pub use io::{
 };
 pub use key::{Key, KeyType};
 pub use schema::{Field, FieldType, Schema};
-pub use typed::{FwobFrame, FwobKey, StringIndex};
+pub use typed::{FixedString, FwobFrame, FwobKey, StringIndex};

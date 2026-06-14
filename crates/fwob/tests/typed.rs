@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use fwob::{FormatVersion, OperationOptions, TypedEditor, TypedReader, TypedWriter};
-use fwob_core::{FieldType, FwobFrame, StringIndex};
+use fwob_core::{FieldType, FixedString, FwobFrame, StringIndex};
 use tempfile::tempdir;
 
 #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
@@ -276,6 +276,7 @@ struct SupportedFields {
     float_32: f32,
     float_64: f64,
     text: [u8; 5],
+    fixed_text: FixedString<8>,
     #[fwob(string_index)]
     string_index: StringIndex,
     #[fwob(ignore)]
@@ -286,9 +287,9 @@ struct SupportedFields {
 fn derive_maps_supported_fields_and_ignores_transient_fields() {
     let schema = SupportedFields::schema();
     assert_eq!(schema.frame_type, "SupportedFields");
-    assert_eq!(schema.frame_len, 51);
+    assert_eq!(schema.frame_len, 59);
     assert_eq!(schema.key_field_index, 0);
-    assert_eq!(schema.fields.len(), 12);
+    assert_eq!(schema.fields.len(), 13);
     assert_eq!(
         schema
             .fields
@@ -307,7 +308,8 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             (FieldType::FloatingPoint, 4, 30),
             (FieldType::FloatingPoint, 8, 34),
             (FieldType::Utf8String, 5, 42),
-            (FieldType::StringTableIndex, 4, 47),
+            (FieldType::Utf8String, 8, 47),
+            (FieldType::StringTableIndex, 4, 55),
         ]
     );
 
@@ -323,6 +325,7 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
         float_32: 3.25,
         float_64: 6.5,
         text: *b"hello",
+        fixed_text: FixedString::new("hi").unwrap(),
         string_index: StringIndex(7),
         ignored: 99,
     };
@@ -336,4 +339,48 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             ..frame
         }
     );
+}
+
+#[test]
+fn fixed_strings_roundtrip_for_v1_and_v2() {
+    #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
+    struct FixedStringTick {
+        #[fwob(key)]
+        time: i32,
+        text: FixedString<8>,
+    }
+
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("fixed-string-{version:?}.fwob"));
+        let expected = FixedStringTick {
+            time: 1,
+            text: FixedString::new("cafe").unwrap(),
+        };
+        match version {
+            FormatVersion::V1 => {
+                let mut writer = TypedWriter::<FixedStringTick>::create_v1(
+                    &path,
+                    fwob_v1::WriterOptions::new("fixed"),
+                    &[],
+                )
+                .unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+            FormatVersion::V2 => {
+                let mut writer = TypedWriter::<FixedStringTick>::create_v2(
+                    &path,
+                    fwob_v2::WriterOptions::new("fixed"),
+                )
+                .unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+        }
+        let mut reader = TypedReader::<FixedStringTick>::open(path).unwrap();
+        let actual = reader.read_frame(0).unwrap().unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(actual.text.as_str(), "cafe");
+    }
 }

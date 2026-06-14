@@ -1,6 +1,9 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, Error, Fields, LitInt, PathArguments, Type};
+use syn::{
+    parse_macro_input, Data, DeriveInput, Error, Fields, GenericArgument, LitInt, PathArguments,
+    Type,
+};
 
 #[proc_macro_derive(FwobFrame, attributes(fwob))]
 pub fn derive_fwob_frame(input: TokenStream) -> TokenStream {
@@ -146,6 +149,7 @@ struct FieldInfo {
 enum FieldKind {
     Primitive(Box<Type>),
     ByteArray(usize),
+    FixedString(usize),
     StringIndex,
 }
 
@@ -159,6 +163,9 @@ impl FieldInfo {
                 quote!(__fwob_out.extend_from_slice(&self.#ident.to_le_bytes());)
             }
             FieldKind::ByteArray(_) => quote!(__fwob_out.extend_from_slice(&self.#ident);),
+            FieldKind::FixedString(_) => {
+                quote!(__fwob_out.extend_from_slice(self.#ident.padded_bytes());)
+            }
             FieldKind::StringIndex => {
                 quote!(__fwob_out.extend_from_slice(&self.#ident.0.to_le_bytes());)
             }
@@ -187,6 +194,14 @@ impl FieldInfo {
                         .expect("validated frame length");
                 __fwob_offset += #array_len;
             },
+            FieldKind::FixedString(string_len) => quote! {
+                let #local = ::fwob_core::FixedString::<#string_len>::from_padded_bytes(
+                    __fwob_bytes[__fwob_offset..__fwob_offset + #string_len]
+                        .try_into()
+                        .expect("validated frame length")
+                )?;
+                __fwob_offset += #string_len;
+            },
             FieldKind::StringIndex => quote! {
                 let #local = ::fwob_core::StringIndex(u32::from_le_bytes(
                     __fwob_bytes[__fwob_offset..__fwob_offset + 4]
@@ -211,6 +226,14 @@ fn field_info(ty: &Type, string_index: bool) -> syn::Result<FieldInfo> {
             field_type: quote!(::fwob_core::FieldType::StringTableIndex),
             length: 4,
             kind: FieldKind::StringIndex,
+        });
+    }
+
+    if let Some(length) = fixed_string_length(ty)? {
+        return Ok(FieldInfo {
+            field_type: quote!(::fwob_core::FieldType::Utf8String),
+            length,
+            kind: FieldKind::FixedString(length as usize),
         });
     }
 
@@ -281,11 +304,51 @@ fn type_name(ty: &Type) -> Option<String> {
     Some(path.path.segments.last()?.ident.to_string())
 }
 
+fn fixed_string_length(ty: &Type) -> syn::Result<Option<u16>> {
+    let Type::Path(path) = ty else {
+        return Ok(None);
+    };
+    let Some(segment) = path.path.segments.last() else {
+        return Ok(None);
+    };
+    if segment.ident != "FixedString" {
+        return Ok(None);
+    }
+    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return Err(Error::new_spanned(ty, "FixedString requires one length"));
+    };
+    if arguments.args.len() != 1 {
+        return Err(Error::new_spanned(
+            ty,
+            "FixedString requires one integer literal length",
+        ));
+    }
+    let Some(GenericArgument::Const(syn::Expr::Lit(length))) = arguments.args.first() else {
+        return Err(Error::new_spanned(
+            ty,
+            "FixedString requires one integer literal length",
+        ));
+    };
+    let syn::Lit::Int(length) = &length.lit else {
+        return Err(Error::new_spanned(
+            ty,
+            "FixedString length must be an integer literal",
+        ));
+    };
+    parse_length(length).map(Some)
+}
+
 fn is_one_byte(ty: &Type) -> bool {
     matches!(type_name(ty).as_deref(), Some("i8" | "u8"))
 }
 
 fn parse_length(length: &LitInt) -> syn::Result<u16> {
     let value = length.base10_parse::<usize>()?;
-    u16::try_from(value).map_err(|_| Error::new_spanned(length, "field is too large"))
+    let value =
+        u16::try_from(value).map_err(|_| Error::new_spanned(length, "field is too large"))?;
+    if value == 0 {
+        Err(Error::new_spanned(length, "field length must be positive"))
+    } else {
+        Ok(value)
+    }
 }

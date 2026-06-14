@@ -22,6 +22,12 @@ pub enum FwobError {
     #[error("frame has invalid length: expected {expected} bytes, got {actual}")]
     InvalidFrameLength { expected: usize, actual: usize },
 
+    #[error("fixed string needs {actual} bytes but its capacity is {capacity}")]
+    FixedStringTooLong { capacity: usize, actual: usize },
+
+    #[error("fixed string contains invalid UTF-8: {0}")]
+    InvalidFixedStringUtf8(#[from] std::str::Utf8Error),
+
     #[error("invalid frame range {start}..{end} for {frame_count} frames")]
     InvalidFrameRange {
         start: u64,

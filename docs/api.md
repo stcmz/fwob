@@ -257,7 +257,7 @@ let frames = reader.read_page_frames(0)?;
 Derive `fwob_core::FwobFrame` to map a Rust struct to a fixed-width schema:
 
 ```rust
-use fwob_core::{FwobFrame, StringIndex};
+use fwob_core::{FixedString, FwobFrame, StringIndex};
 
 #[derive(FwobFrame)]
 struct Tick {
@@ -265,7 +265,7 @@ struct Tick {
     time: i64,
     price: u32,
     size: i32,
-    symbol: [u8; 8],
+    symbol: FixedString<8>,
     #[fwob(string_index)]
     venue: StringIndex,
     #[fwob(ignore)]
@@ -276,7 +276,9 @@ struct Tick {
 `TypedReader`, `TypedWriter`, and `TypedEditor` enforce exact schema
 compatibility when opening a file and expose typed frame/key operations over
 both v1 and v2. Stored fields support all signed and unsigned integer widths,
-`f32`, `f64`, fixed `[u8; N]` data, and `StringIndex`. Keys are currently
+`f32`, `f64`, fixed `[u8; N]` data, `FixedString<N>`, and `StringIndex`.
+`FixedString<N>` stores exactly `N` bytes, uses UTF-8, pads with ASCII spaces,
+and rejects values whose encoded byte length exceeds `N`. Keys are currently
 restricted to integer fields because the common ordered-key representation does
 not define floating-point ordering.
 
