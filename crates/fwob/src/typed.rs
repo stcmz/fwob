@@ -45,8 +45,16 @@ impl<F: FwobFrame> TypedReader<F> {
         self.inner.string_at(index)
     }
 
+    pub fn string_at_u64(&self, index: u64) -> Option<&str> {
+        self.inner.string_at_u64(index)
+    }
+
     pub fn string_index(&self, value: &str) -> Option<u32> {
         self.inner.string_index(value)
+    }
+
+    pub fn string_index_u64(&self, value: &str) -> Option<u64> {
+        self.inner.string_index_u64(value)
     }
 
     pub fn contains_string(&self, value: &str) -> bool {

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use fwob::{FormatVersion, OperationOptions, TypedEditor, TypedReader, TypedWriter};
-use fwob_core::{Decimal, FieldType, FixedString, FwobFrame, StringIndex};
+use fwob_core::{Decimal, FieldType, FixedString, FwobFrame, StringIndex, StringIndex64};
 use tempfile::tempdir;
 
 #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
@@ -280,6 +280,8 @@ struct SupportedFields {
     decimal: Decimal,
     #[fwob(string_index)]
     string_index: StringIndex,
+    #[fwob(string_index)]
+    string_index_64: StringIndex64,
     #[fwob(ignore)]
     ignored: u64,
 }
@@ -288,9 +290,9 @@ struct SupportedFields {
 fn derive_maps_supported_fields_and_ignores_transient_fields() {
     let schema = SupportedFields::schema();
     assert_eq!(schema.frame_type, "SupportedFields");
-    assert_eq!(schema.frame_len, 75);
+    assert_eq!(schema.frame_len, 83);
     assert_eq!(schema.key_field_index, 0);
-    assert_eq!(schema.fields.len(), 14);
+    assert_eq!(schema.fields.len(), 15);
     assert_eq!(
         schema
             .fields
@@ -312,6 +314,7 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             (FieldType::Utf8String, 8, 47),
             (FieldType::FloatingPoint, 16, 55),
             (FieldType::StringTableIndex, 4, 71),
+            (FieldType::StringTableIndex, 8, 75),
         ]
     );
 
@@ -330,6 +333,7 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
         fixed_text: FixedString::new("hi").unwrap(),
         decimal: Decimal::new(-12_345, 2),
         string_index: StringIndex(7),
+        string_index_64: StringIndex64(8),
         ignored: 99,
     };
     let mut bytes = Vec::new();
@@ -342,6 +346,49 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             ..frame
         }
     );
+}
+
+#[test]
+fn string_index_64_roundtrips_and_resolves_for_v1_and_v2() {
+    #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
+    struct StringIndexTick {
+        #[fwob(key)]
+        time: i32,
+        #[fwob(string_index)]
+        symbol: StringIndex64,
+    }
+
+    let dir = tempdir().unwrap();
+    let strings = vec!["AAPL".to_owned(), "SPOT".to_owned()];
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("string-index-64-{version:?}.fwob"));
+        let expected = StringIndexTick {
+            time: 1,
+            symbol: StringIndex64(1),
+        };
+        match version {
+            FormatVersion::V1 => {
+                let mut options = fwob_v1::WriterOptions::new("index64");
+                options.string_table_preserved_length = 128;
+                let mut writer =
+                    TypedWriter::<StringIndexTick>::create_v1(&path, options, &strings).unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+            FormatVersion::V2 => {
+                let mut options = fwob_v2::WriterOptions::new("index64");
+                options.string_table = strings.clone();
+                let mut writer = TypedWriter::<StringIndexTick>::create_v2(&path, options).unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+        }
+        let mut reader = TypedReader::<StringIndexTick>::open(path).unwrap();
+        assert_eq!(reader.read_frame(0).unwrap(), Some(expected));
+        assert_eq!(reader.string_at_u64(expected.symbol.0), Some("SPOT"));
+        assert_eq!(reader.string_index_u64("SPOT"), Some(1));
+        assert_eq!(reader.string_at_u64(u64::MAX), None);
+    }
 }
 
 #[test]

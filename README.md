@@ -101,6 +101,7 @@ space-padded to exactly `N` bytes and rejected when their encoded byte length
 exceeds the declared width.
 The typed API also re-exports `fwob_core::Decimal` with the legacy 16-byte
 decimal representation.
+String-table fields may use either `StringIndex` or `StringIndex64`.
 
 ## Command Examples
 

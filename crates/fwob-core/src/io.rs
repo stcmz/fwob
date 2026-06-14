@@ -123,6 +123,13 @@ impl Reader {
         self.string_table().get(index as usize).map(String::as_str)
     }
 
+    pub fn string_at_u64(&self, index: u64) -> Option<&str> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.string_table().get(index))
+            .map(String::as_str)
+    }
+
     /// Returns the last index associated with `value`.
     ///
     /// The reverse index is built lazily in `O(S)` time and space, where `S`
@@ -138,6 +145,10 @@ impl Reader {
             })
             .get(value)
             .copied()
+    }
+
+    pub fn string_index_u64(&self, value: &str) -> Option<u64> {
+        self.string_index(value).map(u64::from)
     }
 
     pub fn contains_string(&self, value: &str) -> bool {

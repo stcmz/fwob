@@ -5,6 +5,9 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StringIndex(pub u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StringIndex64(pub u64);
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FixedString<const N: usize> {
     bytes: [u8; N],

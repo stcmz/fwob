@@ -151,7 +151,8 @@ enum FieldKind {
     ByteArray(usize),
     Decimal,
     FixedString(usize),
-    StringIndex,
+    StringIndex32,
+    StringIndex64,
 }
 
 impl FieldInfo {
@@ -168,7 +169,7 @@ impl FieldInfo {
             FieldKind::FixedString(_) => {
                 quote!(__fwob_out.extend_from_slice(self.#ident.padded_bytes());)
             }
-            FieldKind::StringIndex => {
+            FieldKind::StringIndex32 | FieldKind::StringIndex64 => {
                 quote!(__fwob_out.extend_from_slice(&self.#ident.0.to_le_bytes());)
             }
         }
@@ -210,7 +211,7 @@ impl FieldInfo {
                 )?;
                 __fwob_offset += #string_len;
             },
-            FieldKind::StringIndex => quote! {
+            FieldKind::StringIndex32 => quote! {
                 let #local = ::fwob_core::StringIndex(u32::from_le_bytes(
                     __fwob_bytes[__fwob_offset..__fwob_offset + 4]
                         .try_into()
@@ -218,23 +219,36 @@ impl FieldInfo {
                 ));
                 __fwob_offset += 4;
             },
+            FieldKind::StringIndex64 => quote! {
+                let #local = ::fwob_core::StringIndex64(u64::from_le_bytes(
+                    __fwob_bytes[__fwob_offset..__fwob_offset + 8]
+                        .try_into()
+                        .expect("validated frame length")
+                ));
+                __fwob_offset += 8;
+            },
         }
     }
 }
 
 fn field_info(ty: &Type, string_index: bool) -> syn::Result<FieldInfo> {
     if string_index {
-        if type_name(ty).as_deref() != Some("StringIndex") {
-            return Err(Error::new_spanned(
+        return match type_name(ty).as_deref() {
+            Some("StringIndex") => Ok(FieldInfo {
+                field_type: quote!(::fwob_core::FieldType::StringTableIndex),
+                length: 4,
+                kind: FieldKind::StringIndex32,
+            }),
+            Some("StringIndex64") => Ok(FieldInfo {
+                field_type: quote!(::fwob_core::FieldType::StringTableIndex),
+                length: 8,
+                kind: FieldKind::StringIndex64,
+            }),
+            _ => Err(Error::new_spanned(
                 ty,
-                "#[fwob(string_index)] requires fwob_core::StringIndex",
-            ));
-        }
-        return Ok(FieldInfo {
-            field_type: quote!(::fwob_core::FieldType::StringTableIndex),
-            length: 4,
-            kind: FieldKind::StringIndex,
-        });
+                "#[fwob(string_index)] requires StringIndex or StringIndex64",
+            )),
+        };
     }
 
     if let Some(length) = fixed_string_length(ty)? {
@@ -294,10 +308,10 @@ fn field_info(ty: &Type, string_index: bool) -> syn::Result<FieldInfo> {
         "u64" => (quote!(::fwob_core::FieldType::UnsignedInteger), 8),
         "f32" => (quote!(::fwob_core::FieldType::FloatingPoint), 4),
         "f64" => (quote!(::fwob_core::FieldType::FloatingPoint), 8),
-        "StringIndex" => {
+        "StringIndex" | "StringIndex64" => {
             return Err(Error::new_spanned(
                 ty,
-                "StringIndex requires #[fwob(string_index)]",
+                "string index wrappers require #[fwob(string_index)]",
             ))
         }
         _ => return Err(Error::new_spanned(ty, "unsupported FWOB field type")),

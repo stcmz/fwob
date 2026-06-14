@@ -15,4 +15,6 @@ pub use io::{
 pub use key::{Key, KeyType};
 pub use rust_decimal::Decimal;
 pub use schema::{Field, FieldType, Schema};
-pub use typed::{decode_decimal, encode_decimal, FixedString, FwobFrame, FwobKey, StringIndex};
+pub use typed::{
+    decode_decimal, encode_decimal, FixedString, FwobFrame, FwobKey, StringIndex, StringIndex64,
+};
