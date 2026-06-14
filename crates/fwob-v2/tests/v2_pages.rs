@@ -238,6 +238,42 @@ fn columnar_delta_pages_roundtrip_and_read_ranges() {
 }
 
 #[test]
+fn equal_range_handles_duplicates_spanning_multiple_pages() {
+    let schema = tick_schema();
+    let mut options = WriterOptions::new("DuplicateKeys");
+    options.page_size = 1024;
+    options.codec = Codec::None;
+    options.codec_selection = CodecSelection::Fixed(Codec::None);
+    options.encoding = Encoding::RowRawV1;
+    options.encoding_selection = EncodingSelection::Fixed(Encoding::RowRawV1);
+
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut writer = Writer::new(&mut cursor, schema, options).unwrap();
+        for index in 0..500 {
+            let key = if index < 50 {
+                1
+            } else if index < 450 {
+                2
+            } else {
+                3
+            };
+            writer.append_frame(&tick(key, index as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    cursor.set_position(0);
+    let mut reader = Reader::new(cursor).unwrap();
+    assert!(reader.header().page_count > 3);
+    assert_eq!(reader.equal_range(Key::I32(0)).unwrap(), (0, 0));
+    assert_eq!(reader.equal_range(Key::I32(1)).unwrap(), (0, 50));
+    assert_eq!(reader.equal_range(Key::I32(2)).unwrap(), (50, 450));
+    assert_eq!(reader.equal_range(Key::I32(3)).unwrap(), (450, 500));
+    assert_eq!(reader.equal_range(Key::I32(4)).unwrap(), (500, 500));
+}
+
+#[test]
 fn smallest_encoding_selection_is_recorded_per_page() {
     let schema = Schema::new(
         "ShortTick",

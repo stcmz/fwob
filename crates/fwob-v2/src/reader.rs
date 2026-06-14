@@ -220,32 +220,65 @@ impl<R: Read + Seek> Reader<R> {
     }
 
     pub fn equal_range(&mut self, key: Key) -> Result<(u64, u64)> {
-        let mut lo = 0;
-        let mut hi = self.header.frame_count;
-        let mut upper_hi = hi;
+        let Some(lower_page) = self.first_page_with_last_key(key, false)? else {
+            return Ok((self.header.frame_count, self.header.frame_count));
+        };
+        self.load_page(lower_page)?;
+        let lower = self.bound_in_cached_page(key, false)?;
+
+        let cached = self.cached_page.as_ref().expect("page loaded");
+        if cached.header.last_key > key {
+            let upper = self.bound_in_cached_page(key, true)?;
+            return Ok((lower, upper));
+        }
+
+        let Some(upper_page) = self.first_page_with_last_key_from(key, true, lower_page + 1)?
+        else {
+            return Ok((lower, self.header.frame_count));
+        };
+        self.load_page(upper_page)?;
+        let upper = self.bound_in_cached_page(key, true)?;
+        Ok((lower, upper))
+    }
+
+    fn first_page_with_last_key(&mut self, key: Key, strict: bool) -> Result<Option<u64>> {
+        self.first_page_with_last_key_from(key, strict, 0)
+    }
+
+    fn first_page_with_last_key_from(
+        &mut self,
+        key: Key,
+        strict: bool,
+        start: u64,
+    ) -> Result<Option<u64>> {
+        let mut lo = start;
+        let mut hi = self.header.page_count;
         while lo < hi {
             let mid = lo + ((hi - lo) >> 1);
-            let mid_key = self.read_key_at(mid)?.expect("mid is in range");
-            if mid_key < key {
+            let last_key = self.read_page_header(mid)?.last_key;
+            if last_key < key || (strict && last_key == key) {
                 lo = mid + 1;
-            } else if mid_key > key {
-                hi = mid;
-                upper_hi = mid;
             } else {
                 hi = mid;
             }
         }
-        let lower = lo;
-        hi = upper_hi;
+        Ok((lo < self.header.page_count).then_some(lo))
+    }
+
+    fn bound_in_cached_page(&self, key: Key, upper: bool) -> Result<u64> {
+        let cached = self.cached_page.as_ref().expect("page loaded");
+        let mut lo = 0usize;
+        let mut hi = cached.header.frame_count as usize;
         while lo < hi {
             let mid = lo + ((hi - lo) >> 1);
-            if self.read_key_at(mid)?.expect("mid is in range") <= key {
+            let mid_key = self.cached_key(mid)?;
+            if mid_key < key || (upper && mid_key == key) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
-        Ok((lower, hi))
+        Ok(cached.header.first_frame_index + lo as u64)
     }
 
     fn load_page(&mut self, page_index: u64) -> Result<()> {
