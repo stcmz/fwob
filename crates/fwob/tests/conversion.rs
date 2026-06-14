@@ -206,6 +206,47 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
 }
 
 #[test]
+fn cli_dumps_all_or_mixed_key_selections_in_reusable_formats() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("dump-v1.fwob");
+    {
+        let mut writer =
+            V1Writer::create(&path, tick_schema(), WriterOptions::new("Dump")).unwrap();
+        for i in 0..6 {
+            writer.append_frame(&tick(i, i as f64 + 0.5)).unwrap();
+        }
+    }
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let raw = command_output(Command::new(exe).args([
+        "dump",
+        path.to_str().unwrap(),
+        "4..",
+        "..1",
+        "raw",
+    ]));
+    let raw = String::from_utf8(raw.stdout).unwrap();
+    let rows = raw.lines().collect::<Vec<_>>();
+    assert_eq!(rows.len(), 4);
+    assert!(rows[0].starts_with("0 "));
+    assert!(rows[1].starts_with("1 "));
+    assert!(rows[2].starts_with("4 "));
+    assert!(rows[3].starts_with("5 "));
+    assert!(!raw.contains(','));
+
+    let csv = command_output(Command::new(exe).args(["dump", path.to_str().unwrap(), "2", "csv"]));
+    let csv = String::from_utf8(csv.stdout).unwrap();
+    assert!(csv.starts_with("Time,Value,Str\n"));
+    assert_eq!(csv.lines().count(), 2);
+
+    let jsonl =
+        command_output(Command::new(exe).args(["dump", path.to_str().unwrap(), "2..3", "jsonl"]));
+    let jsonl = String::from_utf8(jsonl.stdout).unwrap();
+    assert_eq!(jsonl.lines().count(), 2);
+    assert!(jsonl.lines().all(|line| line.starts_with('{')));
+}
+
+#[test]
 fn cli_roundtrips_v1_to_v2_to_v1() {
     let dir = tempdir().unwrap();
     let v1_path = dir.path().join("input.fwob");

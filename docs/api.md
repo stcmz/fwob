@@ -89,6 +89,11 @@ may be exact keys, lower-unbounded ranges, upper-unbounded ranges, bounded
 inclusive ranges, or all frames. `FrameSelection::resolve` sorts and merges
 overlapping or adjacent results, so callers may supply selectors in any order.
 
+`FrameDecoder` and `FrameFormatter` in `fwob::formatting` provide reusable
+schema-driven output. Supported formats are raw space-delimited rows, aligned
+tables, Markdown, CSV, JSON Lines, and exact hexadecimal frame bytes. The CLI
+uses the same API through `fwob dump FILE [SELECTOR...] [FORMAT]`.
+
 ### Create and Write
 
 ```rust

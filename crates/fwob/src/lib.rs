@@ -5,6 +5,7 @@ use std::{
 };
 
 mod editor;
+pub mod formatting;
 mod maintenance;
 mod organization;
 mod reader;
@@ -53,6 +54,12 @@ pub enum Error {
         first: fwob_core::Key,
         last: fwob_core::Key,
     },
+    #[error("field '{0}' points outside its frame")]
+    InvalidFieldSlice(String),
+    #[error("unsupported integer field width {0}")]
+    InvalidIntegerWidth(usize),
+    #[error("string-table index {0} is out of range")]
+    InvalidStringTableIndex(u64),
     #[error(transparent)]
     Core(#[from] fwob_core::FwobError),
     #[error(transparent)]

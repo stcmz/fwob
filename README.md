@@ -119,6 +119,8 @@ fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob zstd
 fwob edit ticks-joined.fwob --title Renamed --append-string NASDAQ
 fwob find ticks-v2.fwob 100..200
 fwob find ticks-v2.fwob 100 200..300 500.. ..50
+fwob dump ticks-v2.fwob 100 200..300 csv
+fwob dump ticks-v2.fwob raw > ticks.txt
 fwob delete ticks-v2.fwob 100 200 local-repack verify
 fwob delete ticks-v2.fwob 100 200 repack-to-end zstd columnar-basic compress-partial-page
 fwob verify ticks-v2.fwob

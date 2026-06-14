@@ -44,6 +44,9 @@ enum Command {
     Edit(EditArgs),
     /// Find all frames or the union of exact keys and inclusive key ranges.
     Find(FindArgs),
+    /// Stream selected frame data in raw, table, Markdown, CSV, JSON Lines, or
+    /// hexadecimal form.
+    Dump(DumpArgs),
     /// Delete frames matching one key or an inclusive key range.
     Delete(DeleteArgs),
 }
@@ -335,6 +338,26 @@ struct FindArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "fwob dump [OPTIONS] PATH [SELECTOR...] [FORMAT]")]
+#[command(after_help = "Plain tokens:
+  selectors: KEY, FIRST.., ..LAST, FIRST..LAST
+  formats: raw (default), table, md, csv, jsonl, hex
+
+Selectors may be mixed, reordered, duplicated, or omitted to stream all frames.
+Overlapping selectors are silently unioned. The format token may appear among
+the selectors. Output is written to stdout; diagnostics are written to stderr.")]
+struct DumpArgs {
+    /// Input v1 or v2 file.
+    path: PathBuf,
+    /// Mixed selectors and one optional output-format token.
+    #[arg(value_name = "SELECTOR_OR_FORMAT")]
+    target: Vec<String>,
+    /// Key field index for v1 input only.
+    #[arg(long, default_value_t = 0)]
+    key_field_index: usize,
+}
+
+#[derive(Debug, Args)]
 #[command(override_usage = "fwob delete [OPTIONS] PATH FIRST_KEY [LAST_KEY] [TOKENS]")]
 #[command(after_help = "Plain tokens:
   deletion packing: local-repack (default), repack-to-end
@@ -511,8 +534,50 @@ pub fn run() -> Result<()> {
         Command::Concat(args) => concat_file(args),
         Command::Edit(args) => edit_file(args),
         Command::Find(args) => find_frames(args),
+        Command::Dump(args) => dump_frames(args),
         Command::Delete(args) => delete_frames(args),
     }
+}
+
+fn dump_frames(args: DumpArgs) -> Result<()> {
+    let mut format = None;
+    let mut selector_values = Vec::new();
+    for value in &args.target {
+        if let Some(parsed) = fwob::formatting::FrameFormat::parse(value) {
+            if format.replace(parsed).is_some() {
+                bail!("dump accepts at most one output format token");
+            }
+        } else {
+            selector_values.push(value);
+        }
+    }
+
+    let reader_options = fwob::ReaderOptions {
+        v1_key_field_index: args.key_field_index,
+    };
+    let mut reader = fwob::Reader::open_with_options(&args.path, reader_options)?;
+    let schema = reader.schema().clone();
+    let string_table = reader.string_table().to_vec();
+    let key_type = fwob_core::KeyType::from_field(schema.key_field())?;
+    let selectors = selector_values
+        .into_iter()
+        .map(|value| fwob::KeySelector::parse(value, key_type))
+        .collect::<fwob::Result<Vec<_>>>()?;
+    let selection = fwob::FrameSelection::resolve(&mut reader, &selectors)?;
+    let mut formatter = fwob::formatting::FrameFormatter::new(
+        &schema,
+        &string_table,
+        format.unwrap_or(fwob::formatting::FrameFormat::Raw),
+    );
+    let stdout = std::io::stdout();
+    let mut output = stdout.lock();
+    formatter.write_header(&mut output)?;
+    for range in selection.ranges() {
+        for frame in reader.frames(range.clone())? {
+            formatter.write_frame(&mut output, frame?.bytes())?;
+        }
+    }
+    Ok(())
 }
 
 fn find_frames(args: FindArgs) -> Result<()> {
