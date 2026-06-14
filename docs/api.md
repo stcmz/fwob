@@ -273,7 +273,10 @@ let frames = reader.read_page_frames(0)?;
 Derive `fwob_core::FwobFrame` to map a Rust struct to a fixed-width schema:
 
 ```rust
-use fwob_core::{Decimal, FixedString, FwobFrame, StringIndex, StringIndex64};
+use fwob_core::{
+    Decimal, FixedString, FwobFrame, StringIndex, StringIndex16, StringIndex64,
+    StringIndex8,
+};
 
 #[derive(FwobFrame)]
 struct Tick {
@@ -296,7 +299,7 @@ struct Tick {
 compatibility when opening a file and expose typed frame/key operations over
 both v1 and v2. Stored fields support all signed and unsigned integer widths,
 `f32`, `f64`, `Decimal`, fixed `[u8; N]` data, `FixedString<N>`, and
-`StringIndex`, and `StringIndex64`.
+`StringIndex8`, `StringIndex16`, `StringIndex`, and `StringIndex64`.
 `FixedString<N>` stores exactly `N` bytes, uses UTF-8, pads with ASCII spaces,
 and rejects values whose encoded byte length exceeds `N`. Keys are currently
 restricted to integer fields because the common ordered-key representation does
@@ -306,7 +309,8 @@ not define floating-point ordering.
 `lo, mid, hi, flags` representation used by .NET `BinaryWriter`, preserving
 compatibility with v1 decimal fields.
 
-`StringIndex` stores a 32-bit string-table index. `StringIndex64` stores the
+The string-index wrappers store 8-, 16-, 32-, or 64-bit string-table indexes.
+`StringIndex` is the 32-bit spelling retained for the common case. `StringIndex64` stores the
 protocol's 64-bit index representation. Readers expose `string_at_u64` and
 `string_index_u64` alongside the existing 32-bit lookup methods.
 

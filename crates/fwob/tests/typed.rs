@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use fwob::{FormatVersion, OperationOptions, TypedEditor, TypedReader, TypedWriter};
-use fwob_core::{Decimal, FieldType, FixedString, FwobFrame, StringIndex, StringIndex64};
+use fwob_core::{
+    Decimal, FieldType, FixedString, FwobFrame, StringIndex, StringIndex16, StringIndex64,
+    StringIndex8,
+};
 use tempfile::tempdir;
 
 #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
@@ -279,6 +282,10 @@ struct SupportedFields {
     fixed_text: FixedString<8>,
     decimal: Decimal,
     #[fwob(string_index)]
+    string_index_8: StringIndex8,
+    #[fwob(string_index)]
+    string_index_16: StringIndex16,
+    #[fwob(string_index)]
     string_index: StringIndex,
     #[fwob(string_index)]
     string_index_64: StringIndex64,
@@ -290,9 +297,9 @@ struct SupportedFields {
 fn derive_maps_supported_fields_and_ignores_transient_fields() {
     let schema = SupportedFields::schema();
     assert_eq!(schema.frame_type, "SupportedFields");
-    assert_eq!(schema.frame_len, 83);
+    assert_eq!(schema.frame_len, 86);
     assert_eq!(schema.key_field_index, 0);
-    assert_eq!(schema.fields.len(), 15);
+    assert_eq!(schema.fields.len(), 17);
     assert_eq!(
         schema
             .fields
@@ -313,8 +320,10 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             (FieldType::Utf8String, 5, 42),
             (FieldType::Utf8String, 8, 47),
             (FieldType::FloatingPoint, 16, 55),
-            (FieldType::StringTableIndex, 4, 71),
-            (FieldType::StringTableIndex, 8, 75),
+            (FieldType::StringTableIndex, 1, 71),
+            (FieldType::StringTableIndex, 2, 72),
+            (FieldType::StringTableIndex, 4, 74),
+            (FieldType::StringTableIndex, 8, 78),
         ]
     );
 
@@ -332,6 +341,8 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
         text: *b"hello",
         fixed_text: FixedString::new("hi").unwrap(),
         decimal: Decimal::new(-12_345, 2),
+        string_index_8: StringIndex8(5),
+        string_index_16: StringIndex16(6),
         string_index: StringIndex(7),
         string_index_64: StringIndex64(8),
         ignored: 99,
@@ -346,6 +357,51 @@ fn derive_maps_supported_fields_and_ignores_transient_fields() {
             ..frame
         }
     );
+}
+
+#[test]
+fn narrow_string_indexes_roundtrip_and_resolve_for_v1_and_v2() {
+    #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
+    struct NarrowIndexes {
+        #[fwob(key)]
+        key: i32,
+        #[fwob(string_index)]
+        short: StringIndex8,
+        #[fwob(string_index)]
+        wide: StringIndex16,
+    }
+
+    let dir = tempdir().unwrap();
+    let strings = vec!["AAPL".to_owned(), "SPOT".to_owned()];
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("narrow-index-{version:?}.fwob"));
+        let expected = NarrowIndexes {
+            key: 1,
+            short: StringIndex8(0),
+            wide: StringIndex16(1),
+        };
+        match version {
+            FormatVersion::V1 => {
+                let mut options = fwob_v1::WriterOptions::new("narrow-index");
+                options.string_table_preserved_length = 32;
+                let mut writer =
+                    TypedWriter::<NarrowIndexes>::create_v1(&path, options, &strings).unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+            FormatVersion::V2 => {
+                let mut options = fwob_v2::WriterOptions::new("narrow-index");
+                options.string_table = strings.clone();
+                let mut writer = TypedWriter::<NarrowIndexes>::create_v2(&path, options).unwrap();
+                writer.append(&expected).unwrap();
+                writer.finish().unwrap();
+            }
+        }
+        let mut reader = TypedReader::<NarrowIndexes>::open(path).unwrap();
+        assert_eq!(reader.read_frame(0).unwrap(), Some(expected));
+        assert_eq!(reader.string_at_u64(expected.short.0.into()), Some("AAPL"));
+        assert_eq!(reader.string_at_u64(expected.wide.0.into()), Some("SPOT"));
+    }
 }
 
 #[test]

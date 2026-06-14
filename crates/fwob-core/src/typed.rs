@@ -3,6 +3,12 @@ use rust_decimal::Decimal;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StringIndex8(pub u8);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StringIndex16(pub u16);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StringIndex(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
