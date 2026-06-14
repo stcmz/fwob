@@ -1,8 +1,10 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom},
     path::Path,
 };
+
+use fwob_core::{Key, KeyType};
 
 use crate::{
     header::{read_header, update_frame_count},
@@ -47,10 +49,64 @@ pub fn repair_committed_tail(
     }
 
     let complete_frames = (actual_len - prefix_len) / u64::from(header.frame_length);
-    let repaired_count = header.frame_count.min(complete_frames);
+    let committed_frames = header.frame_count.min(complete_frames);
+    let schema = header.schema(key_field_index)?;
+    let key_field = schema.key_field();
+    let key_type = KeyType::from_field(key_field)?;
+    let mut last_key = None;
+    for index in 0..committed_frames {
+        let key = read_key(
+            &mut file,
+            prefix_len,
+            header.frame_length,
+            key_field.offset,
+            key_field.length,
+            key_type,
+            index,
+        )?;
+        if last_key.is_some_and(|last| key < last) {
+            return Err(V1Error::KeyOrderViolation { index });
+        }
+        last_key = Some(key);
+    }
+
+    let mut repaired_count = committed_frames;
+    for index in committed_frames..complete_frames {
+        let key = read_key(
+            &mut file,
+            prefix_len,
+            header.frame_length,
+            key_field.offset,
+            key_field.length,
+            key_type,
+            index,
+        )?;
+        if last_key.is_some_and(|last| key < last) {
+            break;
+        }
+        last_key = Some(key);
+        repaired_count += 1;
+    }
     let repaired_len = prefix_len + repaired_count * u64::from(header.frame_length);
     file.set_len(repaired_len)?;
     update_frame_count(&mut file, repaired_count)?;
     drop(file);
     verify_file(path, key_field_index)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn read_key(
+    file: &mut File,
+    prefix_len: u64,
+    frame_length: u32,
+    key_offset: u32,
+    key_length: u16,
+    key_type: KeyType,
+    index: u64,
+) -> Result<Key> {
+    let offset = prefix_len + index * u64::from(frame_length) + u64::from(key_offset);
+    file.seek(SeekFrom::Start(offset))?;
+    let mut bytes = vec![0; key_length as usize];
+    file.read_exact(&mut bytes)?;
+    Key::decode(key_type, &bytes).map_err(Into::into)
 }

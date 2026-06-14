@@ -26,6 +26,8 @@ with a 64-byte header, compressed payload, and zero padding.
   `Editor`, `Maintenance`, and `Organizer` APIs, plus the command-line tool.
 
 The logical Rust API is documented in [`docs/api.md`](docs/api.md).
+Repair can promote complete ordered frames or pages left beyond the committed
+count by an interrupted write, while truncating partial or invalid tails.
 
 ## Installation
 

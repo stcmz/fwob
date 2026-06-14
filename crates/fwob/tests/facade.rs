@@ -1,4 +1,9 @@
-use std::{fs, fs::OpenOptions, io::Write, path::Path};
+use std::{
+    fs,
+    fs::OpenOptions,
+    io::{Seek, SeekFrom, Write},
+    path::Path,
+};
 
 use fwob::{
     DeletionPacking, Editor, FormatVersion, Maintenance, OperationOptions, Organizer, Reader,
@@ -1064,4 +1069,95 @@ fn verification_and_repair_are_identical_for_v1_and_v2() {
             version
         );
     }
+}
+
+#[test]
+fn repair_adopts_complete_ordered_uncommitted_suffixes() {
+    let dir = tempdir().unwrap();
+
+    let v1_path = dir.path().join("v1-suffix.fwob");
+    create_linear_file(&v1_path, FormatVersion::V1, 3);
+    OpenOptions::new()
+        .append(true)
+        .open(&v1_path)
+        .unwrap()
+        .write_all(&frame(3, 3))
+        .unwrap();
+    let v1_report = Maintenance::repair(&v1_path, ReaderOptions::default()).unwrap();
+    assert_eq!(v1_report.frame_count, 4);
+    let mut v1_reader = Reader::open(&v1_path).unwrap();
+    assert_eq!(v1_reader.last_key().unwrap(), Some(Key::I32(3)));
+
+    let v2_path = dir.path().join("v2-suffix.fwob");
+    create_linear_file(&v2_path, FormatVersion::V2, 500);
+    let mut v2_reader = fwob_v2::Reader::open(&v2_path).unwrap();
+    let original_pages = v2_reader.header().page_count;
+    let original_frames = v2_reader.header().frame_count;
+    assert!(original_pages > 1);
+    let uncommitted_page = v2_reader.read_page_header(original_pages - 1).unwrap();
+    drop(v2_reader);
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&v2_path)
+        .unwrap();
+    fwob_v2::update_counts(
+        &mut file,
+        original_pages - 1,
+        uncommitted_page.first_frame_index,
+    )
+    .unwrap();
+    drop(file);
+
+    let v2_report = Maintenance::repair(&v2_path, ReaderOptions::default()).unwrap();
+    assert_eq!(v2_report.frame_count, original_frames);
+    let v2_reader = Reader::open(&v2_path).unwrap();
+    assert_eq!(v2_reader.frame_count(), original_frames);
+}
+
+#[test]
+fn repair_discards_unordered_or_corrupt_uncommitted_suffixes() {
+    let dir = tempdir().unwrap();
+
+    let v1_path = dir.path().join("v1-invalid-suffix.fwob");
+    create_linear_file(&v1_path, FormatVersion::V1, 3);
+    OpenOptions::new()
+        .append(true)
+        .open(&v1_path)
+        .unwrap()
+        .write_all(&frame(0, 0))
+        .unwrap();
+    let v1_report = Maintenance::repair(&v1_path, ReaderOptions::default()).unwrap();
+    assert_eq!(v1_report.frame_count, 3);
+
+    let v2_path = dir.path().join("v2-invalid-suffix.fwob");
+    create_linear_file(&v2_path, FormatVersion::V2, 500);
+    let mut v2_reader = fwob_v2::Reader::open(&v2_path).unwrap();
+    let original_pages = v2_reader.header().page_count;
+    assert!(original_pages > 1);
+    let uncommitted_page = v2_reader.read_page_header(original_pages - 1).unwrap();
+    let page_size = v2_reader.header().page_size;
+    drop(v2_reader);
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&v2_path)
+        .unwrap();
+    fwob_v2::update_counts(
+        &mut file,
+        original_pages - 1,
+        uncommitted_page.first_frame_index,
+    )
+    .unwrap();
+    file.seek(SeekFrom::Start(
+        fwob_v2::FILE_HEADER_LEN
+            + (original_pages - 1) * u64::from(page_size)
+            + fwob_v2::PAGE_HEADER_LEN as u64,
+    ))
+    .unwrap();
+    file.write_all(&[0xff]).unwrap();
+    drop(file);
+
+    let v2_report = Maintenance::repair(&v2_path, ReaderOptions::default()).unwrap();
+    assert_eq!(v2_report.frame_count, uncommitted_page.first_frame_index);
 }

@@ -170,6 +170,12 @@ Maintenance::repair("ticks.fwob", ReaderOptions::default())?;
 # Ok::<(), fwob::Error>(())
 ```
 
+Repair validates committed data and then adopts the longest complete,
+key-ordered physical suffix that was written before an interrupted metadata
+commit. V1 promotes complete trailing frames. V2 promotes complete trailing
+pages only after validating page headers, checksums, frame indexes, decoding,
+and key order. Partial or invalid suffix data is truncated.
+
 ### Split and Concatenate
 
 ```rust
