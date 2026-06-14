@@ -1,4 +1,10 @@
-use std::io::Cursor;
+use std::{
+    io::{Cursor, Read, Seek, SeekFrom},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use fwob_core::{Field, FieldType, Key, Schema};
 use fwob_v2::{
@@ -36,6 +42,33 @@ fn short_tick(time: i32, price: u32, size: i32) -> Vec<u8> {
     out.extend_from_slice(&price.to_le_bytes());
     out.extend_from_slice(&size.to_le_bytes());
     out
+}
+
+struct CountingCursor {
+    inner: Cursor<Vec<u8>>,
+    seeks: Arc<AtomicUsize>,
+}
+
+impl CountingCursor {
+    fn new(bytes: Vec<u8>, seeks: Arc<AtomicUsize>) -> Self {
+        Self {
+            inner: Cursor::new(bytes),
+            seeks,
+        }
+    }
+}
+
+impl Read for CountingCursor {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(buffer)
+    }
+}
+
+impl Seek for CountingCursor {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.seeks.fetch_add(1, Ordering::Relaxed);
+        self.inner.seek(position)
+    }
 }
 
 #[test]
@@ -271,6 +304,41 @@ fn equal_range_handles_duplicates_spanning_multiple_pages() {
     assert_eq!(reader.equal_range(Key::I32(2)).unwrap(), (50, 450));
     assert_eq!(reader.equal_range(Key::I32(3)).unwrap(), (450, 500));
     assert_eq!(reader.equal_range(Key::I32(4)).unwrap(), (500, 500));
+}
+
+#[test]
+fn sequential_indexed_reads_advance_page_by_page() {
+    let schema = tick_schema();
+    let mut options = WriterOptions::new("Sequential");
+    options.page_size = 1024;
+    options.codec = Codec::None;
+    options.codec_selection = CodecSelection::Fixed(Codec::None);
+    options.encoding = Encoding::RowRawV1;
+    options.encoding_selection = EncodingSelection::Fixed(Encoding::RowRawV1);
+
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut writer = Writer::new(&mut cursor, schema, options).unwrap();
+        for index in 0..500 {
+            writer.append_frame(&tick(index, index as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    let seeks = Arc::new(AtomicUsize::new(0));
+    let mut reader = Reader::new(CountingCursor::new(cursor.into_inner(), seeks.clone())).unwrap();
+    let page_count = reader.header().page_count as usize;
+    for index in 0..500 {
+        assert_eq!(
+            reader.read_frame_at(index).unwrap().unwrap().bytes(),
+            tick(index as i32, index as f64, "").as_slice()
+        );
+    }
+
+    assert!(
+        seeks.load(Ordering::Relaxed) <= page_count + 10,
+        "sequential reads should seek approximately once per page"
+    );
 }
 
 #[test]

@@ -75,7 +75,7 @@ impl<R: Read + Seek> Reader<R> {
     }
 
     pub fn read_frame_at(&mut self, index: u64) -> Result<Option<OwnedFrame>> {
-        let Some(page_index) = self.find_page_for_index(index)? else {
+        let Some(page_index) = self.page_for_index_with_cache(index)? else {
             return Ok(None);
         };
         self.load_page(page_index)?;
@@ -110,7 +110,7 @@ impl<R: Read + Seek> Reader<R> {
     }
 
     pub fn read_key_at(&mut self, index: u64) -> Result<Option<Key>> {
-        let Some(page_index) = self.find_page_for_index(index)? else {
+        let Some(page_index) = self.page_for_index_with_cache(index)? else {
             return Ok(None);
         };
         self.load_page(page_index)?;
@@ -159,6 +159,23 @@ impl<R: Read + Seek> Reader<R> {
         } else {
             Err(V2Error::InvalidPageHeader(page_index))
         }
+    }
+
+    fn page_for_index_with_cache(&mut self, index: u64) -> Result<Option<u64>> {
+        if index >= self.header.frame_count {
+            return Ok(None);
+        }
+        if let Some(cached) = &self.cached_page {
+            let start = cached.header.first_frame_index;
+            let end = start + u64::from(cached.header.frame_count);
+            if (start..end).contains(&index) {
+                return Ok(Some(cached.index));
+            }
+            if index == end && cached.index + 1 < self.header.page_count {
+                return Ok(Some(cached.index + 1));
+            }
+        }
+        self.find_page_for_index(index)
     }
 
     pub fn lower_bound(&mut self, key: Key) -> Result<u64> {

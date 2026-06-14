@@ -317,7 +317,7 @@ decompressing, and decoding one page.
 | first/last frame | `O(1)` | `O(D)` | one frame / one decoded unit |
 | lower/upper bound | `O(log N)` | `O(log P + D + log Q)` | one decoded unit |
 | equal range | `O(log N)` | `O(log P + D + log Q)`; up to two boundary-page decodes | one decoded unit |
-| stream `K` frames | `O(K)` | `O(K log P + U D + K)` | one decoded unit |
+| stream `K` frames | `O(K)` | `O(log P + U D + K)` | one decoded unit |
 
 V2 first and last keys come directly from the known boundary page headers.
 First and last frames decode the known boundary page without searching page
@@ -328,9 +328,9 @@ V2 `equal_range` binary-searches page-header key bounds first, then searches
 within the one or two decoded pages containing the lower and upper boundaries.
 Duplicate keys may span any number of intervening pages without decoding them.
 
-The current version-neutral stream advances by logical frame index and performs
-an indexed lookup for each frame. Page decoding is cached, so each touched page
-incurs `D` once, but page-header lookup still contributes `O(K log P)`.
+The version-neutral stream advances by logical frame index. V2 locates the
+initial page once, serves subsequent frames from the decoded page cache, and
+advances directly to the next page at each boundary.
 
 ## Validation
 
