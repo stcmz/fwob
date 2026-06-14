@@ -6,8 +6,8 @@ use std::{
 };
 
 use fwob::{
-    DeletionPacking, Editor, FormatVersion, Maintenance, OperationOptions, Organizer, Reader,
-    ReaderOptions, Writer,
+    DeletionPacking, Editor, FormatVersion, FrameSelection, KeySelector, Maintenance,
+    OperationOptions, Organizer, Reader, ReaderOptions, Writer,
 };
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
@@ -906,6 +906,32 @@ fn indexed_key_and_streaming_queries_are_identical_for_v1_and_v2() {
 
     assert_query_contract(&v1, FormatVersion::V1);
     assert_query_contract(&v2, FormatVersion::V2);
+}
+
+#[test]
+fn mixed_key_selectors_union_identically_for_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("selectors-{version:?}.fwob"));
+        create_linear_file(&path, version, 20);
+        let mut reader = Reader::open(&path).unwrap();
+        let selection = FrameSelection::resolve(
+            &mut reader,
+            &[
+                KeySelector::From(Key::I32(18)),
+                KeySelector::Exact(Key::I32(2)),
+                KeySelector::Between {
+                    first: Key::I32(5),
+                    last: Key::I32(7),
+                },
+                KeySelector::Through(Key::I32(0)),
+                KeySelector::Exact(Key::I32(6)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(selection.ranges(), &[0..1, 2..3, 5..8, 18..20]);
+        assert_eq!(selection.frame_count(), 7);
+    }
 }
 
 #[test]

@@ -42,7 +42,7 @@ enum Command {
     Concat(ConcatArgs),
     /// Rewrite title or string-table metadata without changing frames.
     Edit(EditArgs),
-    /// Find frames matching one key or an inclusive key range.
+    /// Find all frames or the union of exact keys and inclusive key ranges.
     Find(FindArgs),
     /// Delete frames matching one key or an inclusive key range.
     Delete(DeleteArgs),
@@ -326,10 +326,9 @@ struct EditArgs {
 struct FindArgs {
     /// Input v1 or v2 file.
     path: PathBuf,
-    /// Key to find, or inclusive lower key when LAST_KEY is supplied.
-    first_key: String,
-    /// Optional inclusive upper key.
-    last_key: Option<String>,
+    /// Selectors: KEY, FIRST.., ..LAST, or FIRST..LAST. May be mixed,
+    /// reordered, duplicated, or omitted to select all frames.
+    selectors: Vec<String>,
     /// Key field index for v1 input only.
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
@@ -516,63 +515,69 @@ pub fn run() -> Result<()> {
     }
 }
 
-fn resolve_key_range(
-    reader: &mut fwob::Reader,
-    first: &str,
-    last: Option<&str>,
-) -> Result<(Key, Key, std::ops::Range<u64>)> {
-    let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
-    let first = parse_key(first, key_type)?;
-    let last = last
-        .map(|value| parse_key(value, key_type))
-        .transpose()?
-        .unwrap_or(first);
-    if first > last {
-        bail!("FIRST_KEY must be less than or equal to LAST_KEY");
-    }
-    let range = if first == last {
-        reader.equal_range(first)?
-    } else {
-        reader.lower_bound(first)?..reader.upper_bound(last)?
-    };
-    Ok((first, last, range))
-}
-
 fn find_frames(args: FindArgs) -> Result<()> {
     let reader_options = fwob::ReaderOptions {
         v1_key_field_index: args.key_field_index,
     };
     let mut reader = fwob::Reader::open_with_options(&args.path, reader_options)?;
     let schema = reader.schema().clone();
-    let (first_key, last_key, range) =
-        resolve_key_range(&mut reader, &args.first_key, args.last_key.as_deref())?;
-    let rows = preview_indices(range.end - range.start)
-        .into_iter()
-        .map(|item| match item {
-            PreviewIndex::Frame(index) => {
-                let global_index = range.start + index;
-                let frame = reader
-                    .read_frame(global_index)?
-                    .context("matched frame index is out of range")?;
-                Ok(PreviewRow::Frame(global_index, frame.bytes().to_vec()))
-            }
-            PreviewIndex::Ellipsis => Ok(PreviewRow::Ellipsis),
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let key_type = fwob_core::KeyType::from_field(schema.key_field())?;
+    let selectors = args
+        .selectors
+        .iter()
+        .map(|value| fwob::KeySelector::parse(value, key_type))
+        .collect::<fwob::Result<Vec<_>>>()?;
+    let selection = fwob::FrameSelection::resolve(&mut reader, &selectors)?;
+    let rows = selection_preview_rows(&mut reader, &selection)?;
 
     toml_section("find");
     toml_kv_str("path", &args.path.display().to_string());
-    toml_kv_key("first_key", first_key);
-    toml_kv_key("last_key", last_key);
-    toml_kv_num("start_index", range.start);
-    toml_kv_num("end_index", range.end);
-    toml_kv_num("frame_count", range.end - range.start);
+    toml_kv_num("selector_count", selectors.len());
+    toml_kv_num("range_count", selection.ranges().len());
+    if let Some(start) = selection.first_index() {
+        toml_kv_num("start_index", start);
+        toml_kv_num("end_index", selection.end_index().unwrap());
+    }
+    toml_kv_num("frame_count", selection.frame_count());
     if !rows.is_empty() {
         println!();
         toml_section("frames");
         toml_kv_multiline("preview", &format_frame_preview_rows(&schema, &rows));
     }
     Ok(())
+}
+
+fn selection_preview_rows(
+    reader: &mut fwob::Reader,
+    selection: &fwob::FrameSelection,
+) -> Result<Vec<PreviewRow>> {
+    let count = selection.frame_count();
+    let positions = preview_indices(count);
+    let mut rows = Vec::with_capacity(positions.len());
+    for position in positions {
+        match position {
+            PreviewIndex::Ellipsis => rows.push(PreviewRow::Ellipsis),
+            PreviewIndex::Frame(position) => {
+                let mut remaining = position;
+                let mut global_index = None;
+                for range in selection.ranges() {
+                    let len = range.end - range.start;
+                    if remaining < len {
+                        global_index = Some(range.start + remaining);
+                        break;
+                    }
+                    remaining -= len;
+                }
+                let global_index =
+                    global_index.context("selected preview index is out of range")?;
+                let frame = reader
+                    .read_frame(global_index)?
+                    .context("matched frame index is out of range")?;
+                rows.push(PreviewRow::Frame(global_index, frame.bytes().to_vec()));
+            }
+        }
+    }
+    Ok(rows)
 }
 
 fn delete_frames(args: DeleteArgs) -> Result<()> {
@@ -592,8 +597,16 @@ fn delete_frames(args: DeleteArgs) -> Result<()> {
         matches!(deletion_packing, DeletionPackingArg::LocalRepack),
     );
     let reader_options = operation_options.reader_options;
-    let mut reader = fwob::Reader::open_with_options(&path, reader_options)?;
-    let (first_key, last_key_value, _) = resolve_key_range(&mut reader, first_key, last_key)?;
+    let reader = fwob::Reader::open_with_options(&path, reader_options)?;
+    let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
+    let first_key = Key::parse(key_type, first_key)?;
+    let last_key_value = last_key
+        .map(|value| Key::parse(key_type, value))
+        .transpose()?
+        .unwrap_or(first_key);
+    if first_key > last_key_value {
+        bail!("FIRST_KEY must be less than or equal to LAST_KEY");
+    }
     drop(reader);
 
     let effective_compress_partial_page =
@@ -639,7 +652,7 @@ fn split_file(args: SplitArgs) -> Result<()> {
     let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
     let keys = parsed.paths[2..]
         .iter()
-        .map(|value| parse_key(value, key_type))
+        .map(|value| Key::parse(key_type, value).map_err(Into::into))
         .collect::<Result<Vec<_>>>()?;
     drop(reader);
     let outputs = Organizer {
@@ -710,28 +723,6 @@ fn edit_file(args: EditArgs) -> Result<()> {
     println!("title = {:?}", editor.title());
     println!("string_count = {}", editor.string_table().len());
     Ok(())
-}
-
-fn parse_key(value: &str, key_type: fwob_core::KeyType) -> Result<Key> {
-    macro_rules! parsed {
-        ($ty:ty, $variant:ident) => {
-            Key::$variant(
-                value
-                    .parse::<$ty>()
-                    .with_context(|| format!("invalid {:?} key: {value}", key_type))?,
-            )
-        };
-    }
-    Ok(match key_type {
-        fwob_core::KeyType::I8 => parsed!(i8, I8),
-        fwob_core::KeyType::I16 => parsed!(i16, I16),
-        fwob_core::KeyType::I32 => parsed!(i32, I32),
-        fwob_core::KeyType::I64 => parsed!(i64, I64),
-        fwob_core::KeyType::U8 => parsed!(u8, U8),
-        fwob_core::KeyType::U16 => parsed!(u16, U16),
-        fwob_core::KeyType::U32 => parsed!(u32, U32),
-        fwob_core::KeyType::U64 => parsed!(u64, U64),
-    })
 }
 
 fn inspect_auto(args: AutoFileArgs) -> Result<()> {

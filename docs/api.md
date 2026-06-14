@@ -84,6 +84,11 @@ query keys only once.
 `frames_before(last_key)` and `frames_after(first_key)` provide inclusive
 one-sided key ranges.
 
+`KeySelector` and `FrameSelection` provide reusable union queries. Selectors
+may be exact keys, lower-unbounded ranges, upper-unbounded ranges, bounded
+inclusive ranges, or all frames. `FrameSelection::resolve` sorts and merges
+overlapping or adjacent results, so callers may supply selectors in any order.
+
 ### Create and Write
 
 ```rust

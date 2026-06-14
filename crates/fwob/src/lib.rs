@@ -8,6 +8,7 @@ mod editor;
 mod maintenance;
 mod organization;
 mod reader;
+mod selection;
 mod typed;
 mod writer;
 
@@ -15,6 +16,7 @@ pub use editor::{DeletionPacking, Editor};
 pub use maintenance::Maintenance;
 pub use organization::Organizer;
 pub use reader::Reader;
+pub use selection::{FrameSelection, KeySelector};
 pub use typed::{TypedEditor, TypedReader, TypedWriter};
 pub use writer::{MutationOptions, OperationOptions, Writer, WriterOpenOptions};
 
@@ -44,6 +46,13 @@ pub enum Error {
     IncompatibleKeyOrder,
     #[error("typed frame schema does not match the file schema")]
     SchemaMismatch,
+    #[error("invalid key selector: {0}")]
+    InvalidSelector(String),
+    #[error("selector range is reversed: {first:?}..{last:?}")]
+    ReversedSelector {
+        first: fwob_core::Key,
+        last: fwob_core::Key,
+    },
     #[error(transparent)]
     Core(#[from] fwob_core::FwobError),
     #[error(transparent)]

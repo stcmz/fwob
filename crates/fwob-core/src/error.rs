@@ -19,6 +19,12 @@ pub enum FwobError {
     #[error("invalid key bytes: expected {expected} bytes, got {actual}")]
     InvalidKeyLength { expected: usize, actual: usize },
 
+    #[error("invalid {key_type:?} key value: {value}")]
+    InvalidKeyValue {
+        key_type: crate::KeyType,
+        value: String,
+    },
+
     #[error("frame has invalid length: expected {expected} bytes, got {actual}")]
     InvalidFrameLength { expected: usize, actual: usize },
 

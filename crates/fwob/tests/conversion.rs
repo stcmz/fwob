@@ -142,13 +142,38 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
 
     let exe = env!("CARGO_BIN_EXE_fwob");
     let find =
-        command_output(Command::new(exe).args(["find", v1_path.to_str().unwrap(), "10", "12"]));
+        command_output(Command::new(exe).args(["find", v1_path.to_str().unwrap(), "10..12"]));
     let stdout = String::from_utf8_lossy(&find.stdout);
     assert!(stdout.contains("[find]"));
     assert!(stdout.contains("start_index = 10"));
     assert!(stdout.contains("end_index = 13"));
     assert!(stdout.contains("frame_count = 3"));
     assert!(stdout.contains("preview = \"\"\""));
+
+    let mixed = command_output(Command::new(exe).args([
+        "find",
+        v1_path.to_str().unwrap(),
+        "18..",
+        "2",
+        "5..7",
+        "..0",
+        "6",
+    ]));
+    assert!(mixed.status.success());
+    let stdout = String::from_utf8_lossy(&mixed.stdout);
+    assert!(stdout.contains("selector_count = 5"));
+    assert!(stdout.contains("range_count = 4"));
+    assert!(stdout.contains("frame_count = 17"), "{stdout}");
+
+    let all = command_output(Command::new(exe).args(["find", v1_path.to_str().unwrap()]));
+    assert!(all.status.success());
+    assert!(String::from_utf8_lossy(&all.stdout).contains("frame_count = 30"));
+
+    let reversed = Command::new(exe)
+        .args(["find", v1_path.to_str().unwrap(), "12..10"])
+        .output()
+        .unwrap();
+    assert!(!reversed.status.success());
 
     assert_command_success(Command::new(exe).args([
         "convert",

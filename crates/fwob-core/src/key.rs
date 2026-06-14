@@ -58,6 +58,30 @@ pub enum Key {
 }
 
 impl Key {
+    pub fn parse(key_type: KeyType, value: &str) -> Result<Self> {
+        macro_rules! parsed {
+            ($ty:ty, $variant:ident) => {
+                value
+                    .parse::<$ty>()
+                    .map(Self::$variant)
+                    .map_err(|_| FwobError::InvalidKeyValue {
+                        key_type,
+                        value: value.to_owned(),
+                    })
+            };
+        }
+        match key_type {
+            KeyType::I8 => parsed!(i8, I8),
+            KeyType::I16 => parsed!(i16, I16),
+            KeyType::I32 => parsed!(i32, I32),
+            KeyType::I64 => parsed!(i64, I64),
+            KeyType::U8 => parsed!(u8, U8),
+            KeyType::U16 => parsed!(u16, U16),
+            KeyType::U32 => parsed!(u32, U32),
+            KeyType::U64 => parsed!(u64, U64),
+        }
+    }
+
     pub fn decode(key_type: KeyType, bytes: &[u8]) -> Result<Self> {
         if bytes.len() != key_type.byte_len() {
             return Err(FwobError::InvalidKeyLength {
