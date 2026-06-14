@@ -89,6 +89,26 @@ impl<R: Read + Seek> Reader<R> {
         )?))
     }
 
+    pub fn first_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        if self.header.page_count == 0 {
+            return Ok(None);
+        }
+        self.read_frame_from_page(0, 0).map(Some)
+    }
+
+    pub fn last_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        if self.header.page_count == 0 {
+            return Ok(None);
+        }
+        let page_index = self.header.page_count - 1;
+        let page = self.read_page_header(page_index)?;
+        let local_index = page
+            .frame_count
+            .checked_sub(1)
+            .ok_or(V2Error::InvalidPageHeader(page_index))? as usize;
+        self.read_frame_from_page(page_index, local_index).map(Some)
+    }
+
     pub fn read_key_at(&mut self, index: u64) -> Result<Option<Key>> {
         let Some(page_index) = self.find_page_for_index(index)? else {
             return Ok(None);
@@ -255,6 +275,18 @@ impl<R: Read + Seek> Reader<R> {
             raw,
         });
         Ok(())
+    }
+
+    fn read_frame_from_page(&mut self, page_index: u64, local_index: usize) -> Result<OwnedFrame> {
+        self.load_page(page_index)?;
+        let cached = self.cached_page.as_ref().expect("page loaded");
+        let frame_len = self.header.schema.frame_len as usize;
+        let offset = local_index * frame_len;
+        OwnedFrame::new(
+            &self.header.schema,
+            cached.raw[offset..offset + frame_len].to_vec(),
+        )
+        .map_err(Into::into)
     }
 
     fn cached_key(&self, local_index: usize) -> Result<Key> {

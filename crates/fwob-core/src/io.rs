@@ -42,6 +42,24 @@ pub trait FileInfo {
 pub trait ReaderBackend: FileInfo + Send {
     fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>>;
     fn read_key(&mut self, index: u64) -> Result<Option<Key>>;
+    fn first_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        self.read_frame(0)
+    }
+    fn last_frame(&mut self) -> Result<Option<OwnedFrame>> {
+        match self.frame_count().checked_sub(1) {
+            Some(index) => self.read_frame(index),
+            None => Ok(None),
+        }
+    }
+    fn first_key(&mut self) -> Result<Option<Key>> {
+        self.read_key(0)
+    }
+    fn last_key(&mut self) -> Result<Option<Key>> {
+        match self.frame_count().checked_sub(1) {
+            Some(index) => self.read_key(index),
+            None => Ok(None),
+        }
+    }
     fn lower_bound(&mut self, key: Key) -> Result<u64>;
     fn upper_bound(&mut self, key: Key) -> Result<u64>;
     fn equal_range(&mut self, key: Key) -> Result<Range<u64>>;
@@ -56,6 +74,8 @@ pub trait WriterFactory: Send {
 ///
 /// Indexed reads are `O(1)` for v1 and `O(log P + D)` for v2, where `P` is
 /// the number of physical storage units and `D` is one-unit decode cost.
+/// V2 first/last keys are read from page headers in `O(1)`; first/last frames
+/// address a known boundary page and cost `O(D)`.
 /// Streams retain only the format backend's bounded read buffer.
 pub struct Reader {
     inner: Box<dyn ReaderBackend>,
@@ -76,7 +96,7 @@ impl Reader {
     }
 
     pub fn first_frame(&mut self) -> Result<Option<OwnedFrame>> {
-        self.read_frame(0)
+        self.inner.first_frame()
     }
 
     pub fn format_version(&self) -> FormatVersion {
@@ -125,21 +145,15 @@ impl Reader {
     }
 
     pub fn last_frame(&mut self) -> Result<Option<OwnedFrame>> {
-        match self.frame_count().checked_sub(1) {
-            Some(index) => self.read_frame(index),
-            None => Ok(None),
-        }
+        self.inner.last_frame()
     }
 
     pub fn first_key(&mut self) -> Result<Option<Key>> {
-        self.read_key(0)
+        self.inner.first_key()
     }
 
     pub fn last_key(&mut self) -> Result<Option<Key>> {
-        match self.frame_count().checked_sub(1) {
-            Some(index) => self.read_key(index),
-            None => Ok(None),
-        }
+        self.inner.last_key()
     }
 
     pub fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>> {

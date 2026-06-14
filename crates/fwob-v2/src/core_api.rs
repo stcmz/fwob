@@ -70,6 +70,30 @@ impl ReaderBackend for ReaderAdapter {
             .map_err(fwob_core::FwobError::backend)
     }
 
+    fn first_frame(&mut self) -> CoreResult<Option<OwnedFrame>> {
+        self.reader
+            .first_frame()
+            .map_err(fwob_core::FwobError::backend)
+    }
+
+    fn last_frame(&mut self) -> CoreResult<Option<OwnedFrame>> {
+        self.reader
+            .last_frame()
+            .map_err(fwob_core::FwobError::backend)
+    }
+
+    fn first_key(&mut self) -> CoreResult<Option<Key>> {
+        self.reader
+            .first_key()
+            .map_err(fwob_core::FwobError::backend)
+    }
+
+    fn last_key(&mut self) -> CoreResult<Option<Key>> {
+        self.reader
+            .last_key()
+            .map_err(fwob_core::FwobError::backend)
+    }
+
     fn lower_bound(&mut self, key: Key) -> CoreResult<u64> {
         self.reader
             .lower_bound(key)

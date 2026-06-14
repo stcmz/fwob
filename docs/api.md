@@ -307,22 +307,30 @@ independently of file size.
 ### Reader Complexity
 
 Let `N` be total frames, `P` the number of v2 pages, `Q` the frames in one
-page, and `D` the cost of reading, decompressing, and decoding one page.
+page, `U` the pages touched by a stream, and `D` the cost of reading,
+decompressing, and decoding one page.
 
 | Operation | v1 time | v2 time | Extra memory |
 | --- | --- | --- | --- |
 | frame/key by index | `O(1)` | `O(log P + D)` | one frame / one decoded unit |
 | first/last key | `O(1)` | `O(1)` | `O(1)` |
-| first/last frame | `O(1)` | `O(log P + D)` | one frame / one decoded unit |
+| first/last frame | `O(1)` | `O(D)` | one frame / one decoded unit |
 | lower/upper bound | `O(log N)` | `O(log P + D + log Q)` | one decoded unit |
 | equal range | `O(log N)` | currently `O(log N * (log P + D))` worst case | one decoded unit |
-| stream `K` frames | `O(K)` | `O(P touched * D + K)` | one decoded unit |
+| stream `K` frames | `O(K)` | `O(K log P + U D + K)` | one decoded unit |
 
-V2 lower and upper bounds first binary-search page headers, decode one boundary
-page, and then binary-search frames within that page. Their costs are additive.
+V2 first and last keys come directly from the known boundary page headers.
+First and last frames decode the known boundary page without searching page
+headers. Lower and upper bounds first binary-search page headers, decode one
+boundary page, and then binary-search frames within that page. Their costs are
+additive.
 The current shared-window `equal_range` instead binary-searches global frame
 indexes and calls indexed key lookup at each step, so its worst case remains
 multiplicative despite page-cache reuse.
+
+The current version-neutral stream advances by logical frame index and performs
+an indexed lookup for each frame. Page decoding is cached, so each touched page
+incurs `D` once, but page-header lookup still contributes `O(K log P)`.
 
 ## Validation
 

@@ -8,7 +8,7 @@ FWOB is a Rust implementation of the Fixed-Width Ordered Binary format family.
 The project provides two format versions:
 
 1. FWOB v1 for compact fixed-width ordered files.
-2. Provide FWOB v2, a fixed-page compressed format for high-performance
+2. FWOB v2, a fixed-page compressed format for high-performance
    random access, range queries, and bulk append workloads.
 
 FWOB v2 keeps page addresses arithmetic while allowing each page to contain a
@@ -128,4 +128,4 @@ their lowercase token forms.
 | `--zstd-level` | zstd compression level. Affects write/convert speed heavily, read speed lightly. | `3`, `6` (default), `9`, `12`, `15`, `19` |
 | encoding token | Page payload layout before compression. `smallest` tries columnar-basic and columnar-delta per page and stores the winning concrete encoding in page metadata. | `row-raw`, `columnar-basic` (default), `columnar-delta`, `smallest` |
 | page-packing token | Packing strategy for compressed pages. | `estimate-shrink` (default), `tight-fit` |
-| `compress-partial-page` token | Compress the final partial page instead of leaving the final non-overflowing remainder raw for append. | omitted (default), present |
+| `compress-partial-page` token | Compress the final partial output page instead of leaving the final non-overflowing remainder raw. | omitted (default), present |

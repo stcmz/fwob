@@ -71,6 +71,31 @@ fn page_headers_store_contiguous_first_frame_indexes() {
 }
 
 #[test]
+fn boundary_frames_and_keys_are_read_directly() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("boundaries.fwob");
+    let mut options = WriterOptions::new("boundaries");
+    options.page_size = 1024;
+    let mut writer = Writer::create(&path, tick_schema(), options).unwrap();
+    for index in 0..300 {
+        writer.append_frame(&tick(index, index as f64, "")).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let mut reader = Reader::open(path).unwrap();
+    assert_eq!(reader.first_key().unwrap(), Some(Key::I32(0)));
+    assert_eq!(reader.last_key().unwrap(), Some(Key::I32(299)));
+    assert_eq!(
+        reader.first_frame().unwrap().unwrap().bytes(),
+        tick(0, 0.0, "")
+    );
+    assert_eq!(
+        reader.last_frame().unwrap().unwrap().bytes(),
+        tick(299, 299.0, "")
+    );
+}
+
+#[test]
 fn writer_defaults_match_cli_parameter_spec() {
     let options = WriterOptions::new("Defaults");
     assert_eq!(options.page_size, fwob_v2::DEFAULT_PAGE_SIZE);
