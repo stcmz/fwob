@@ -7,7 +7,9 @@ use fwob_core::Key;
 use crate::{Codec, Result, V2Error};
 
 pub const PAGE_MAGIC: &[u8; 4] = b"FWP2";
-pub const PAGE_HEADER_LEN: usize = 64;
+pub const PAGE_HEADER_LEN: usize = 80;
+const PAGE_HEADER_VERSION: u8 = 2;
+const KEY_SLOT_LEN: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -59,7 +61,7 @@ impl PageHeader {
     ) -> Self {
         let payload_crc32 = crc32(payload);
         let mut header = Self {
-            header_version: 1,
+            header_version: PAGE_HEADER_VERSION,
             codec,
             encoding,
             flags: 0,
@@ -83,6 +85,9 @@ impl PageHeader {
             return Err(V2Error::InvalidPageHeader(page_index));
         }
         let header_version = reader.read_u8()?;
+        if header_version != PAGE_HEADER_VERSION {
+            return Err(V2Error::InvalidPageHeader(page_index));
+        }
         let codec = Codec::from_id(reader.read_u8()?)?;
         let encoding = Encoding::from_id(reader.read_u8()?)?;
         let flags = reader.read_u8()?;
@@ -185,28 +190,34 @@ fn write_key<W: Write>(writer: &mut W, key: Key) -> std::io::Result<()> {
         Key::U16(_) => 5,
         Key::U32(_) => 6,
         Key::U64(_) => 7,
+        Key::F32(_) => 8,
+        Key::F64(_) => 9,
+        Key::Decimal(_) => 10,
     };
     writer.write_all(&[tag])?;
-    let mut raw = Vec::with_capacity(8);
+    let mut raw = Vec::with_capacity(KEY_SLOT_LEN);
     key.encode(&mut raw);
-    raw.resize(8, 0);
+    raw.resize(KEY_SLOT_LEN, 0);
     writer.write_all(&raw)?;
     Ok(())
 }
 
 fn read_key<R: Read>(reader: &mut R) -> Result<Key> {
     let tag = reader.read_u8()?;
-    let mut raw = [0u8; 8];
+    let mut raw = [0u8; KEY_SLOT_LEN];
     reader.read_exact(&mut raw)?;
     Ok(match tag {
         0 => Key::I8(raw[0] as i8),
         1 => Key::I16(i16::from_le_bytes(raw[..2].try_into().unwrap())),
         2 => Key::I32(i32::from_le_bytes(raw[..4].try_into().unwrap())),
-        3 => Key::I64(i64::from_le_bytes(raw)),
+        3 => Key::I64(i64::from_le_bytes(raw[..8].try_into().unwrap())),
         4 => Key::U8(raw[0]),
         5 => Key::U16(u16::from_le_bytes(raw[..2].try_into().unwrap())),
         6 => Key::U32(u32::from_le_bytes(raw[..4].try_into().unwrap())),
-        7 => Key::U64(u64::from_le_bytes(raw)),
+        7 => Key::U64(u64::from_le_bytes(raw[..8].try_into().unwrap())),
+        8 => Key::F32(f32::from_le_bytes(raw[..4].try_into().unwrap())),
+        9 => Key::F64(f64::from_le_bytes(raw[..8].try_into().unwrap())),
+        10 => Key::decode(fwob_core::KeyType::Decimal, &raw)?,
         _ => return Err(V2Error::InvalidPageHeader(0)),
     })
 }

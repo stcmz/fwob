@@ -13,7 +13,7 @@ The project provides two format versions:
 
 FWOB v2 keeps page addresses arithmetic while allowing each page to contain a
 variable number of fixed-width frames. A page is a fixed-size on-disk container
-with a 64-byte header, compressed payload, and zero padding.
+with an 80-byte header, compressed payload, and zero padding.
 
 ## Workspace
 
@@ -103,6 +103,7 @@ space-padded to exactly `N` bytes and rejected when their encoded byte length
 exceeds the declared width.
 The typed API also re-exports `fwob_core::Decimal` with the legacy 16-byte
 decimal representation.
+Ordered keys may be integers, `f32`, `f64`, or `Decimal`.
 String-table fields may use `StringIndex8`, `StringIndex16`, `StringIndex`
 (32-bit), or `StringIndex64`.
 

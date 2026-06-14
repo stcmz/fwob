@@ -890,6 +890,9 @@ fn toml_key_value(key: Key) -> String {
         Key::U16(value) => value.to_string(),
         Key::U32(value) => value.to_string(),
         Key::U64(value) => value.to_string(),
+        Key::F32(value) => value.to_string(),
+        Key::F64(value) => value.to_string(),
+        Key::Decimal(value) => value.to_string(),
     }
 }
 

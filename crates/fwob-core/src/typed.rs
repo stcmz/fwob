@@ -119,7 +119,7 @@ pub fn decode_decimal(bytes: &[u8]) -> Result<Decimal> {
     ))
 }
 
-pub trait FwobKey: Copy + Ord {
+pub trait FwobKey: Copy {
     fn into_key(self) -> Key;
     fn from_key(key: Key) -> Result<Self>;
 }
@@ -151,6 +151,9 @@ impl_key!(u8, U8);
 impl_key!(u16, U16);
 impl_key!(u32, U32);
 impl_key!(u64, U64);
+impl_key!(f32, F32);
+impl_key!(f64, F64);
+impl_key!(Decimal, Decimal);
 
 pub trait FwobFrame: Sized {
     type Key: FwobKey;

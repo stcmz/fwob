@@ -3,6 +3,8 @@ use std::cmp::Ordering;
 use crate::{
     error::{FwobError, Result},
     schema::{Field, FieldType},
+    typed::{decode_decimal, encode_decimal},
+    Decimal,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +17,9 @@ pub enum KeyType {
     U16,
     U32,
     U64,
+    F32,
+    F64,
+    Decimal,
 }
 
 impl KeyType {
@@ -28,6 +33,9 @@ impl KeyType {
             (FieldType::UnsignedInteger | FieldType::StringTableIndex, 2) => Ok(Self::U16),
             (FieldType::UnsignedInteger | FieldType::StringTableIndex, 4) => Ok(Self::U32),
             (FieldType::UnsignedInteger | FieldType::StringTableIndex, 8) => Ok(Self::U64),
+            (FieldType::FloatingPoint, 4) => Ok(Self::F32),
+            (FieldType::FloatingPoint, 8) => Ok(Self::F64),
+            (FieldType::FloatingPoint, 16) => Ok(Self::Decimal),
             _ => Err(FwobError::UnsupportedKeyType {
                 field_type: field.field_type,
                 length: field.length,
@@ -40,12 +48,14 @@ impl KeyType {
             Self::I8 | Self::U8 => 1,
             Self::I16 | Self::U16 => 2,
             Self::I32 | Self::U32 => 4,
-            Self::I64 | Self::U64 => 8,
+            Self::I64 | Self::U64 | Self::F64 => 8,
+            Self::F32 => 4,
+            Self::Decimal => 16,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Key {
     I8(i8),
     I16(i16),
@@ -55,6 +65,9 @@ pub enum Key {
     U16(u16),
     U32(u32),
     U64(u64),
+    F32(f32),
+    F64(f64),
+    Decimal(Decimal),
 }
 
 impl Key {
@@ -79,6 +92,9 @@ impl Key {
             KeyType::U16 => parsed!(u16, U16),
             KeyType::U32 => parsed!(u32, U32),
             KeyType::U64 => parsed!(u64, U64),
+            KeyType::F32 => parsed!(f32, F32),
+            KeyType::F64 => parsed!(f64, F64),
+            KeyType::Decimal => parsed!(Decimal, Decimal),
         }
     }
 
@@ -99,6 +115,9 @@ impl Key {
             KeyType::U16 => Self::U16(u16::from_le_bytes(bytes.try_into().unwrap())),
             KeyType::U32 => Self::U32(u32::from_le_bytes(bytes.try_into().unwrap())),
             KeyType::U64 => Self::U64(u64::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::F32 => Self::F32(f32::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::F64 => Self::F64(f64::from_le_bytes(bytes.try_into().unwrap())),
+            KeyType::Decimal => Self::Decimal(decode_decimal(bytes)?),
         })
     }
 
@@ -112,9 +131,20 @@ impl Key {
             Self::U16(v) => out.extend_from_slice(&v.to_le_bytes()),
             Self::U32(v) => out.extend_from_slice(&v.to_le_bytes()),
             Self::U64(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::F32(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::F64(v) => out.extend_from_slice(&v.to_le_bytes()),
+            Self::Decimal(v) => encode_decimal(v, out),
         }
     }
 }
+
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for Key {}
 
 impl PartialOrd for Key {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -133,6 +163,9 @@ impl Ord for Key {
             (Self::U16(a), Self::U16(b)) => a.cmp(&b),
             (Self::U32(a), Self::U32(b)) => a.cmp(&b),
             (Self::U64(a), Self::U64(b)) => a.cmp(&b),
+            (Self::F32(a), Self::F32(b)) => a.total_cmp(&b),
+            (Self::F64(a), Self::F64(b)) => a.total_cmp(&b),
+            (Self::Decimal(a), Self::Decimal(b)) => a.cmp(&b),
             _ => self.variant_rank().cmp(&other.variant_rank()),
         }
     }
@@ -149,6 +182,40 @@ impl Key {
             Self::U16(_) => 5,
             Self::U32(_) => 6,
             Self::U64(_) => 7,
+            Self::F32(_) => 8,
+            Self::F64(_) => 9,
+            Self::Decimal(_) => 10,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn floating_keys_use_total_order_and_roundtrip() {
+        let values = [
+            Key::F32(f32::NEG_INFINITY),
+            Key::F32(-0.0),
+            Key::F32(0.0),
+            Key::F32(f32::INFINITY),
+            Key::F32(f32::NAN),
+        ];
+        assert!(values.windows(2).all(|pair| pair[0] < pair[1]));
+        for value in values {
+            let mut bytes = Vec::new();
+            value.encode(&mut bytes);
+            assert_eq!(Key::decode(KeyType::F32, &bytes).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn decimal_keys_roundtrip() {
+        let value = Key::Decimal(Decimal::new(-12_345, 2));
+        let mut bytes = Vec::new();
+        value.encode(&mut bytes);
+        assert_eq!(Key::decode(KeyType::Decimal, &bytes).unwrap(), value);
+        assert_eq!(Key::parse(KeyType::Decimal, "-123.45").unwrap(), value);
     }
 }

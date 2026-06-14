@@ -188,7 +188,7 @@ mod tests {
             vec![field("Key", FieldType::FloatingPoint, 8, 0)],
             0,
         )
-        .is_err());
+        .is_ok());
         assert!(Schema::new(
             "Tick",
             vec![

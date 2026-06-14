@@ -37,12 +37,12 @@ page_offset = file_header_length + page_index * page_size
 ## Page
 
 ```text
-64-byte page header
+80-byte page header
 compressed payload
 zero padding
 ```
 
-The page header stores `first_frame_index`, `frame_count`, `first_key`,
+The 80-byte version 2 page header stores `first_frame_index`, `frame_count`, `first_key`,
 `last_key`, `uncompressed_len`, `compressed_len`, `codec`, `encoding`, flags,
 and CRCs.
 

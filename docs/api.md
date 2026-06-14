@@ -301,9 +301,9 @@ both v1 and v2. Stored fields support all signed and unsigned integer widths,
 `f32`, `f64`, `Decimal`, fixed `[u8; N]` data, `FixedString<N>`, and
 `StringIndex8`, `StringIndex16`, `StringIndex`, and `StringIndex64`.
 `FixedString<N>` stores exactly `N` bytes, uses UTF-8, pads with ASCII spaces,
-and rejects values whose encoded byte length exceeds `N`. Keys are currently
-restricted to integer fields because the common ordered-key representation does
-not define floating-point ordering.
+and rejects values whose encoded byte length exceeds `N`. Ordered keys may be
+integers, `f32`, `f64`, or `Decimal`. Floating keys use Rust's total ordering,
+including distinct `-0.0` and `0.0` positions and deterministic NaN ordering.
 
 `Decimal` is re-exported from `rust_decimal` and stored in the 16-byte
 `lo, mid, hi, flags` representation used by .NET `BinaryWriter`, preserving

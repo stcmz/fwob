@@ -405,6 +405,102 @@ fn narrow_string_indexes_roundtrip_and_resolve_for_v1_and_v2() {
 }
 
 #[test]
+fn floating_keys_query_identically_for_v1_and_v2() {
+    #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
+    struct FloatKey {
+        #[fwob(key)]
+        key: f64,
+        value: i32,
+    }
+
+    let dir = tempdir().unwrap();
+    let frames = [
+        FloatKey {
+            key: -1.5,
+            value: 1,
+        },
+        FloatKey { key: 0.0, value: 2 },
+        FloatKey { key: 0.0, value: 3 },
+        FloatKey {
+            key: 2.25,
+            value: 4,
+        },
+    ];
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("float-key-{version:?}.fwob"));
+        match version {
+            FormatVersion::V1 => {
+                let options = fwob_v1::WriterOptions::new("float-key");
+                let mut writer = TypedWriter::<FloatKey>::create_v1(&path, options, &[]).unwrap();
+                writer.append_all(frames.iter().copied()).unwrap();
+                writer.finish().unwrap();
+            }
+            FormatVersion::V2 => {
+                let options = fwob_v2::WriterOptions::new("float-key");
+                let mut writer = TypedWriter::<FloatKey>::create_v2(&path, options).unwrap();
+                writer.append_all(frames.iter().copied()).unwrap();
+                writer.finish().unwrap();
+            }
+        }
+        let mut reader = TypedReader::<FloatKey>::open(path).unwrap();
+        assert_eq!(reader.equal_range(0.0).unwrap(), 1..3);
+        assert_eq!(reader.first_key().unwrap(), Some(-1.5));
+        assert_eq!(reader.last_key().unwrap(), Some(2.25));
+    }
+}
+
+#[test]
+fn decimal_keys_query_identically_for_v1_and_v2() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, FwobFrame)]
+    struct DecimalKey {
+        #[fwob(key)]
+        key: Decimal,
+        value: i32,
+    }
+
+    let dir = tempdir().unwrap();
+    let frames = [
+        DecimalKey {
+            key: Decimal::new(-125, 2),
+            value: 1,
+        },
+        DecimalKey {
+            key: Decimal::new(100, 2),
+            value: 2,
+        },
+        DecimalKey {
+            key: Decimal::new(100, 2),
+            value: 3,
+        },
+        DecimalKey {
+            key: Decimal::new(250, 2),
+            value: 4,
+        },
+    ];
+    for version in [FormatVersion::V1, FormatVersion::V2] {
+        let path = dir.path().join(format!("decimal-key-{version:?}.fwob"));
+        match version {
+            FormatVersion::V1 => {
+                let options = fwob_v1::WriterOptions::new("decimal-key");
+                let mut writer = TypedWriter::<DecimalKey>::create_v1(&path, options, &[]).unwrap();
+                writer.append_all(frames.iter().copied()).unwrap();
+                writer.finish().unwrap();
+            }
+            FormatVersion::V2 => {
+                let options = fwob_v2::WriterOptions::new("decimal-key");
+                let mut writer = TypedWriter::<DecimalKey>::create_v2(&path, options).unwrap();
+                writer.append_all(frames.iter().copied()).unwrap();
+                writer.finish().unwrap();
+            }
+        }
+        let mut reader = TypedReader::<DecimalKey>::open(path).unwrap();
+        assert_eq!(reader.equal_range(Decimal::new(1, 0)).unwrap(), 1..3);
+        assert_eq!(reader.first_key().unwrap(), Some(Decimal::new(-125, 2)));
+        assert_eq!(reader.last_key().unwrap(), Some(Decimal::new(250, 2)));
+    }
+}
+
+#[test]
 fn string_index_64_roundtrips_and_resolves_for_v1_and_v2() {
     #[derive(Debug, Clone, Copy, PartialEq, FwobFrame)]
     struct StringIndexTick {

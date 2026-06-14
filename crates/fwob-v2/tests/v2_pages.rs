@@ -72,8 +72,8 @@ impl Seek for CountingCursor {
 }
 
 #[test]
-fn page_header_is_64_bytes() {
-    assert_eq!(PAGE_HEADER_LEN, 64);
+fn page_header_is_80_bytes() {
+    assert_eq!(PAGE_HEADER_LEN, 80);
 }
 
 #[test]
