@@ -48,6 +48,11 @@ fn formatter_outputs_match_golden_files() {
         (FrameFormat::Hex, include_str!("golden/format_hex.txt")),
     ];
     for (format, expected) in cases {
-        assert_eq!(render(format), expected, "format {}", format.as_str());
+        assert_eq!(
+            render(format),
+            expected.replace("\r\n", "\n"),
+            "format {}",
+            format.as_str()
+        );
     }
 }
