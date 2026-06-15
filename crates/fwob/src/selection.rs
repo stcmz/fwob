@@ -45,6 +45,7 @@ pub struct FrameSelection {
 
 impl FrameSelection {
     pub fn resolve(reader: &mut Reader, selectors: &[KeySelector]) -> Result<Self> {
+        #[allow(clippy::single_range_in_vec_init)]
         let mut ranges = if selectors.is_empty() {
             vec![0..reader.frame_count()]
         } else {

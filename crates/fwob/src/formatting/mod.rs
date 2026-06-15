@@ -292,7 +292,7 @@ fn group_number(value: &str) -> String {
     let mut grouped = String::with_capacity(value.len() + digits.len() / 3);
     grouped.push_str(sign);
     for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
             grouped.push(',');
         }
         grouped.push(ch);
