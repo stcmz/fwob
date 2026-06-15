@@ -1,0 +1,5 @@
+error: timestamp must be seconds, milliseconds, microseconds, or nanoseconds
+ --> tests/ui/derive/invalid_timestamp.rs:6:10
+  |
+6 |     key: i64,
+  |          ^^^

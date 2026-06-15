@@ -1,0 +1,5 @@
+error: the key field cannot be ignored
+ --> tests/ui/derive/ignored_key.rs:6:5
+  |
+6 |     key: i32,
+  |     ^^^

@@ -1,0 +1,5 @@
+error: one field must use #[fwob(key)]
+ --> tests/ui/derive/missing_key.rs:4:8
+  |
+4 | struct MissingKey {
+  |        ^^^^^^^^^^

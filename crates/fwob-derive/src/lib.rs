@@ -1,9 +1,13 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    parse_macro_input, Data, DeriveInput, Error, Fields, GenericArgument, LitInt, LitStr,
-    PathArguments, Type,
+    parse_macro_input, Data, DeriveInput, Error, Fields, GenericArgument, LitInt, PathArguments,
+    Type,
 };
+
+mod attributes;
+
+use attributes::FieldAttributes;
 
 #[proc_macro_derive(FwobFrame, attributes(fwob))]
 pub fn derive_fwob_frame(input: TokenStream) -> TokenStream {
@@ -34,50 +38,15 @@ fn derive(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
 
     for field in fields.named {
         let ident = field.ident.expect("named field");
-        let mut is_key = false;
-        let mut ignored = false;
-        let mut string_index = false;
-        let mut timestamp = None;
-        for attribute in &field.attrs {
-            if !attribute.path().is_ident("fwob") {
-                continue;
-            }
-            attribute.parse_nested_meta(|meta| {
-                if meta.path.is_ident("key") {
-                    is_key = true;
-                    Ok(())
-                } else if meta.path.is_ident("ignore") {
-                    ignored = true;
-                    Ok(())
-                } else if meta.path.is_ident("string_index") {
-                    string_index = true;
-                    Ok(())
-                } else if meta.path.is_ident("timestamp") {
-                    let value = meta.value()?.parse::<LitStr>()?;
-                    timestamp = Some(value.value());
-                    Ok(())
-                } else {
-                    Err(meta.error("supported attributes: key, ignore, string_index, timestamp"))
-                }
-            })?;
-        }
+        let attributes = FieldAttributes::parse(&field.attrs, &ident)?;
 
-        if ignored {
-            if is_key {
-                return Err(Error::new_spanned(ident, "the key field cannot be ignored"));
-            }
-            if timestamp.is_some() {
-                return Err(Error::new_spanned(
-                    ident,
-                    "an ignored field cannot be a timestamp",
-                ));
-            }
+        if attributes.ignored {
             initializers.push(quote!(#ident: ::core::default::Default::default()));
             continue;
         }
 
-        let info = field_info(&field.ty, string_index)?;
-        let semantic = timestamp_semantic(timestamp.as_deref(), &field.ty)?;
+        let info = field_info(&field.ty, attributes.string_index)?;
+        let semantic = timestamp_semantic(attributes.timestamp.as_deref(), &field.ty)?;
         let field_name = ident.to_string();
         let field_type = &info.field_type;
         let length = info.length;
@@ -98,7 +67,7 @@ fn derive(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         decoders.push(decode);
         initializers.push(quote!(#ident: #local));
 
-        if is_key {
+        if attributes.is_key {
             if key_field.is_some() {
                 return Err(Error::new_spanned(ident, "only one key field is allowed"));
             }

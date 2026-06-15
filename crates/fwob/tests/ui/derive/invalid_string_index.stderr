@@ -1,0 +1,5 @@
+error: #[fwob(string_index)] requires StringIndex8, StringIndex16, StringIndex, or StringIndex64
+ --> tests/ui/derive/invalid_string_index.rs:8:13
+  |
+8 |     symbol: u32,
+  |             ^^^
