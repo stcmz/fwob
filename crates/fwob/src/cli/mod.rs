@@ -1461,6 +1461,9 @@ fn inspect_v1(args: V1FileArgs) -> Result<()> {
         toml_kv_str("type", field_type_name(field.field_type));
         toml_kv_num("length", field.length);
         toml_kv_num("offset", field.offset);
+        if field.semantic != fwob_core::FieldSemantic::None {
+            toml_kv_str("semantic", field_semantic_name(field.semantic));
+        }
     }
     let preview = frame_preview_v1_text(&mut reader)?;
     if !preview.is_empty() {
@@ -1568,6 +1571,9 @@ fn inspect_v2(args: V2FileArgs) -> Result<()> {
         toml_kv_str("type", field_type_name(field.field_type));
         toml_kv_num("length", field.length);
         toml_kv_num("offset", field.offset);
+        if field.semantic != fwob_core::FieldSemantic::None {
+            toml_kv_str("semantic", field_semantic_name(field.semantic));
+        }
     }
     let preview = frame_preview_v2_text(&mut reader)?;
     if !preview.is_empty() {
@@ -1594,6 +1600,24 @@ fn field_type_name(field_type: FieldType) -> &'static str {
         FieldType::FloatingPoint => "floating-point",
         FieldType::Utf8String => "utf8-string",
         FieldType::StringTableIndex => "string-table-index",
+    }
+}
+
+fn field_semantic_name(semantic: fwob_core::FieldSemantic) -> &'static str {
+    match semantic {
+        fwob_core::FieldSemantic::None => "none",
+        fwob_core::FieldSemantic::UnixTimestamp(fwob_core::TimestampUnit::Seconds) => {
+            "unix-seconds"
+        }
+        fwob_core::FieldSemantic::UnixTimestamp(fwob_core::TimestampUnit::Milliseconds) => {
+            "unix-milliseconds"
+        }
+        fwob_core::FieldSemantic::UnixTimestamp(fwob_core::TimestampUnit::Microseconds) => {
+            "unix-microseconds"
+        }
+        fwob_core::FieldSemantic::UnixTimestamp(fwob_core::TimestampUnit::Nanoseconds) => {
+            "unix-nanoseconds"
+        }
     }
 }
 

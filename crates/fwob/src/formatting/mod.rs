@@ -1,6 +1,6 @@
 use std::{fmt::Write as _, io::Write};
 
-use fwob_core::{decode_decimal, Field, FieldType, Schema};
+use fwob_core::{decode_decimal, Field, FieldSemantic, FieldType, Schema, TimestampUnit};
 
 use crate::{Error, Result};
 
@@ -191,12 +191,24 @@ impl<'a> FrameFormatter<'a> {
                 writeln!(output, "{}", rendered.join(" "))?;
             }
             FrameFormat::Table => {
-                let rendered = values.iter().map(render_grouped).collect::<Vec<_>>();
+                let rendered = self
+                    .schema
+                    .fields
+                    .iter()
+                    .zip(&values)
+                    .map(|(field, value)| render_display(field, value))
+                    .collect::<Vec<_>>();
                 let borrowed = rendered.iter().map(String::as_str).collect::<Vec<_>>();
                 write_padded_row(output, &borrowed, &self.widths, true)?;
             }
             FrameFormat::Markdown => {
-                let rendered = values.iter().map(render_grouped).collect::<Vec<_>>();
+                let rendered = self
+                    .schema
+                    .fields
+                    .iter()
+                    .zip(&values)
+                    .map(|(field, value)| render_display(field, value))
+                    .collect::<Vec<_>>();
                 let borrowed = rendered.iter().map(String::as_str).collect::<Vec<_>>();
                 write_markdown_row(output, &borrowed)?;
             }
@@ -256,6 +268,20 @@ fn render_grouped(value: &FieldValue) -> String {
     }
 }
 
+fn render_display(field: &Field, value: &FieldValue) -> String {
+    if let FieldSemantic::UnixTimestamp(unit) = field.semantic {
+        let numeric = match value {
+            FieldValue::Signed(value) => Some(i128::from(*value)),
+            FieldValue::Unsigned(value) => Some(i128::from(*value)),
+            _ => None,
+        };
+        if let Some(value) = numeric.and_then(|value| format_unix_timestamp(value, unit)) {
+            return value;
+        }
+    }
+    render_grouped(value)
+}
+
 fn group_number(value: &str) -> String {
     let exponent = value.find(['e', 'E']).unwrap_or(value.len());
     let decimal = value[..exponent].find('.').unwrap_or(exponent);
@@ -276,6 +302,9 @@ fn group_number(value: &str) -> String {
 }
 
 fn field_width(field: &Field, string_table: &[String]) -> usize {
+    if !matches!(field.semantic, FieldSemantic::None) {
+        return 30.max(field.name.chars().count());
+    }
     let value_width = match field.field_type {
         FieldType::SignedInteger => match field.length {
             1 => 4,
@@ -305,6 +334,52 @@ fn field_width(field: &Field, string_table: &[String]) -> usize {
             .unwrap_or(1),
     };
     value_width.max(field.name.chars().count())
+}
+
+fn format_unix_timestamp(value: i128, unit: TimestampUnit) -> Option<String> {
+    let divisor = match unit {
+        TimestampUnit::Seconds => 1i128,
+        TimestampUnit::Milliseconds => 1_000,
+        TimestampUnit::Microseconds => 1_000_000,
+        TimestampUnit::Nanoseconds => 1_000_000_000,
+    };
+    let seconds = value.div_euclid(divisor);
+    let remainder = value.rem_euclid(divisor);
+    let days = seconds.div_euclid(86_400);
+    let seconds_of_day = seconds.rem_euclid(86_400);
+    let days = i64::try_from(days).ok()?;
+    let (year, month, day) = civil_from_days(days)?;
+    let hour = seconds_of_day / 3_600;
+    let minute = seconds_of_day % 3_600 / 60;
+    let second = seconds_of_day % 60;
+    let fraction = match unit {
+        TimestampUnit::Seconds => String::new(),
+        TimestampUnit::Milliseconds => format!(".{remainder:03}"),
+        TimestampUnit::Microseconds => format!(".{remainder:06}"),
+        TimestampUnit::Nanoseconds => format!(".{remainder:09}"),
+    };
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}{fraction}Z"
+    ))
+}
+
+fn civil_from_days(days: i64) -> Option<(i64, i64, i64)> {
+    let shifted = days.checked_add(719_468)?;
+    let era = if shifted >= 0 {
+        shifted
+    } else {
+        shifted - 146_096
+    } / 146_097;
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    Some((year, month, day))
 }
 
 fn write_padded_row(
@@ -460,5 +535,28 @@ mod tests {
             render(FrameFormat::Markdown),
             "| key | price | symbol | name |\n| --- | --- | --- | --- |\n| 1,234 | 5,678,900 | AAPL | AB |\n"
         );
+    }
+
+    #[test]
+    fn timestamp_semantics_are_human_readable_only_in_display_formats() {
+        let schema = Schema::new(
+            "Event",
+            vec![Field::new("time", FieldType::SignedInteger, 8, 0)
+                .with_semantic(FieldSemantic::UnixTimestamp(TimestampUnit::Milliseconds))],
+            0,
+        )
+        .unwrap();
+        let frame = 1_522_742_400_125i64.to_le_bytes();
+        let mut table = FrameFormatter::new(&schema, &[], FrameFormat::Table);
+        let mut table_output = Vec::new();
+        table.write_frame(&mut table_output, &frame).unwrap();
+        assert!(String::from_utf8(table_output)
+            .unwrap()
+            .contains("2018-04-03T08:00:00.125Z"));
+
+        let mut raw = FrameFormatter::new(&schema, &[], FrameFormat::Raw);
+        let mut raw_output = Vec::new();
+        raw.write_frame(&mut raw_output, &frame).unwrap();
+        assert_eq!(String::from_utf8(raw_output).unwrap(), "1522742400125\n");
     }
 }

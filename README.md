@@ -106,6 +106,9 @@ decimal representation.
 Ordered keys may be integers, `f32`, `f64`, or `Decimal`.
 String-table fields may use `StringIndex8`, `StringIndex16`, `StringIndex`
 (32-bit), or `StringIndex64`.
+On v2, integer fields may declare Unix epoch semantics with
+`#[fwob(timestamp = "seconds")]` or the millisecond, microsecond, and
+nanosecond variants. Table and Markdown output render those fields as UTC.
 
 ## Command Examples
 

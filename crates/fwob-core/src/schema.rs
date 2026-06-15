@@ -24,12 +24,52 @@ impl FieldType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimestampUnit {
+    Seconds,
+    Milliseconds,
+    Microseconds,
+    Nanoseconds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldSemantic {
+    None,
+    UnixTimestamp(TimestampUnit),
+}
+
+impl FieldSemantic {
+    pub fn id(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::UnixTimestamp(TimestampUnit::Seconds) => 1,
+            Self::UnixTimestamp(TimestampUnit::Milliseconds) => 2,
+            Self::UnixTimestamp(TimestampUnit::Microseconds) => 3,
+            Self::UnixTimestamp(TimestampUnit::Nanoseconds) => 4,
+        }
+    }
+
+    pub fn from_id(id: u8) -> Result<Self> {
+        match id {
+            0 => Ok(Self::None),
+            1 => Ok(Self::UnixTimestamp(TimestampUnit::Seconds)),
+            2 => Ok(Self::UnixTimestamp(TimestampUnit::Milliseconds)),
+            3 => Ok(Self::UnixTimestamp(TimestampUnit::Microseconds)),
+            4 => Ok(Self::UnixTimestamp(TimestampUnit::Nanoseconds)),
+            _ => Err(FwobError::InvalidSchema(format!(
+                "unsupported field semantic id {id}"
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
     pub name: String,
     pub field_type: FieldType,
     pub length: u16,
     pub offset: u32,
+    pub semantic: FieldSemantic,
 }
 
 impl Field {
@@ -39,7 +79,13 @@ impl Field {
             field_type,
             length,
             offset,
+            semantic: FieldSemantic::None,
         }
+    }
+
+    pub fn with_semantic(mut self, semantic: FieldSemantic) -> Self {
+        self.semantic = semantic;
+        self
     }
 }
 
@@ -89,6 +135,17 @@ impl Schema {
                 )));
             }
             validate_field_length(field)?;
+            if !matches!(field.semantic, FieldSemantic::None)
+                && !matches!(
+                    field.field_type,
+                    FieldType::SignedInteger | FieldType::UnsignedInteger
+                )
+            {
+                return Err(FwobError::InvalidSchema(format!(
+                    "field '{}' uses timestamp semantics but is not an integer",
+                    field.name
+                )));
+            }
             if field.offset != expected_offset {
                 return Err(FwobError::InvalidSchema(format!(
                     "field '{}' has offset {}, expected {}",

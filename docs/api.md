@@ -212,7 +212,7 @@ use fwob_core::FwobFrame;
 
 #[derive(Debug, FwobFrame)]
 struct Tick {
-    #[fwob(key)]
+    #[fwob(key, timestamp = "milliseconds")]
     time: i64,
     price: u32,
     size: i32,
@@ -316,6 +316,12 @@ protocol's 64-bit index representation. Readers expose `string_at_u64` and
 
 Ignored fields are not stored and are initialized with `Default::default()`
 when a frame is decoded. Exactly one stored field must have `#[fwob(key)]`.
+
+V2 schemas persist Unix timestamp semantics for integer fields. The accepted
+derive values are `seconds`, `milliseconds`, `microseconds`, and `nanoseconds`.
+V1 has no semantic metadata slot and rejects schemas containing this attribute.
+Raw, CSV, and JSON Lines output preserve the integer; table and Markdown output
+render UTC date-times.
 
 ### Typed API Complexity
 

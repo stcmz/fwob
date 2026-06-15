@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use fwob::Reader;
-use fwob_core::{Field, FieldType, Schema};
+use fwob_core::{Field, FieldSemantic, FieldType, Schema, TimestampUnit};
 use fwob_v1::{Reader as V1Reader, Writer as V1Writer, WriterOptions};
 use tempfile::tempdir;
 
@@ -244,6 +244,40 @@ fn cli_dumps_all_or_mixed_key_selections_in_reusable_formats() {
     let jsonl = String::from_utf8(jsonl.stdout).unwrap();
     assert_eq!(jsonl.lines().count(), 2);
     assert!(jsonl.lines().all(|line| line.starts_with('{')));
+}
+
+#[test]
+fn cli_inspect_and_dump_use_v2_timestamp_semantics() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("timestamp.fwob");
+    let schema = Schema::new(
+        "Event",
+        vec![
+            Field::new("Time", FieldType::SignedInteger, 8, 0)
+                .with_semantic(FieldSemantic::UnixTimestamp(TimestampUnit::Milliseconds)),
+            Field::new("Value", FieldType::SignedInteger, 4, 8),
+        ],
+        0,
+    )
+    .unwrap();
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&1_522_742_400_125i64.to_le_bytes());
+    frame.extend_from_slice(&7i32.to_le_bytes());
+    let mut writer =
+        fwob_v2::Writer::create(&path, schema, fwob_v2::WriterOptions::new("event")).unwrap();
+    writer.append_frame(&frame).unwrap();
+    writer.finish().unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let inspect = command_output(Command::new(exe).args(["inspect", path.to_str().unwrap()]));
+    assert!(String::from_utf8(inspect.stdout)
+        .unwrap()
+        .contains("semantic = \"unix-milliseconds\""));
+
+    let table = command_output(Command::new(exe).args(["dump", path.to_str().unwrap(), "table"]));
+    assert!(String::from_utf8(table.stdout)
+        .unwrap()
+        .contains("2018-04-03T08:00:00.125Z"));
 }
 
 #[test]

@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use fwob_core::{FrameRef, Key, KeyType, Schema};
+use fwob_core::{FieldSemantic, FrameRef, Key, KeyType, Schema};
 
 use crate::{
     header::{
@@ -40,6 +40,7 @@ pub struct Writer<W> {
 
 impl Writer<File> {
     pub fn create(path: impl AsRef<Path>, schema: Schema, options: WriterOptions) -> Result<Self> {
+        validate_v1_metadata(&schema, &options)?;
         let file = File::create(path)?;
         Self::new(file, schema, options)
     }
@@ -253,7 +254,9 @@ fn validate_v1_metadata(schema: &Schema, options: &WriterOptions) -> Result<()> 
         || !valid_ascii(&schema.frame_type, MAX_FRAME_TYPE_LEN)
         || !valid_ascii(&options.title, MAX_TITLE_LEN)
         || schema.fields.iter().any(|field| {
-            !valid_ascii(&field.name, MAX_FIELD_NAME_LEN) || field.length > u8::MAX as u16
+            !valid_ascii(&field.name, MAX_FIELD_NAME_LEN)
+                || field.length > u8::MAX as u16
+                || field.semantic != FieldSemantic::None
         })
         || options.string_table_preserved_length > i32::MAX as u32
         || schema.frame_len > i32::MAX as u32

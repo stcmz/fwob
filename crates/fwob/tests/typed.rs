@@ -2,8 +2,8 @@ use std::path::Path;
 
 use fwob::{FormatVersion, OperationOptions, TypedEditor, TypedReader, TypedWriter};
 use fwob_core::{
-    Decimal, FieldType, FixedString, FwobFrame, StringIndex, StringIndex16, StringIndex64,
-    StringIndex8,
+    Decimal, FieldSemantic, FieldType, FixedString, FwobFrame, StringIndex, StringIndex16,
+    StringIndex64, StringIndex8, TimestampUnit,
 };
 use tempfile::tempdir;
 
@@ -498,6 +498,45 @@ fn decimal_keys_query_identically_for_v1_and_v2() {
         assert_eq!(reader.first_key().unwrap(), Some(Decimal::new(-125, 2)));
         assert_eq!(reader.last_key().unwrap(), Some(Decimal::new(250, 2)));
     }
+}
+
+#[test]
+fn timestamp_semantics_persist_in_v2_and_are_rejected_by_v1() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, FwobFrame)]
+    struct Event {
+        #[fwob(key, timestamp = "milliseconds")]
+        time: i64,
+        value: i32,
+    }
+
+    assert_eq!(
+        Event::schema().fields[0].semantic,
+        FieldSemantic::UnixTimestamp(TimestampUnit::Milliseconds)
+    );
+    let dir = tempdir().unwrap();
+    let v1_path = dir.path().join("event-v1.fwob");
+    let v1_result =
+        TypedWriter::<Event>::create_v1(&v1_path, fwob_v1::WriterOptions::new("event"), &[]);
+    assert!(v1_result.is_err());
+    assert!(!v1_path.exists());
+
+    let v2_path = dir.path().join("event-v2.fwob");
+    let expected = Event {
+        time: 1_522_742_400_125,
+        value: 7,
+    };
+    let mut writer =
+        TypedWriter::<Event>::create_v2(&v2_path, fwob_v2::WriterOptions::new("event")).unwrap();
+    writer.append(&expected).unwrap();
+    writer.finish().unwrap();
+
+    let untyped = fwob::Reader::open(&v2_path).unwrap();
+    assert_eq!(
+        untyped.schema().fields[0].semantic,
+        Event::schema().fields[0].semantic
+    );
+    let mut reader = TypedReader::<Event>::open(v2_path).unwrap();
+    assert_eq!(reader.read_frame(0).unwrap(), Some(expected));
 }
 
 #[test]

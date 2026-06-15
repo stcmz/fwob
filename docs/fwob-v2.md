@@ -10,6 +10,10 @@ FWOB v2 is a fixed-page compressed format optimized for:
 
 ## Layout
 
+File-header version 3 stores one semantic byte per field. Semantic id 0 means
+none; ids 1 through 4 identify Unix seconds, milliseconds, microseconds, and
+nanoseconds.
+
 ```text
 File header
 Page 0

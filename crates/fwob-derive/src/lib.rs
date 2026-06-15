@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    parse_macro_input, Data, DeriveInput, Error, Fields, GenericArgument, LitInt, PathArguments,
-    Type,
+    parse_macro_input, Data, DeriveInput, Error, Fields, GenericArgument, LitInt, LitStr,
+    PathArguments, Type,
 };
 
 #[proc_macro_derive(FwobFrame, attributes(fwob))]
@@ -37,6 +37,7 @@ fn derive(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let mut is_key = false;
         let mut ignored = false;
         let mut string_index = false;
+        let mut timestamp = None;
         for attribute in &field.attrs {
             if !attribute.path().is_ident("fwob") {
                 continue;
@@ -51,8 +52,12 @@ fn derive(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 } else if meta.path.is_ident("string_index") {
                     string_index = true;
                     Ok(())
+                } else if meta.path.is_ident("timestamp") {
+                    let value = meta.value()?.parse::<LitStr>()?;
+                    timestamp = Some(value.value());
+                    Ok(())
                 } else {
-                    Err(meta.error("supported attributes: key, ignore, string_index"))
+                    Err(meta.error("supported attributes: key, ignore, string_index, timestamp"))
                 }
             })?;
         }
@@ -61,11 +66,18 @@ fn derive(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             if is_key {
                 return Err(Error::new_spanned(ident, "the key field cannot be ignored"));
             }
+            if timestamp.is_some() {
+                return Err(Error::new_spanned(
+                    ident,
+                    "an ignored field cannot be a timestamp",
+                ));
+            }
             initializers.push(quote!(#ident: ::core::default::Default::default()));
             continue;
         }
 
         let info = field_info(&field.ty, string_index)?;
+        let semantic = timestamp_semantic(timestamp.as_deref(), &field.ty)?;
         let field_name = ident.to_string();
         let field_type = &info.field_type;
         let length = info.length;
@@ -80,7 +92,7 @@ fn derive(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 #field_type,
                 #length,
                 __fwob_offset,
-            )
+            ).with_semantic(#semantic)
         });
         encoders.push(encode);
         decoders.push(decode);
@@ -405,4 +417,38 @@ fn parse_length(length: &LitInt) -> syn::Result<u16> {
     } else {
         Ok(value)
     }
+}
+
+fn timestamp_semantic(timestamp: Option<&str>, ty: &Type) -> syn::Result<proc_macro2::TokenStream> {
+    let Some(timestamp) = timestamp else {
+        return Ok(quote!(::fwob_core::FieldSemantic::None));
+    };
+    if !matches!(
+        type_name(ty).as_deref(),
+        Some("i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64")
+    ) {
+        return Err(Error::new_spanned(
+            ty,
+            "timestamp semantics require an integer field",
+        ));
+    }
+    let unit = match timestamp {
+        "seconds" | "unix-seconds" => quote!(::fwob_core::TimestampUnit::Seconds),
+        "milliseconds" | "unix-milliseconds" => {
+            quote!(::fwob_core::TimestampUnit::Milliseconds)
+        }
+        "microseconds" | "unix-microseconds" => {
+            quote!(::fwob_core::TimestampUnit::Microseconds)
+        }
+        "nanoseconds" | "unix-nanoseconds" => {
+            quote!(::fwob_core::TimestampUnit::Nanoseconds)
+        }
+        _ => {
+            return Err(Error::new_spanned(
+                ty,
+                "timestamp must be seconds, milliseconds, microseconds, or nanoseconds",
+            ))
+        }
+    };
+    Ok(quote!(::fwob_core::FieldSemantic::UnixTimestamp(#unit)))
 }

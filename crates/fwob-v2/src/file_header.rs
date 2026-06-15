@@ -1,12 +1,12 @@
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use fwob_core::{Field, FieldType, Schema};
+use fwob_core::{Field, FieldSemantic, FieldType, Schema};
 
 use crate::{Result, V2Error};
 
 pub const MAGIC: &[u8; 4] = b"FWB2";
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 pub const FILE_HEADER_LEN: u64 = 4096;
 pub const MIN_PAGE_SIZE: u32 = 1024;
 pub const MAX_PAGE_SIZE: u32 = 16 * 1024 * 1024;
@@ -65,7 +65,8 @@ pub fn read_file_header<R: Read + Seek>(reader: &mut R) -> Result<FileHeader> {
         let name = read_len_string(reader)?;
         let field_type = FieldType::from_v1_id(reader.read_u8()?)?;
         let length = reader.read_u16::<LittleEndian>()?;
-        fields.push(Field::new(name, field_type, length, offset));
+        let semantic = FieldSemantic::from_id(reader.read_u8()?)?;
+        fields.push(Field::new(name, field_type, length, offset).with_semantic(semantic));
         offset += u32::from(length);
     }
     let string_count = reader.read_u32::<LittleEndian>()?;
@@ -109,6 +110,7 @@ pub fn write_file_header<W: Write + Seek>(writer: &mut W, header: &FileHeader) -
         write_len_string(&mut bytes, &field.name)?;
         bytes.push(field.field_type as u8);
         bytes.extend_from_slice(&field.length.to_le_bytes());
+        bytes.push(field.semantic.id());
     }
     bytes.extend_from_slice(&(header.string_table.len() as u32).to_le_bytes());
     for value in &header.string_table {
