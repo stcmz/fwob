@@ -16,9 +16,9 @@ mod writer;
 pub use editor::{DeletionPacking, Editor};
 pub use maintenance::Maintenance;
 pub use organization::Organizer;
-pub use reader::Reader;
+pub use reader::{FrameIter, MultiRangeFrameIter, Reader};
 pub use selection::{FrameSelection, KeySelector};
-pub use typed::{TypedEditor, TypedReader, TypedWriter};
+pub use typed::{TypedEditor, TypedFrameIter, TypedMultiRangeFrameIter, TypedReader, TypedWriter};
 pub use writer::{MutationOptions, OperationOptions, Writer, WriterOpenOptions};
 
 pub type Result<T> = std::result::Result<T, Error>;

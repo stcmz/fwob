@@ -77,7 +77,8 @@ for frame in reader.frames_by_keys(&[
 # Ok::<(), fwob::Error>(())
 ```
 
-`frames` and `frames_by_key` are lazy iterators. V1 reads by direct offset; v2
+`frames`, `frames_by_key`, and multi-key streams return named, exact-size lazy
+iterators without allocation or dynamic dispatch. V1 reads by direct offset; v2
 retains one decoded internal storage unit as a reusable cache.
 `frames_by_keys` accepts sorted keys, skips missing keys, and returns duplicate
 query keys only once.

@@ -6,7 +6,49 @@ use std::{
 
 use fwob_core::{FwobFrame, FwobKey, OwnedFrame};
 
-use crate::{Editor, OperationOptions, Reader, Result, Writer};
+use crate::{Editor, FrameIter, MultiRangeFrameIter, OperationOptions, Reader, Result, Writer};
+
+pub struct TypedFrameIter<'a, F> {
+    inner: FrameIter<'a>,
+    frame: PhantomData<F>,
+}
+
+impl<F: FwobFrame> Iterator for TypedFrameIter<'_, F> {
+    type Item = Result<F>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|frame| frame.and_then(decode_frame::<F>))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<F: FwobFrame> ExactSizeIterator for TypedFrameIter<'_, F> {}
+
+pub struct TypedMultiRangeFrameIter<'a, F> {
+    inner: MultiRangeFrameIter<'a>,
+    frame: PhantomData<F>,
+}
+
+impl<F: FwobFrame> Iterator for TypedMultiRangeFrameIter<'_, F> {
+    type Item = Result<F>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|frame| frame.and_then(decode_frame::<F>))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<F: FwobFrame> ExactSizeIterator for TypedMultiRangeFrameIter<'_, F> {}
 
 pub struct TypedReader<F> {
     inner: Reader,
@@ -101,65 +143,48 @@ impl<F: FwobFrame> TypedReader<F> {
         self.inner.equal_range(key.into_key())
     }
 
-    pub fn frames(
-        &mut self,
-        range: Range<u64>,
-    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames(range)?
-                .map(|frame| frame.and_then(decode_frame::<F>)),
-        ))
+    pub fn frames(&mut self, range: Range<u64>) -> Result<TypedFrameIter<'_, F>> {
+        Ok(TypedFrameIter {
+            inner: self.inner.frames(range)?,
+            frame: PhantomData,
+        })
     }
 
     pub fn frames_by_key(
         &mut self,
         range: RangeInclusive<F::Key>,
-    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
+    ) -> Result<TypedFrameIter<'_, F>> {
         let raw_range = range.start().into_key()..=range.end().into_key();
-        Ok(Box::new(
-            self.inner
-                .frames_by_key(raw_range)?
-                .map(|frame| frame.and_then(decode_frame::<F>)),
-        ))
+        Ok(TypedFrameIter {
+            inner: self.inner.frames_by_key(raw_range)?,
+            frame: PhantomData,
+        })
     }
 
-    pub fn frames_before(
-        &mut self,
-        last_key: F::Key,
-    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames_before(last_key.into_key())?
-                .map(|frame| frame.and_then(decode_frame::<F>)),
-        ))
+    pub fn frames_before(&mut self, last_key: F::Key) -> Result<TypedFrameIter<'_, F>> {
+        Ok(TypedFrameIter {
+            inner: self.inner.frames_before(last_key.into_key())?,
+            frame: PhantomData,
+        })
     }
 
-    pub fn frames_after(
-        &mut self,
-        first_key: F::Key,
-    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames_after(first_key.into_key())?
-                .map(|frame| frame.and_then(decode_frame::<F>)),
-        ))
+    pub fn frames_after(&mut self, first_key: F::Key) -> Result<TypedFrameIter<'_, F>> {
+        Ok(TypedFrameIter {
+            inner: self.inner.frames_after(first_key.into_key())?,
+            frame: PhantomData,
+        })
     }
 
-    pub fn frames_by_keys(
-        &mut self,
-        keys: &[F::Key],
-    ) -> Result<Box<dyn Iterator<Item = Result<F>> + '_>> {
+    pub fn frames_by_keys(&mut self, keys: &[F::Key]) -> Result<TypedMultiRangeFrameIter<'_, F>> {
         let raw_keys = keys
             .iter()
             .copied()
             .map(FwobKey::into_key)
             .collect::<Vec<_>>();
-        Ok(Box::new(
-            self.inner
-                .frames_by_keys(&raw_keys)?
-                .map(|frame| frame.and_then(decode_frame::<F>)),
-        ))
+        Ok(TypedMultiRangeFrameIter {
+            inner: self.inner.frames_by_keys(&raw_keys)?,
+            frame: PhantomData,
+        })
     }
 
     pub fn into_inner(self) -> Reader {

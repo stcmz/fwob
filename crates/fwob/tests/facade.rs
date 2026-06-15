@@ -12,6 +12,10 @@ use fwob::{
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
 
+fn assert_exact_size_iterator<I: ExactSizeIterator>(iterator: &I, expected: usize) {
+    assert_eq!(iterator.len(), expected);
+}
+
 fn schema() -> Schema {
     Schema::new(
         "Tick",
@@ -221,9 +225,9 @@ fn assert_query_contract(path: &Path, expected_version: FormatVersion) {
     assert_eq!(reader.equal_range(Key::I32(2)).unwrap(), 40..180);
     assert_eq!(reader.equal_range(Key::I32(4)).unwrap(), 260..260);
 
-    let keys = reader
-        .frames(38..42)
-        .unwrap()
+    let stream = reader.frames(38..42).unwrap();
+    assert_exact_size_iterator(&stream, 4);
+    let keys = stream
         .map(|frame| frame_key(&frame.unwrap()))
         .collect::<Vec<_>>();
     assert_eq!(keys, [1, 1, 2, 2]);
@@ -942,7 +946,7 @@ fn ordered_multi_key_query_and_deletion_are_identical_for_v1_and_v2() {
         create_query_file(&path, version);
 
         let mut reader = Reader::open(&path).unwrap();
-        let frames = reader
+        let stream = reader
             .frames_by_keys(&[
                 Key::I32(1),
                 Key::I32(2),
@@ -950,9 +954,9 @@ fn ordered_multi_key_query_and_deletion_are_identical_for_v1_and_v2() {
                 Key::I32(4),
                 Key::I32(5),
             ])
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
             .unwrap();
+        assert_exact_size_iterator(&stream, 220);
+        let frames = stream.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(frames.len(), 220);
         assert_eq!(
             frames.iter().map(frame_key).collect::<Vec<_>>(),

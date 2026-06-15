@@ -11,6 +11,42 @@ pub struct Reader {
     inner: fwob_core::Reader,
 }
 
+pub struct FrameIter<'a> {
+    inner: fwob_core::FrameIter<'a>,
+}
+
+impl Iterator for FrameIter<'_> {
+    type Item = Result<OwnedFrame>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|frame| frame.map_err(Into::into))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl ExactSizeIterator for FrameIter<'_> {}
+
+pub struct MultiRangeFrameIter<'a> {
+    inner: fwob_core::MultiRangeFrameIter<'a>,
+}
+
+impl Iterator for MultiRangeFrameIter<'_> {
+    type Item = Result<OwnedFrame>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|frame| frame.map_err(Into::into))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl ExactSizeIterator for MultiRangeFrameIter<'_> {}
+
 impl Reader {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::open_with_options(path, ReaderOptions::default())
@@ -101,59 +137,34 @@ impl Reader {
         Ok(self.inner.equal_range(key)?)
     }
 
-    pub fn frames(
-        &mut self,
-        range: Range<u64>,
-    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames(range)?
-                .map(|frame| frame.map_err(Into::into)),
-        ))
+    pub fn frames(&mut self, range: Range<u64>) -> Result<FrameIter<'_>> {
+        Ok(FrameIter {
+            inner: self.inner.frames(range)?,
+        })
     }
 
-    pub fn frames_by_key(
-        &mut self,
-        range: RangeInclusive<Key>,
-    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames_by_key(range)?
-                .map(|frame| frame.map_err(Into::into)),
-        ))
+    pub fn frames_by_key(&mut self, range: RangeInclusive<Key>) -> Result<FrameIter<'_>> {
+        Ok(FrameIter {
+            inner: self.inner.frames_by_key(range)?,
+        })
     }
 
-    pub fn frames_before(
-        &mut self,
-        last_key: Key,
-    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames_before(last_key)?
-                .map(|frame| frame.map_err(Into::into)),
-        ))
+    pub fn frames_before(&mut self, last_key: Key) -> Result<FrameIter<'_>> {
+        Ok(FrameIter {
+            inner: self.inner.frames_before(last_key)?,
+        })
     }
 
-    pub fn frames_after(
-        &mut self,
-        first_key: Key,
-    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames_after(first_key)?
-                .map(|frame| frame.map_err(Into::into)),
-        ))
+    pub fn frames_after(&mut self, first_key: Key) -> Result<FrameIter<'_>> {
+        Ok(FrameIter {
+            inner: self.inner.frames_after(first_key)?,
+        })
     }
 
-    pub fn frames_by_keys(
-        &mut self,
-        keys: &[Key],
-    ) -> Result<Box<dyn Iterator<Item = Result<OwnedFrame>> + '_>> {
-        Ok(Box::new(
-            self.inner
-                .frames_by_keys(keys)?
-                .map(|frame| frame.map_err(Into::into)),
-        ))
+    pub fn frames_by_keys(&mut self, keys: &[Key]) -> Result<MultiRangeFrameIter<'_>> {
+        Ok(MultiRangeFrameIter {
+            inner: self.inner.frames_by_keys(keys)?,
+        })
     }
 
     pub fn read_all_frames(&mut self) -> Result<Vec<OwnedFrame>> {

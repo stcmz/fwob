@@ -346,7 +346,27 @@ impl Iterator for MultiRangeFrameIter<'_> {
             });
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self
+            .ranges
+            .iter()
+            .enumerate()
+            .skip(self.range_index)
+            .map(|(index, range)| {
+                if index == self.range_index {
+                    range.end.saturating_sub(self.next.max(range.start))
+                } else {
+                    range.end - range.start
+                }
+            })
+            .sum::<u64>()
+            .min(usize::MAX as u64) as usize;
+        (remaining, Some(remaining))
+    }
 }
+
+impl ExactSizeIterator for MultiRangeFrameIter<'_> {}
 
 /// Format-specific implementation behind [`Writer`].
 pub trait WriterBackend: FileInfo + Send {
