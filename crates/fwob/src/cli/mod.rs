@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{IsTerminal, Read},
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -8,6 +8,11 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use fwob_core::{Field, FieldType, Key, Schema};
 use fwob_v2::{Codec, CodecSelection, Encoding, EncodingSelection, PagePacking};
+
+mod output;
+mod query;
+
+use output::*;
 
 #[derive(Debug, Parser)]
 #[command(name = "fwob")]
@@ -533,116 +538,10 @@ pub fn run() -> Result<()> {
         Command::Split(args) => split_file(args),
         Command::Concat(args) => concat_file(args),
         Command::Edit(args) => edit_file(args),
-        Command::Find(args) => find_frames(args),
-        Command::Dump(args) => dump_frames(args),
+        Command::Find(args) => query::find_frames(args),
+        Command::Dump(args) => query::dump_frames(args),
         Command::Delete(args) => delete_frames(args),
     }
-}
-
-fn dump_frames(args: DumpArgs) -> Result<()> {
-    let mut format = None;
-    let mut selector_values = Vec::new();
-    for value in &args.target {
-        if let Some(parsed) = fwob::formatting::FrameFormat::parse(value) {
-            if format.replace(parsed).is_some() {
-                bail!("dump accepts at most one output format token");
-            }
-        } else {
-            selector_values.push(value);
-        }
-    }
-
-    let reader_options = fwob::ReaderOptions {
-        v1_key_field_index: args.key_field_index,
-    };
-    let mut reader = fwob::Reader::open_with_options(&args.path, reader_options)?;
-    let schema = reader.schema().clone();
-    let string_table = reader.string_table().to_vec();
-    let key_type = fwob_core::KeyType::from_field(schema.key_field())?;
-    let selectors = selector_values
-        .into_iter()
-        .map(|value| fwob::KeySelector::parse(value, key_type))
-        .collect::<fwob::Result<Vec<_>>>()?;
-    let selection = fwob::FrameSelection::resolve(&mut reader, &selectors)?;
-    let mut formatter = fwob::formatting::FrameFormatter::new(
-        &schema,
-        &string_table,
-        format.unwrap_or(fwob::formatting::FrameFormat::Raw),
-    );
-    let stdout = std::io::stdout();
-    let mut output = stdout.lock();
-    formatter.write_header(&mut output)?;
-    for range in selection.ranges() {
-        for frame in reader.frames(range.clone())? {
-            formatter.write_frame(&mut output, frame?.bytes())?;
-        }
-    }
-    Ok(())
-}
-
-fn find_frames(args: FindArgs) -> Result<()> {
-    let reader_options = fwob::ReaderOptions {
-        v1_key_field_index: args.key_field_index,
-    };
-    let mut reader = fwob::Reader::open_with_options(&args.path, reader_options)?;
-    let schema = reader.schema().clone();
-    let key_type = fwob_core::KeyType::from_field(schema.key_field())?;
-    let selectors = args
-        .selectors
-        .iter()
-        .map(|value| fwob::KeySelector::parse(value, key_type))
-        .collect::<fwob::Result<Vec<_>>>()?;
-    let selection = fwob::FrameSelection::resolve(&mut reader, &selectors)?;
-    let rows = selection_preview_rows(&mut reader, &selection)?;
-
-    toml_section("find");
-    toml_kv_str("path", &args.path.display().to_string());
-    toml_kv_num("selector_count", selectors.len());
-    toml_kv_num("range_count", selection.ranges().len());
-    if let Some(start) = selection.first_index() {
-        toml_kv_num("start_index", start);
-        toml_kv_num("end_index", selection.end_index().unwrap());
-    }
-    toml_kv_num("frame_count", selection.frame_count());
-    if !rows.is_empty() {
-        println!();
-        toml_section("frames");
-        toml_kv_multiline("preview", &format_frame_preview_rows(&schema, &rows));
-    }
-    Ok(())
-}
-
-fn selection_preview_rows(
-    reader: &mut fwob::Reader,
-    selection: &fwob::FrameSelection,
-) -> Result<Vec<PreviewRow>> {
-    let count = selection.frame_count();
-    let positions = preview_indices(count);
-    let mut rows = Vec::with_capacity(positions.len());
-    for position in positions {
-        match position {
-            PreviewIndex::Ellipsis => rows.push(PreviewRow::Ellipsis),
-            PreviewIndex::Frame(position) => {
-                let mut remaining = position;
-                let mut global_index = None;
-                for range in selection.ranges() {
-                    let len = range.end - range.start;
-                    if remaining < len {
-                        global_index = Some(range.start + remaining);
-                        break;
-                    }
-                    remaining -= len;
-                }
-                let global_index =
-                    global_index.context("selected preview index is out of range")?;
-                let frame = reader
-                    .read_frame(global_index)?
-                    .context("matched frame index is out of range")?;
-                rows.push(PreviewRow::Frame(global_index, frame.bytes().to_vec()));
-            }
-        }
-    }
-    Ok(rows)
 }
 
 fn delete_frames(args: DeleteArgs) -> Result<()> {
@@ -825,108 +724,6 @@ fn detect_format(path: &PathBuf) -> Result<Format> {
         b"FWB2" => Ok(Format::V2),
         _ => bail!("unrecognized FWOB file signature"),
     }
-}
-
-fn color_enabled() -> bool {
-    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-}
-
-const GITHUB_BLUE: &str = "38;2;121;192;255";
-const GITHUB_GREEN: &str = "38;2;165;214;255";
-const GITHUB_ORANGE: &str = "38;2;255;166;87";
-const GITHUB_PURPLE: &str = "38;2;210;168;255";
-
-fn colorize(value: impl AsRef<str>, code: &str) -> String {
-    if color_enabled() {
-        format!("\x1b[{code}m{}\x1b[0m", value.as_ref())
-    } else {
-        value.as_ref().to_string()
-    }
-}
-
-fn toml_section(name: &str) {
-    println!("{}", colorize(format!("[{name}]"), GITHUB_PURPLE));
-}
-
-fn toml_array_section(name: &str) {
-    println!("{}", colorize(format!("[[{name}]]"), GITHUB_PURPLE));
-}
-
-fn toml_key(key: &str) -> String {
-    colorize(key, GITHUB_BLUE)
-}
-
-fn toml_string(value: &str) -> String {
-    colorize(format!("\"{}\"", escape_toml_string(value)), GITHUB_GREEN)
-}
-
-fn toml_value(value: impl ToString) -> String {
-    colorize(value.to_string(), GITHUB_ORANGE)
-}
-
-fn toml_kv_str(key: &str, value: &str) {
-    println!("{} = {}", toml_key(key), toml_string(value));
-}
-
-fn toml_kv_num(key: &str, value: impl ToString) {
-    println!("{} = {}", toml_key(key), toml_value(value));
-}
-
-fn toml_kv_bool(key: &str, value: bool) {
-    println!("{} = {}", toml_key(key), toml_value(value));
-}
-
-fn toml_kv_key(key: &str, value: Key) {
-    println!("{} = {}", toml_key(key), toml_value(toml_key_value(value)));
-}
-
-fn toml_key_value(key: Key) -> String {
-    match key {
-        Key::I8(value) => value.to_string(),
-        Key::I16(value) => value.to_string(),
-        Key::I32(value) => value.to_string(),
-        Key::I64(value) => value.to_string(),
-        Key::U8(value) => value.to_string(),
-        Key::U16(value) => value.to_string(),
-        Key::U32(value) => value.to_string(),
-        Key::U64(value) => value.to_string(),
-        Key::F32(value) => value.to_string(),
-        Key::F64(value) => value.to_string(),
-        Key::Decimal(value) => value.to_string(),
-    }
-}
-
-fn toml_kv_multiline(key: &str, value: &str) {
-    println!("{} = \"\"\"", toml_key(key));
-    print!("{}", escape_toml_multiline(value));
-    if !value.ends_with('\n') {
-        println!();
-    }
-    println!("\"\"\"");
-}
-
-fn toml_kv_float_array(key: &str, values: &[f64], precision: usize) {
-    let values = values
-        .iter()
-        .map(|value| format!("{value:.precision$}", precision = precision))
-        .collect::<Vec<_>>()
-        .join(", ");
-    println!("{} = {}", toml_key(key), toml_value(format!("[{values}]")));
-}
-
-fn escape_toml_string(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
-fn escape_toml_multiline(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace("\"\"\"", "\\\"\\\"\\\"")
 }
 
 fn create_blank(args: CreateArgs) -> Result<()> {
@@ -2285,43 +2082,6 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     Ok(())
 }
 
-fn print_aligned_table(headers: &[&str], rows: Vec<Vec<String>>, right_align: &[bool]) {
-    debug_assert_eq!(headers.len(), right_align.len());
-    debug_assert!(rows.iter().all(|row| row.len() == headers.len()));
-
-    let mut widths: Vec<usize> = headers
-        .iter()
-        .map(|header| header.chars().count())
-        .collect();
-    for row in &rows {
-        for (index, value) in row.iter().enumerate() {
-            widths[index] = widths[index].max(value.chars().count());
-        }
-    }
-
-    for (index, header) in headers.iter().enumerate() {
-        if index > 0 {
-            print!("  ");
-        }
-        print!("{header:<width$}", width = widths[index]);
-    }
-    println!();
-
-    for row in rows {
-        for (index, value) in row.iter().enumerate() {
-            if index > 0 {
-                print!("  ");
-            }
-            if right_align[index] {
-                print!("{value:>width$}", width = widths[index]);
-            } else {
-                print!("{value:<width$}", width = widths[index]);
-            }
-        }
-        println!();
-    }
-}
-
 fn print_conversion_bench_dimensions(cases: &[ConversionBenchCase], args: &ResolvedBenchArgs) {
     println!("[conversion_matrix_dimensions]");
     println!(
@@ -3223,61 +2983,6 @@ fn validate_zstd_level(level: i32) -> Result<()> {
         bail!("--zstd-level must be between 1 and 22");
     }
     Ok(())
-}
-
-fn comma_u32(value: u32) -> String {
-    comma_u64(u64::from(value))
-}
-
-fn comma_usize(value: usize) -> String {
-    comma_u64(value as u64)
-}
-
-fn comma_i128(value: i128) -> String {
-    if value < 0 {
-        format!("-{}", comma_u128(value.unsigned_abs()))
-    } else {
-        comma_u128(value as u128)
-    }
-}
-
-fn comma_u64(value: u64) -> String {
-    comma_u128(u128::from(value))
-}
-
-fn comma_f64(value: f64, decimals: usize) -> String {
-    if !value.is_finite() {
-        return value.to_string();
-    }
-
-    let rendered = format!("{:.*}", decimals, value);
-    let (sign, body) = if let Some(unsigned) = rendered.strip_prefix('-') {
-        ("-", unsigned)
-    } else {
-        ("", rendered.as_str())
-    };
-    let (integer, fraction) = body.split_once('.').unwrap_or((body, ""));
-    let formatted_integer = integer
-        .parse::<u128>()
-        .map(comma_u128)
-        .unwrap_or_else(|_| integer.to_string());
-    if fraction.is_empty() {
-        format!("{sign}{formatted_integer}")
-    } else {
-        format!("{sign}{formatted_integer}.{fraction}")
-    }
-}
-
-fn comma_u128(value: u128) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
 }
 
 fn parse_page_size_token(value: &str) -> Option<Result<u32>> {
