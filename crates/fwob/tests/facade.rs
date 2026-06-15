@@ -12,6 +12,10 @@ use fwob::{
 use fwob_core::{Field, FieldType, Key, Schema};
 use tempfile::tempdir;
 
+mod common;
+
+use common::for_each_format;
+
 fn assert_exact_size_iterator<I: ExactSizeIterator>(iterator: &I, expected: usize) {
     assert_eq!(iterator.len(), expected);
 }
@@ -915,7 +919,7 @@ fn indexed_key_and_streaming_queries_are_identical_for_v1_and_v2() {
 #[test]
 fn mixed_key_selectors_union_identically_for_v1_and_v2() {
     let dir = tempdir().unwrap();
-    for version in [FormatVersion::V1, FormatVersion::V2] {
+    for_each_format(|version| {
         let path = dir.path().join(format!("selectors-{version:?}.fwob"));
         create_linear_file(&path, version, 20);
         let mut reader = Reader::open(&path).unwrap();
@@ -935,7 +939,7 @@ fn mixed_key_selectors_union_identically_for_v1_and_v2() {
         .unwrap();
         assert_eq!(selection.ranges(), &[0..1, 2..3, 5..8, 18..20]);
         assert_eq!(selection.frame_count(), 7);
-    }
+    });
 }
 
 #[test]

@@ -1,0 +1,2 @@
+time                            price          symbol  name
+      2018-04-03T08:00:00.125Z      5,678,900    AAPL    AB
