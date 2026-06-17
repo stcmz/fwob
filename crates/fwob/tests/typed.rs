@@ -501,7 +501,7 @@ fn decimal_keys_query_identically_for_v1_and_v2() {
 }
 
 #[test]
-fn timestamp_semantics_persist_in_v2_and_are_rejected_by_v1() {
+fn timestamp_semantics_persist_in_v2_and_are_dropped_by_v1() {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, FwobFrame)]
     struct Event {
         #[fwob(key, timestamp = "milliseconds")]
@@ -514,17 +514,25 @@ fn timestamp_semantics_persist_in_v2_and_are_rejected_by_v1() {
         FieldSemantic::UnixTimestamp(TimestampUnit::Milliseconds)
     );
     let dir = tempdir().unwrap();
-    let v1_path = dir.path().join("event-v1.fwob");
-    let v1_result =
-        TypedWriter::<Event>::create_v1(&v1_path, fwob_v1::WriterOptions::new("event"), &[]);
-    assert!(v1_result.is_err());
-    assert!(!v1_path.exists());
-
-    let v2_path = dir.path().join("event-v2.fwob");
     let expected = Event {
         time: 1_522_742_400_125,
         value: 7,
     };
+
+    // v1 has no on-disk slot for field semantics: it accepts the schema on write but does not
+    // persist the attribute, so the field reads back as `FieldSemantic::None`.
+    let v1_path = dir.path().join("event-v1.fwob");
+    let mut v1_writer =
+        TypedWriter::<Event>::create_v1(&v1_path, fwob_v1::WriterOptions::new("event"), &[])
+            .unwrap();
+    v1_writer.append(&expected).unwrap();
+    v1_writer.finish().unwrap();
+    let v1_untyped = fwob::Reader::open(&v1_path).unwrap();
+    assert_eq!(v1_untyped.schema().fields[0].semantic, FieldSemantic::None);
+    assert_eq!(v1_untyped.frame_count(), 1);
+
+    // v2 persists and round-trips the semantic.
+    let v2_path = dir.path().join("event-v2.fwob");
     let mut writer =
         TypedWriter::<Event>::create_v2(&v2_path, fwob_v2::WriterOptions::new("event")).unwrap();
     writer.append(&expected).unwrap();

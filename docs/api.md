@@ -320,7 +320,10 @@ when a frame is decoded. Exactly one stored field must have `#[fwob(key)]`.
 
 V2 schemas persist Unix timestamp semantics for integer fields. The accepted
 derive values are `seconds`, `milliseconds`, `microseconds`, and `nanoseconds`.
-V1 has no semantic metadata slot and rejects schemas containing this attribute.
+V1 has no semantic metadata slot: it accepts a schema carrying this attribute but
+does not persist it, so the field reads back as `none` (as with the unstored
+key-field index). Consequently `dump`/`inspect` render UTC date-times only for V2
+files; a V1 field reads back without the semantic and displays the raw integer.
 Raw, CSV, and JSON Lines output preserve the integer; table and Markdown output
 render UTC date-times.
 

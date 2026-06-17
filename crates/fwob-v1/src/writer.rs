@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use fwob_core::{FieldSemantic, FrameRef, Key, KeyType, Schema};
+use fwob_core::{FrameRef, Key, KeyType, Schema};
 
 use crate::{
     header::{
@@ -253,10 +253,11 @@ fn validate_v1_metadata(schema: &Schema, options: &WriterOptions) -> Result<()> 
     if schema.fields.len() > MAX_FIELDS
         || !valid_ascii(&schema.frame_type, MAX_FRAME_TYPE_LEN)
         || !valid_ascii(&options.title, MAX_TITLE_LEN)
+        // Field semantics (and the key-field index) have no slot in the v1 on-disk format. They
+        // are accepted as in-memory schema attributes but not persisted, so they read back as the
+        // default (`FieldSemantic::None`). v2 is the format that persists semantics.
         || schema.fields.iter().any(|field| {
-            !valid_ascii(&field.name, MAX_FIELD_NAME_LEN)
-                || field.length > u8::MAX as u16
-                || field.semantic != FieldSemantic::None
+            !valid_ascii(&field.name, MAX_FIELD_NAME_LEN) || field.length > u8::MAX as u16
         })
         || options.string_table_preserved_length > i32::MAX as u32
         || schema.frame_len > i32::MAX as u32
