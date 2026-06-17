@@ -9,7 +9,7 @@ use std::{
 use fwob_core::{Field, FieldType, Key, Schema};
 use fwob_v2::{
     Codec, CodecSelection, Encoding, EncodingSelection, Reader, Writer, WriterOptions,
-    PAGE_HEADER_LEN,
+    FILE_HEADER_LEN, PAGE_HEADER_LEN,
 };
 use tempfile::tempdir;
 
@@ -34,6 +34,18 @@ fn tick(time: i32, value: f64, text: &str) -> Vec<u8> {
     str_bytes[..text.len()].copy_from_slice(text.as_bytes());
     out.extend_from_slice(&str_bytes);
     out
+}
+
+/// A `tick` whose value/string payload is incompressible, so a batch of them forces the writer
+/// to emit multiple compressed pages (the key/Time field stays sequential for ordering).
+fn noisy_tick(time: i32) -> Vec<u8> {
+    let mut frame = tick(
+        time,
+        f64::from_bits((time as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+        "",
+    );
+    frame[12..16].copy_from_slice(&(time as u32).wrapping_mul(2_654_435_761).to_le_bytes());
+    frame
 }
 
 fn short_tick(time: i32, price: u32, size: i32) -> Vec<u8> {
@@ -482,7 +494,7 @@ fn open_append_repacks_existing_raw_tail_into_full_pages_and_appends() {
 }
 
 #[test]
-fn open_append_does_not_rewrite_raw_tail_for_tiny_append() {
+fn open_append_with_zstd_coalesces_raw_tail_on_tiny_append() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("append_tiny.fwob");
     let schema = tick_schema();
@@ -510,9 +522,257 @@ fn open_append_does_not_rewrite_raw_tail_for_tiny_append() {
     let mut reader = Reader::open(&path).unwrap();
     reader.verify().unwrap();
     assert_eq!(reader.header().frame_count, 81);
-    assert_eq!(reader.header().page_count, initial_page_count + 1);
+    // The new frame coalesces into the reclaimed raw tail rather than adding a fresh page.
+    assert_eq!(reader.header().page_count, initial_page_count);
     let frames = reader.frames_between(Key::I32(0), Key::I32(80)).unwrap();
     assert_eq!(frames.len(), 81);
+}
+
+#[test]
+fn open_append_with_none_codec_coalesces_into_last_page() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("none_coalesce.fwob");
+    let mut options = WriterOptions::new("NoneCoalesce");
+    options.page_size = 1024; // capacity (1024 - 80) / 16 = 59 frames/page
+    options.codec = Codec::None;
+    options.codec_selection = CodecSelection::Fixed(Codec::None);
+    options.encoding = Encoding::RowRawV1;
+    options.encoding_selection = EncodingSelection::Fixed(Encoding::RowRawV1);
+
+    {
+        let mut writer = Writer::create(&path, tick_schema(), options.clone()).unwrap();
+        for i in 0..30 {
+            writer.append_frame(&tick(i, i as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    let base_pages = Reader::open(&path).unwrap().header().page_count;
+    assert_eq!(base_pages, 1);
+
+    const SESSIONS: i32 = 3;
+    for s in 0..SESSIONS {
+        let mut writer = Writer::open_append(&path, options.clone()).unwrap();
+        let base = 30 + s * 2;
+        writer.append_frame(&tick(base, base as f64, "")).unwrap();
+        writer
+            .append_frame(&tick(base + 1, (base + 1) as f64, ""))
+            .unwrap();
+        writer.finish().unwrap();
+    }
+
+    let mut reader = Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 30 + SESSIONS as u64 * 2);
+    // All appends coalesce into the single trailing page until it fills.
+    assert_eq!(reader.header().page_count, base_pages);
+    assert_eq!(
+        reader.read_page_header(0).unwrap().frame_count,
+        30 + SESSIONS as u32 * 2
+    );
+    let frames = reader
+        .frames_between(Key::I32(0), Key::I32(29 + SESSIONS * 2))
+        .unwrap();
+    assert_eq!(frames.len() as u64, 30 + SESSIONS as u64 * 2);
+}
+
+#[test]
+fn open_append_with_none_codec_starts_new_page_when_tail_full() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("none_full.fwob");
+    let mut options = WriterOptions::new("NoneFull");
+    options.page_size = 1024; // capacity 59 frames/page
+    options.codec = Codec::None;
+    options.codec_selection = CodecSelection::Fixed(Codec::None);
+    options.encoding = Encoding::RowRawV1;
+    options.encoding_selection = EncodingSelection::Fixed(Encoding::RowRawV1);
+
+    {
+        let mut writer = Writer::create(&path, tick_schema(), options.clone()).unwrap();
+        for i in 0..59 {
+            writer.append_frame(&tick(i, i as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    let base_pages = Reader::open(&path).unwrap().header().page_count;
+    assert_eq!(base_pages, 1);
+
+    {
+        let mut writer = Writer::open_append(&path, options).unwrap();
+        writer.append_frame(&tick(59, 59.0, "")).unwrap();
+        writer.append_frame(&tick(60, 60.0, "")).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let mut reader = Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 61);
+    // The trailing page was full, so a fresh page is started instead of rewriting it.
+    assert_eq!(reader.header().page_count, base_pages + 1);
+    assert_eq!(reader.read_page_header(0).unwrap().frame_count, 59);
+    assert_eq!(reader.read_page_header(1).unwrap().frame_count, 2);
+    let frames = reader.frames_between(Key::I32(0), Key::I32(60)).unwrap();
+    assert_eq!(frames.len(), 61);
+}
+
+#[test]
+fn open_append_with_zstd_coalesces_raw_tail_pages() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("coalesce.fwob");
+    let mut options = WriterOptions::new("Coalesce");
+    options.page_size = 1024;
+    options.codec = Codec::Zstd;
+    options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
+
+    {
+        let mut writer = Writer::create(&path, tick_schema(), options.clone()).unwrap();
+        for i in 0..80 {
+            writer.append_frame(&tick(i, i as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    let base_pages = Reader::open(&path).unwrap().header().page_count;
+
+    const SESSIONS: i32 = 5;
+    for s in 0..SESSIONS {
+        let mut writer = Writer::open_append(&path, options.clone()).unwrap();
+        let base = 80 + s * 2;
+        writer.append_frame(&tick(base, base as f64, "")).unwrap();
+        writer
+            .append_frame(&tick(base + 1, (base + 1) as f64, ""))
+            .unwrap();
+        writer.finish().unwrap();
+    }
+
+    let mut reader = Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 80 + SESSIONS as u64 * 2);
+    // Each session repacks the raw tail instead of leaving a fresh under-filled page behind.
+    assert!(
+        reader.header().page_count < base_pages + SESSIONS as u64,
+        "expected coalescing: {} pages, base {}",
+        reader.header().page_count,
+        base_pages
+    );
+    let frames = reader
+        .frames_between(Key::I32(0), Key::I32(79 + SESSIONS * 2))
+        .unwrap();
+    assert_eq!(frames.len() as u64, 80 + SESSIONS as u64 * 2);
+}
+
+#[test]
+fn open_append_limits_raw_tail_reclaim_to_max_append_tail_pages() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("limit.fwob");
+
+    // 12 full raw pages via Codec::None (capacity (1024 - 80) / 16 = 59 frames/page).
+    let mut none_opts = WriterOptions::new("Limit");
+    none_opts.page_size = 1024;
+    none_opts.codec = Codec::None;
+    none_opts.codec_selection = CodecSelection::Fixed(Codec::None);
+    none_opts.encoding = Encoding::RowRawV1;
+    none_opts.encoding_selection = EncodingSelection::Fixed(Encoding::RowRawV1);
+    {
+        let mut writer = Writer::create(&path, tick_schema(), none_opts).unwrap();
+        for i in 0..708i32 {
+            writer.append_frame(&tick(i, i as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    let initial_pages = Reader::open(&path).unwrap().header().page_count;
+    assert_eq!(initial_pages, 12);
+
+    // Reopen with Zstd and append a large incompressible batch so compression actually fires.
+    let mut zstd_opts = WriterOptions::new("Limit");
+    zstd_opts.page_size = 1024;
+    zstd_opts.codec = Codec::Zstd;
+    zstd_opts.codec_selection = CodecSelection::Fixed(Codec::Zstd);
+    {
+        let mut writer = Writer::open_append(&path, zstd_opts).unwrap();
+        for i in 708..1708i32 {
+            writer.append_frame(&noisy_tick(i)).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    let mut reader = Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 1708);
+
+    // Pages outside the 10-page reclaim window (0 and 1) are untouched: still raw None.
+    assert_eq!(reader.read_page_header(0).unwrap().codec, Codec::None);
+    assert_eq!(reader.read_page_header(0).unwrap().frame_count, 59);
+    assert_eq!(reader.read_page_header(1).unwrap().codec, Codec::None);
+    // The reclaimed window was recompressed.
+    let has_zstd = (0..reader.header().page_count)
+        .any(|p| reader.read_page_header(p).unwrap().codec == Codec::Zstd);
+    assert!(has_zstd, "windowed tail should have been recompressed");
+
+    // Round-trip across the survived and rewritten regions.
+    assert_eq!(
+        reader.read_frame_at(0).unwrap().unwrap().bytes(),
+        tick(0, 0.0, "").as_slice()
+    );
+    assert_eq!(
+        reader.read_frame_at(117).unwrap().unwrap().bytes(),
+        tick(117, 117.0, "").as_slice()
+    );
+    assert_eq!(
+        reader.read_frame_at(708).unwrap().unwrap().bytes(),
+        noisy_tick(708).as_slice()
+    );
+    assert_eq!(
+        reader.read_frame_at(1707).unwrap().unwrap().bytes(),
+        noisy_tick(1707).as_slice()
+    );
+}
+
+#[test]
+fn open_append_with_zstd_leaves_full_pages_untouched() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("untouched.fwob");
+    let mut options = WriterOptions::new("Untouched");
+    options.page_size = 1024; // capacity 59 frames/page
+    options.codec = Codec::Zstd;
+    options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
+
+    // 139 frames stay below the compress threshold, so finish writes 3 raw pages: [59][59][21].
+    {
+        let mut writer = Writer::create(&path, tick_schema(), options.clone()).unwrap();
+        for i in 0..139 {
+            writer.append_frame(&tick(i, i as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    assert_eq!(Reader::open(&path).unwrap().header().page_count, 3);
+
+    // Snapshot the two dense leading pages.
+    let page_bytes = |index: usize| -> Vec<u8> {
+        let raw = std::fs::read(&path).unwrap();
+        let start = FILE_HEADER_LEN as usize + index * 1024;
+        raw[start..start + 1024].to_vec()
+    };
+    let page0_before = page_bytes(0);
+    let page1_before = page_bytes(1);
+
+    // Append a few frames that fit into the trailing under-filled page (no overflow).
+    {
+        let mut writer = Writer::open_append(&path, options).unwrap();
+        for i in 139..149 {
+            writer.append_frame(&tick(i, i as f64, "")).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    // The full leading pages must be byte-for-byte identical — never reclaimed or rewritten.
+    assert_eq!(page_bytes(0), page0_before, "page 0 was rewritten");
+    assert_eq!(page_bytes(1), page1_before, "page 1 was rewritten");
+
+    let mut reader = Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 149);
+    assert_eq!(reader.header().page_count, 3); // the partial page absorbed the appends
+    let frames = reader.frames_between(Key::I32(0), Key::I32(148)).unwrap();
+    assert_eq!(frames.len(), 149);
 }
 
 #[test]
