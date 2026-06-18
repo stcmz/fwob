@@ -89,6 +89,27 @@ fn page_header_is_80_bytes() {
 }
 
 #[test]
+fn owned_presorted_buffers_roundtrip_without_changing_writer_semantics() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("owned.fwob");
+    let mut options = WriterOptions::new("owned");
+    options.page_size = 1024;
+    options.codec = Codec::None;
+    let mut writer = Writer::create(&path, tick_schema(), options).unwrap();
+    let mut frames = Vec::new();
+    for time in 0..100 {
+        frames.extend_from_slice(&tick(time, time as f64, "OWN"));
+    }
+    writer.append_presorted_raw_frames_owned(frames).unwrap();
+    writer.finish().unwrap();
+
+    let mut reader = Reader::open(&path).unwrap();
+    assert_eq!(reader.header().frame_count, 100);
+    assert_eq!(reader.first_key().unwrap(), Some(Key::I32(0)));
+    assert_eq!(reader.last_key().unwrap(), Some(Key::I32(99)));
+}
+
+#[test]
 fn page_headers_store_contiguous_first_frame_indexes() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("indexes.fwob");

@@ -77,7 +77,7 @@ fn stream_source_raw<F>(
     mut sink: F,
 ) -> Result<()>
 where
-    F: FnMut(&[u8]) -> Result<()>,
+    F: FnMut(Vec<u8>) -> Result<()>,
 {
     let started = std::time::Instant::now();
     let progress_step = 5_000_000u64;
@@ -111,8 +111,9 @@ where
                 if raw.is_empty() {
                     break;
                 }
-                sink(&raw)?;
-                frame_index += (raw.len() / frame_len) as u64;
+                let frames_read = (raw.len() / frame_len) as u64;
+                sink(raw)?;
+                frame_index += frames_read;
                 report(frame_index);
             }
         }
@@ -123,7 +124,7 @@ where
             for page_index in 0..page_count {
                 let raw = reader.read_page_raw_frames(page_index)?;
                 converted += (raw.len() / frame_len) as u64;
-                sink(&raw)?;
+                sink(raw)?;
                 report(converted);
             }
         }
@@ -170,7 +171,7 @@ fn convert_to_v2(
         meta.frame_len,
         meta.frame_count,
         |raw| {
-            writer.append_presorted_raw_frames(raw)?;
+            writer.append_presorted_raw_frames_owned(raw)?;
             Ok(())
         },
     )?;
@@ -223,7 +224,7 @@ fn convert_to_v1(
         meta.frame_len,
         meta.frame_count,
         |raw| {
-            writer.append_presorted_raw_frames(raw)?;
+            writer.append_presorted_raw_frames(&raw)?;
             Ok(())
         },
     )?;
@@ -361,7 +362,7 @@ fn append_into_v1_target(target: &Path, inputs: &[PathBuf], key_field_index: usi
             input_meta.frame_len,
             input_meta.frame_count,
             |raw| {
-                writer.append_presorted_raw_frames(raw)?;
+                writer.append_presorted_raw_frames(&raw)?;
                 Ok(())
             },
         )
@@ -538,8 +539,9 @@ fn append_v1_input(
     let mut frame_index = 0u64;
     while frame_index < input.header().frame_count {
         let chunk = input.read_raw_frames_chunk(frame_index, chunk_frames)?;
-        writer.append_presorted_raw_frames(&chunk)?;
-        frame_index += (chunk.len() / frame_len) as u64;
+        let frames_read = (chunk.len() / frame_len) as u64;
+        writer.append_presorted_raw_frames_owned(chunk)?;
+        frame_index += frames_read;
     }
     Ok(())
 }

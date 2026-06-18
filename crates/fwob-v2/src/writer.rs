@@ -525,6 +525,27 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
     }
 
     pub fn append_presorted_raw_frames(&mut self, bytes: &[u8]) -> Result<()> {
+        let Some(last_key) = self.validate_presorted_raw_frames(bytes)? else {
+            return Ok(());
+        };
+        self.last_key = Some(last_key);
+        self.pending.append_copy(bytes);
+        self.compact_overflowing_tail()?;
+        Ok(())
+    }
+
+    /// Appends an already sorted owned frame buffer without copying it into the pending queue.
+    pub fn append_presorted_raw_frames_owned(&mut self, bytes: Vec<u8>) -> Result<()> {
+        let Some(last_key) = self.validate_presorted_raw_frames(&bytes)? else {
+            return Ok(());
+        };
+        self.last_key = Some(last_key);
+        self.pending.append_owned(bytes);
+        self.compact_overflowing_tail()?;
+        Ok(())
+    }
+
+    fn validate_presorted_raw_frames(&self, bytes: &[u8]) -> Result<Option<Key>> {
         let frame_len = self.header.schema.frame_len as usize;
         if bytes.len() % frame_len != 0 {
             return Err(V2Error::Core(FwobError::InvalidFrameLength {
@@ -533,7 +554,7 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
             }));
         }
         if bytes.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         let first = FrameRef::new(&self.header.schema, &bytes[..frame_len])?;
@@ -549,11 +570,7 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
 
         let last_offset = bytes.len() - frame_len;
         let last = FrameRef::new(&self.header.schema, &bytes[last_offset..])?;
-        self.last_key = Some(last.key(&self.header.schema, self.key_type)?);
-
-        self.pending.append_copy(bytes);
-        self.compact_overflowing_tail()?;
-        Ok(())
+        Ok(Some(last.key(&self.header.schema, self.key_type)?))
     }
 
     pub fn append_frames<I, B>(&mut self, frames: I) -> Result<()>
