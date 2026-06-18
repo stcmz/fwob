@@ -242,6 +242,11 @@ struct ResolvedBenchArgs {
   page size: INTEGER{B|KB|KiB|MB|MiB} (1KiB..16MiB; default 512KiB)
   switches: verify, compress-partial-page
 
+INPUT and OUTPUT may be file paths. INPUT may also be a directory, in which case immediate
+*.fwob files are converted into the OUTPUT directory. A file input targets OUTPUT directly when it
+has a file extension; an existing directory or nonexistent extensionless OUTPUT is a directory.
+Directory conversion creates OUTPUT when needed.
+
 Tokens may appear anywhere. Reserved tokens win on exact match; use ./row-raw for a file named row-raw.")]
 struct ConvertArgs {
     /// Convert target and plain tokens. Forms: `INPUT OUTPUT`, `v1 INPUT OUTPUT`,
@@ -254,6 +259,10 @@ struct ConvertArgs {
     /// does not store this in metadata.
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
+
+    /// Maximum files converted concurrently. Defaults to the logical CPU count.
+    #[arg(long)]
+    parallelism: Option<std::num::NonZeroUsize>,
 
     #[command(flatten)]
     write: V2WriteArgs,

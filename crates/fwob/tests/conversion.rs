@@ -226,6 +226,83 @@ fn cli_converts_v2_to_v2_with_a_new_codec_and_v2_to_v1() {
 }
 
 #[test]
+fn cli_convert_supports_file_and_folder_targets_with_parallel_workers() {
+    let dir = tempdir().unwrap();
+    let single_input = dir.path().join("single.fwob");
+    let single_output_dir = dir.path().join("single-out");
+    write_v1_file(&single_input, tick_schema(), 0..10);
+    let exe = env!("CARGO_BIN_EXE_fwob");
+
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        single_input.to_str().unwrap(),
+        single_output_dir.to_str().unwrap(),
+        "uncompressed",
+    ]));
+    assert_eq!(
+        Reader::open(single_output_dir.join("single.fwob"))
+            .unwrap()
+            .frame_count(),
+        10
+    );
+
+    let input_dir = dir.path().join("batch-in");
+    let output_dir = dir.path().join("batch-out");
+    std::fs::create_dir(&input_dir).unwrap();
+    write_v1_file(&input_dir.join("a.fwob"), tick_schema(), 0..10);
+    write_v1_file(&input_dir.join("b.fwob"), tick_schema(), 10..25);
+    std::fs::write(input_dir.join("ignored.txt"), b"ignored").unwrap();
+
+    let output = command_output(Command::new(exe).args([
+        "convert",
+        input_dir.to_str().unwrap(),
+        output_dir.to_str().unwrap(),
+        "uncompressed",
+        "--parallelism",
+        "2",
+    ]));
+    assert_eq!(
+        Reader::open(output_dir.join("a.fwob"))
+            .unwrap()
+            .frame_count(),
+        10
+    );
+    assert_eq!(
+        Reader::open(output_dir.join("b.fwob"))
+            .unwrap()
+            .frame_count(),
+        15
+    );
+    assert!(!output_dir.join("ignored.txt").exists());
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("converted a.fwob:"));
+    assert!(stderr.contains("converted b.fwob:"));
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let summaries: Vec<_> = stdout.split("[conversion]\n").skip(1).collect();
+    assert_eq!(summaries.len(), 2);
+    for summary in summaries {
+        assert!(summary.contains("[parameters]"));
+        assert!(summary.contains("[packing]"));
+        assert!(summary.contains("[compression]"));
+        assert!(summary.contains("[page_stats]"));
+        assert!(summary.contains("parallelism = 2"));
+    }
+
+    let invalid_output = dir.path().join("not-a-directory.fwob");
+    write_v1_file(&invalid_output, tick_schema(), 0..1);
+    assert_command_failure(
+        Command::new(exe).args([
+            "convert",
+            input_dir.to_str().unwrap(),
+            invalid_output.to_str().unwrap(),
+        ]),
+        "directory input requires a directory output",
+    );
+}
+
+#[test]
 fn cli_concat_merges_mixed_v1_and_v2_sources() {
     let dir = tempdir().unwrap();
     let v1_src = dir.path().join("v1.fwob");

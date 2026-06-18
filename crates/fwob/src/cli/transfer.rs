@@ -1,26 +1,222 @@
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
+
 use super::*;
+
+static CONVERSION_OUTPUT_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Debug)]
+struct ConversionJob {
+    input: PathBuf,
+    output: PathBuf,
+}
 
 pub(super) fn convert(args: ConvertArgs) -> Result<()> {
     let (target_format, input, output, page_size, write) =
         parse_convert_target(&args.target, args.write)?;
     validate_zstd_level(write.zstd_level)?;
-    // Detect the SOURCE format so any source (v1 or v2) can be converted to either target. This
-    // notably allows v2->v2 re-packs (different codec/encoding/page size).
-    let source_format = detect_format(&input)?;
-    let meta = read_source_meta(source_format, &input, args.key_field_index)?;
+    let jobs = plan_conversion_jobs(&input, &output)?;
+    let parallelism = args
+        .parallelism
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, usize::from))
+        .min(jobs.len().max(1));
+    run_conversion_jobs(
+        &jobs,
+        parallelism,
+        target_format,
+        args.key_field_index,
+        page_size,
+        write,
+    )
+}
+
+fn plan_conversion_jobs(input: &Path, output: &Path) -> Result<Vec<ConversionJob>> {
+    let input_metadata = std::fs::metadata(input)
+        .with_context(|| format!("failed to inspect conversion input {}", input.display()))?;
+    if input_metadata.is_file() {
+        let output_is_directory =
+            output.is_dir() || (!output.exists() && output.extension().is_none());
+        let destination = if output_is_directory {
+            std::fs::create_dir_all(output).with_context(|| {
+                format!("failed to create output directory {}", output.display())
+            })?;
+            output.join(
+                input
+                    .file_name()
+                    .context("conversion input file has no filename")?,
+            )
+        } else {
+            output.to_owned()
+        };
+        ensure_distinct_paths(input, &destination)?;
+        return Ok(vec![ConversionJob {
+            input: input.to_owned(),
+            output: destination,
+        }]);
+    }
+    if !input_metadata.is_dir() {
+        bail!("conversion input must be a regular file or directory");
+    }
+    if output.exists() && !output.is_dir() {
+        bail!("a directory input requires a directory output");
+    }
+
+    let mut inputs = Vec::new();
+    for entry in std::fs::read_dir(input)
+        .with_context(|| format!("failed to read input directory {}", input.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_file() && has_fwob_extension(&path) {
+            inputs.push(path);
+        }
+    }
+    inputs.sort_by_cached_key(|path| path.to_string_lossy().to_lowercase());
+    if inputs.is_empty() {
+        bail!("input directory contains no immediate *.fwob files");
+    }
+
+    std::fs::create_dir_all(output)
+        .with_context(|| format!("failed to create output directory {}", output.display()))?;
+    let mut jobs = Vec::with_capacity(inputs.len());
+    for source in inputs {
+        let destination = output.join(
+            source
+                .file_name()
+                .context("discovered conversion input has no filename")?,
+        );
+        ensure_distinct_paths(&source, &destination)?;
+        jobs.push(ConversionJob {
+            input: source,
+            output: destination,
+        });
+    }
+    Ok(jobs)
+}
+
+fn has_fwob_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("fwob"))
+}
+
+fn ensure_distinct_paths(input: &Path, output: &Path) -> Result<()> {
+    let input = std::fs::canonicalize(input)?;
+    let output = if output.exists() {
+        std::fs::canonicalize(output)?
+    } else {
+        let parent = output
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let parent = std::fs::canonicalize(parent).with_context(|| {
+            format!(
+                "failed to resolve output parent directory {}",
+                parent.display()
+            )
+        })?;
+        parent.join(
+            output
+                .file_name()
+                .context("conversion output has no filename")?,
+        )
+    };
+    if input == output {
+        bail!(
+            "conversion input and output must be different: {}",
+            input.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_conversion_jobs(
+    jobs: &[ConversionJob],
+    parallelism: usize,
+    target_format: TargetFormat,
+    key_field_index: usize,
+    page_size: u32,
+    write: V2WriteOptions,
+) -> Result<()> {
+    let next = AtomicUsize::new(0);
+    let failures = Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for _ in 0..parallelism {
+            scope.spawn(|| loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(job) = jobs.get(index) else {
+                    break;
+                };
+                if let Err(error) = convert_one(
+                    &job.input,
+                    &job.output,
+                    target_format,
+                    key_field_index,
+                    page_size,
+                    write,
+                    parallelism,
+                )
+                .with_context(|| format!("failed to convert {}", job.input.display()))
+                {
+                    failures
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .push((index, format!("{error:#}")));
+                }
+            });
+        }
+    });
+
+    let mut failures = failures
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if failures.is_empty() {
+        return Ok(());
+    }
+    failures.sort_by_key(|(index, _)| *index);
+    let details = failures
+        .iter()
+        .map(|(_, error)| format!("  {error}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    bail!("{} conversion job(s) failed:\n{details}", failures.len())
+}
+
+fn convert_one(
+    input: &Path,
+    output: &Path,
+    target_format: TargetFormat,
+    key_field_index: usize,
+    page_size: u32,
+    write: V2WriteOptions,
+    parallelism: usize,
+) -> Result<()> {
+    // Detect the source format so any source can be converted to either target, including v2
+    // repacking with different page options.
+    let source_format = detect_format(input)?;
+    let meta = read_source_meta(source_format, input, key_field_index)?;
     match target_format {
         TargetFormat::V2 => convert_to_v2(
             source_format,
-            &input,
-            &output,
-            args.key_field_index,
+            input,
+            output,
+            key_field_index,
             page_size,
             write,
             meta,
+            parallelism,
         ),
-        TargetFormat::V1 => {
-            convert_to_v1(source_format, &input, &output, args.key_field_index, meta)
-        }
+        TargetFormat::V1 => convert_to_v1(
+            source_format,
+            input,
+            output,
+            key_field_index,
+            meta,
+            parallelism,
+        ),
     }
 }
 
@@ -80,12 +276,17 @@ where
     F: FnMut(Vec<u8>) -> Result<()>,
 {
     let started = std::time::Instant::now();
+    let input_label = input
+        .file_name()
+        .unwrap_or(input.as_os_str())
+        .to_string_lossy();
     let progress_step = 5_000_000u64;
     let mut next_progress = progress_step;
     let mut report = |converted: u64| {
         if converted >= next_progress || converted == total_frames {
             log_info(format!(
-                "copied {}/{} frames ({:.1}%) in {:.1}s",
+                "converted {}: {}/{} frames ({:.1}%) in {:.1}s",
+                input_label,
                 comma_u64(converted),
                 comma_u64(total_frames),
                 if total_frames == 0 {
@@ -141,6 +342,7 @@ fn convert_to_v2(
     page_size: u32,
     write: V2WriteOptions,
     meta: SourceMeta,
+    parallelism: usize,
 ) -> Result<()> {
     let mut options = fwob_v2::WriterOptions::new(meta.title.clone());
     options.page_size = page_size;
@@ -182,6 +384,9 @@ fn convert_to_v2(
         inspect.verify()?;
     }
     let metadata = collect_v2_metadata(output, &mut inspect)?;
+    let _output_guard = CONVERSION_OUTPUT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     print_convert_v2_toml(
         input,
         output,
@@ -194,6 +399,7 @@ fn convert_to_v2(
         &metadata,
         write.verify,
         started.elapsed().as_secs_f64(),
+        parallelism,
     );
     Ok(())
 }
@@ -204,6 +410,7 @@ fn convert_to_v1(
     output: &Path,
     key_field_index: usize,
     meta: SourceMeta,
+    parallelism: usize,
 ) -> Result<()> {
     let mut options = fwob_v1::WriterOptions::new(meta.title.clone());
     let estimated_string_bytes: usize = meta.string_table.iter().map(|s| s.len() + 5).sum();
@@ -230,11 +437,15 @@ fn convert_to_v1(
     )?;
     drop(writer);
 
+    let _output_guard = CONVERSION_OUTPUT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     toml_section("conversion");
     toml_kv_str("target_format", "fwob-v1");
     toml_kv_str("input", &input.display().to_string());
     toml_kv_str("output", &output.display().to_string());
     toml_kv_num("frames", meta.frame_count);
+    toml_kv_num("parallelism", parallelism);
     if matches!(source_format, Format::V2) {
         toml_kv_num("source_pages", meta.page_count);
     }
@@ -391,6 +602,7 @@ fn print_convert_v2_toml(
     metadata: &V2Metadata,
     verified: bool,
     elapsed_seconds: f64,
+    parallelism: usize,
 ) {
     toml_section("conversion");
     toml_kv_str("target_format", "fwob-v2");
@@ -409,6 +621,7 @@ fn print_convert_v2_toml(
     toml_kv_str("target_format", "fwob-v2");
     toml_kv_num("key_field_index", key_field_index);
     toml_kv_num("page_size", page_size);
+    toml_kv_num("parallelism", parallelism);
     toml_kv_str("codec", write.codec.as_str());
     toml_kv_str("encoding", write.encoding.as_str());
     toml_kv_num("zstd_level", write.zstd_level);

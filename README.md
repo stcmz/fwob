@@ -120,6 +120,7 @@ fwob info data archive/ticks.fwob md
 fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
 fwob convert v2 ticks.fwob ticks-delta.fwob columnar-delta zstd verify
+fwob convert raw-files converted-files columnar-delta zstd --parallelism 8
 fwob append ticks-v2.fwob new-ticks-1.fwob new-ticks-2.fwob verify
 fwob split ticks.fwob parts 1000 2000 3000 zstd columnar-basic
 fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob zstd
@@ -148,6 +149,16 @@ file or directory; directory discovery is non-recursive. Add `table`, `md`,
 `csv`, or `jsonl` to select the output format. The summary includes path, format,
 title, frame type, key-field index, field count, frame length/count, boundary
 keys, raw frame bytes, and physical-to-raw ratio.
+
+`fwob convert` accepts file-to-file, file-to-directory, and
+directory-to-directory conversion. Directory input discovers immediate
+`*.fwob` files, preserves each filename, and creates the output directory when
+needed. For file input, a nonexistent extensionless output is treated as a
+directory; an explicit output filename should use the `.fwob` extension. Files
+are converted concurrently; `--parallelism N` sets the worker
+limit and defaults to the logical CPU count. Progress lines may interleave on
+stderr and include the input filename, while each file's structured stdout
+summary is printed atomically.
 
 Positional tokens are case-sensitive. For example, `v2`, `zstd`, and `1MiB`
 are tokens; `V2`, `ZSTD`, and `1MIB` are treated as paths or values rather than
