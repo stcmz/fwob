@@ -2892,10 +2892,11 @@ fn append_into_v2_target(
     for input in inputs {
         match detect_format(input)? {
             Format::V1 => {
-                append_v1_input(input, key_field_index, write, &target_header, &mut writer)?
+                append_v1_input(input, key_field_index, write, &target_header, &mut writer)
             }
-            Format::V2 => append_v2_input(input, &target_header, &mut writer)?,
+            Format::V2 => append_v2_input(input, &target_header, &mut writer),
         }
+        .with_context(|| format!("failed while appending input {}", input.display()))?;
     }
 
     let packing_stats = writer.finish_with_stats()?;
@@ -2916,7 +2917,12 @@ fn append_into_v2_target(
     }
     println!();
     print_packing_stats_toml(packing_stats);
+
+    println!();
     print_compression_stats_toml(&metadata);
+
+    println!();
+    toml_section("page_stats");
     print_page_codec_encoding_stats_toml(&metadata);
     Ok(())
 }
@@ -2954,7 +2960,8 @@ fn append_into_v1_target(target: &Path, inputs: &[PathBuf], key_field_index: usi
                 writer.append_presorted_raw_frames(raw)?;
                 Ok(())
             },
-        )?;
+        )
+        .with_context(|| format!("failed while appending input {}", input.display()))?;
     }
     let frame_count = writer.frame_count();
     drop(writer);

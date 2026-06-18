@@ -132,6 +132,34 @@ fn cli_concat_refuses_to_overwrite_existing_output_without_force() {
 }
 
 #[test]
+fn cli_append_key_order_error_names_the_input_file_and_keys() {
+    let dir = tempdir().unwrap();
+    let target = dir.path().join("target.fwob");
+    let lower = dir.path().join("lower.fwob");
+    // target ends at key 99; the next input starts at key 50 < 99, which violates global key order.
+    write_v1_file(&target, tick_schema(), 0..100);
+    write_v1_file(&lower, tick_schema(), 50..60);
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let output = Command::new(exe)
+        .args(["append", target.to_str().unwrap(), lower.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Names the offending input file...
+    assert!(
+        stderr.contains("lower.fwob"),
+        "stderr did not name the input file\nstderr:\n{stderr}"
+    );
+    // ...and reports both the violating key and the previous key.
+    assert!(
+        stderr.contains("key order violation") && stderr.contains("50") && stderr.contains("99"),
+        "stderr did not report the violating keys\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
 fn cli_appends_v1_input_into_v2_target_with_timestamp_semantic() {
     let dir = tempdir().unwrap();
     let target = dir.path().join("target.fwob");
@@ -148,7 +176,7 @@ fn cli_appends_v1_input_into_v2_target_with_timestamp_semantic() {
         input.to_str().unwrap(),
     ]));
 
-    let mut reader = Reader::open(&target).unwrap();
+    let reader = Reader::open(&target).unwrap();
     assert_eq!(reader.frame_count(), 20);
     assert_eq!(
         reader.schema().fields[0].semantic,
@@ -192,7 +220,7 @@ fn cli_converts_v2_to_v2_with_a_new_codec_and_v2_to_v1() {
         input.to_str().unwrap(),
         downgraded.to_str().unwrap(),
     ]));
-    let mut reader = Reader::open(&downgraded).unwrap();
+    let reader = Reader::open(&downgraded).unwrap();
     assert_eq!(reader.format_version(), FormatVersion::V1);
     assert_eq!(reader.frame_count(), 50);
 }
