@@ -673,6 +673,7 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
         .iter()
         .map(PathBuf::from)
         .collect::<Vec<_>>();
+    let relaxed_semantics = concat_uses_relaxed_semantics(&inputs)?;
     let output_format = parsed.format.map(|format| match format {
         TargetFormat::V1 => fwob_core::FormatVersion::V1,
         TargetFormat::V2 => fwob_core::FormatVersion::V2,
@@ -691,6 +692,11 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
         ..Default::default()
     }
     .concat(&output, &inputs)?;
+    if relaxed_semantics {
+        log_warn(
+            "warning: mixed v1/v2 concat ignored missing v1 field semantics; v2 semantics were preserved",
+        );
+    }
     toml_section("concat");
     toml_kv_str("output", &output.display().to_string());
     if let Some(format) = parsed.format {
@@ -704,6 +710,26 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
     }
     toml_kv_num("frames", frames);
     Ok(())
+}
+
+fn concat_uses_relaxed_semantics(inputs: &[PathBuf]) -> Result<bool> {
+    let mut has_v1 = false;
+    let mut has_semantic_v2 = false;
+    for input in inputs {
+        match detect_format(input)? {
+            Format::V1 => has_v1 = true,
+            Format::V2 => {
+                let reader = fwob_v2::Reader::open(input)?;
+                has_semantic_v2 |= reader
+                    .header()
+                    .schema
+                    .fields
+                    .iter()
+                    .any(|field| field.semantic != fwob_core::FieldSemantic::None);
+            }
+        }
+    }
+    Ok(has_v1 && has_semantic_v2)
 }
 
 fn edit_file(args: EditArgs) -> Result<()> {

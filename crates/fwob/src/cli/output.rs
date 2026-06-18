@@ -43,7 +43,6 @@ pub(super) fn log_info(message: impl AsRef<str>) {
     eprintln!("{}", colorize_stderr(message.as_ref(), LOG_DIM));
 }
 
-#[allow(dead_code)]
 pub(super) fn log_warn(message: impl AsRef<str>) {
     eprintln!("{}", colorize_stderr(message.as_ref(), LOG_YELLOW));
 }

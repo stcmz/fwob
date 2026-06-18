@@ -235,12 +235,18 @@ fn cli_concat_merges_mixed_v1_and_v2_sources() {
     write_v2_file(&v2_src, timestamp_tick_schema(), 30..70);
 
     let exe = env!("CARGO_BIN_EXE_fwob");
-    assert_command_success(Command::new(exe).args([
+    let output = command_output(Command::new(exe).args([
         "concat",
         out.to_str().unwrap(),
         v1_src.to_str().unwrap(),
         v2_src.to_str().unwrap(),
     ]));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("mixed v1/v2 concat ignored missing v1 field semantics"),
+        "stderr did not contain the relaxed-semantics warning\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let reader = Reader::open(&out).unwrap();
     assert_eq!(reader.format_version(), FormatVersion::V2);
