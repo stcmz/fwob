@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use fwob_core::Key;
+use fwob_core::{FieldSemantic, Key, Schema};
 use tempfile::NamedTempFile;
 
 use crate::{
@@ -131,21 +131,35 @@ fn concat_files(
     let reader_options = operation_options.reader_options;
     let v1_key_field_index = reader_options.v1_key_field_index;
     let mut first = Reader::open_with_options(&sources[0], reader_options)?;
-    let format = first.format_version();
     let schema = first.schema().clone();
+    // Pick the richest compatible schema (most non-None field semantics) as the output schema so a
+    // v1 source (which can't persist semantics) doesn't strip a sibling v2 source's timestamp.
+    let mut output_schema = schema.clone();
     let title = first.title().to_owned();
     let mut string_table = first.string_table().to_vec();
     let mut total_frames = first.frame_count();
     let mut previous_last = first.last_key()?;
+    let mut all_v1 = first.format_version() == fwob_core::FormatVersion::V1;
+    let mut any_v1 = all_v1;
     drop(first);
 
+    let mut semantic_differs = false;
     for path in &sources[1..] {
         let mut reader = Reader::open_with_options(path, reader_options)?;
-        if reader.format_version() != format {
-            return Err(Error::IncompatibleFormat);
+        let format = reader.format_version();
+        all_v1 &= format == fwob_core::FormatVersion::V1;
+        any_v1 |= format == fwob_core::FormatVersion::V1;
+        // Sources may mix v1 and v2; require only structural schema compatibility. v1 cannot
+        // persist field semantics, so they are ignored here; a pure-v2 concat still rejects a
+        // semantic mismatch below.
+        if !reader.schema().is_compatible(&schema) {
+            return Err(Error::IncompatibleSchema);
         }
         if reader.schema() != &schema {
-            return Err(Error::IncompatibleSchema);
+            semantic_differs = true;
+        }
+        if schema_semantic_richness(reader.schema()) > schema_semantic_richness(&output_schema) {
+            output_schema = reader.schema().clone();
         }
         if reader.title() != title {
             return Err(Error::IncompatibleTitle);
@@ -168,7 +182,13 @@ fn concat_files(
             })?;
     }
 
-    if format == fwob_core::FormatVersion::V1 {
+    // When no v1 file is involved every schema is fully comparable, so a semantic mismatch is a
+    // real incompatibility (consistent with append/typed checks).
+    if !any_v1 && semantic_differs {
+        return Err(Error::IncompatibleSchema);
+    }
+
+    if all_v1 {
         return concat_v1_raw(
             destination.as_ref(),
             sources,
@@ -180,13 +200,15 @@ fn concat_files(
         );
     }
 
+    // All-v2 or mixed v1/v2 sources: read each through the version-neutral reader and write one v2
+    // output. Frame bytes are identical across formats, so mixing is lossless.
     let destination = destination.as_ref();
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
     let mut writer = Writer::create_v2(
         &temporary_path,
-        schema.clone(),
+        output_schema.clone(),
         output_v2_options(&sources[0], &title, &string_table, operation_options),
     )?;
     for path in sources {
@@ -196,7 +218,7 @@ fn concat_files(
             &mut reader,
             &mut writer,
             0..frame_count,
-            schema.frame_len as usize,
+            output_schema.frame_len as usize,
         )?;
     }
     writer.finish()?;
@@ -289,6 +311,14 @@ fn copy_v1_raw_range(
         next += count as u64;
     }
     Ok(())
+}
+
+fn schema_semantic_richness(schema: &Schema) -> usize {
+    schema
+        .fields
+        .iter()
+        .filter(|field| field.semantic != FieldSemantic::None)
+        .count()
 }
 
 fn merge_string_tables(destination: &mut Vec<String>, source: &[String]) -> Result<()> {
