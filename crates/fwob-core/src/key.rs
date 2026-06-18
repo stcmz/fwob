@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt;
 
 use crate::{
     error::{FwobError, Result},
@@ -167,6 +168,24 @@ impl Ord for Key {
             (Self::F64(a), Self::F64(b)) => a.total_cmp(&b),
             (Self::Decimal(a), Self::Decimal(b)) => a.cmp(&b),
             _ => self.variant_rank().cmp(&other.variant_rank()),
+        }
+    }
+}
+
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::I8(v) => write!(f, "{v}"),
+            Self::I16(v) => write!(f, "{v}"),
+            Self::I32(v) => write!(f, "{v}"),
+            Self::I64(v) => write!(f, "{v}"),
+            Self::U8(v) => write!(f, "{v}"),
+            Self::U16(v) => write!(f, "{v}"),
+            Self::U32(v) => write!(f, "{v}"),
+            Self::U64(v) => write!(f, "{v}"),
+            Self::F32(v) => write!(f, "{v}"),
+            Self::F64(v) => write!(f, "{v}"),
+            Self::Decimal(v) => write!(f, "{v}"),
         }
     }
 }

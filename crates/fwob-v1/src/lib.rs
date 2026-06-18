@@ -37,8 +37,14 @@ pub enum V1Error {
     #[error("corrupted string table length: expected {expected}, actual {actual}")]
     CorruptedStringTableLength { expected: u32, actual: u64 },
 
-    #[error("key order violation at frame {index}")]
-    KeyOrderViolation { index: u64 },
+    #[error(
+        "key order violation at frame {index}: key {key} is less than the previous key {previous}"
+    )]
+    KeyOrderViolation {
+        index: u64,
+        key: fwob_core::Key,
+        previous: fwob_core::Key,
+    },
 
     #[error("key field index {0} is out of range")]
     KeyFieldIndexOutOfRange(usize),

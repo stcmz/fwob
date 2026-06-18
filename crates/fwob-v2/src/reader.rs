@@ -411,7 +411,10 @@ impl<R: Read + Seek> Reader<R> {
                 let key = frame.as_ref().key(&self.header.schema, self.key_type)?;
                 if let Some(last) = last_key {
                     if key < last {
-                        return Err(V2Error::KeyOrderViolation);
+                        return Err(V2Error::KeyOrderViolation {
+                            key,
+                            previous: last,
+                        });
                     }
                 }
                 last_key = Some(key);

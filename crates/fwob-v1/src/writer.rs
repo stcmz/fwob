@@ -161,6 +161,8 @@ impl<W: Write + Seek> Writer<W> {
             if key < last_key {
                 return Err(V1Error::KeyOrderViolation {
                     index: self.header.frame_count,
+                    key,
+                    previous: last_key,
                 });
             }
         }
@@ -192,6 +194,8 @@ impl<W: Write + Seek> Writer<W> {
             if first_key < last_key {
                 return Err(V1Error::KeyOrderViolation {
                     index: self.header.frame_count,
+                    key: first_key,
+                    previous: last_key,
                 });
             }
         }
@@ -229,6 +233,8 @@ impl<W: Write + Seek> Writer<W> {
                 if key < previous {
                     return Err(V1Error::KeyOrderViolation {
                         index: self.header.frame_count + offset as u64,
+                        key,
+                        previous,
                     });
                 }
             }

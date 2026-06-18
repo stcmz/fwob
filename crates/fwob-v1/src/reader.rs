@@ -196,7 +196,11 @@ impl<R: Read + Seek> Reader<R> {
         for index in 1..self.header.frame_count {
             let key = self.read_key_at(index)?.expect("frame exists");
             if key < last {
-                return Err(V1Error::KeyOrderViolation { index });
+                return Err(V1Error::KeyOrderViolation {
+                    index,
+                    key,
+                    previous: last,
+                });
             }
             last = key;
         }

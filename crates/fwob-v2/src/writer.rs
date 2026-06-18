@@ -480,7 +480,10 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
         let key = frame.key(&self.header.schema, self.key_type)?;
         if let Some(last_key) = self.last_key {
             if key < last_key {
-                return Err(V2Error::KeyOrderViolation);
+                return Err(V2Error::KeyOrderViolation {
+                    key,
+                    previous: last_key,
+                });
             }
         }
 
@@ -509,7 +512,7 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
             let key = frame.key(&self.header.schema, self.key_type)?;
             if let Some(previous) = last_key {
                 if key < previous {
-                    return Err(V2Error::KeyOrderViolation);
+                    return Err(V2Error::KeyOrderViolation { key, previous });
                 }
             }
             last_key = Some(key);
@@ -537,7 +540,10 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
         let first_key = first.key(&self.header.schema, self.key_type)?;
         if let Some(previous) = self.last_key {
             if first_key < previous {
-                return Err(V2Error::KeyOrderViolation);
+                return Err(V2Error::KeyOrderViolation {
+                    key: first_key,
+                    previous,
+                });
             }
         }
 

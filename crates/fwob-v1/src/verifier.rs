@@ -64,8 +64,14 @@ pub fn repair_committed_tail(
             key_type,
             index,
         )?;
-        if last_key.is_some_and(|last| key < last) {
-            return Err(V1Error::KeyOrderViolation { index });
+        if let Some(last) = last_key {
+            if key < last {
+                return Err(V1Error::KeyOrderViolation {
+                    index,
+                    key,
+                    previous: last,
+                });
+            }
         }
         last_key = Some(key);
     }

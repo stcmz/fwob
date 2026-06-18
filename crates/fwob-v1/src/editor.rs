@@ -80,6 +80,8 @@ impl InMemoryEditor {
             if key < last {
                 return Err(V1Error::KeyOrderViolation {
                     index: self.frames.len() as u64,
+                    key,
+                    previous: last,
                 });
             }
         }

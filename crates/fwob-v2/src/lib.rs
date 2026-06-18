@@ -49,8 +49,11 @@ pub enum V2Error {
     #[error("frame does not fit into an empty page")]
     FrameTooLarge,
 
-    #[error("key order violation")]
-    KeyOrderViolation,
+    #[error("key order violation: key {key} is less than the previous key {previous}")]
+    KeyOrderViolation {
+        key: fwob_core::Key,
+        previous: fwob_core::Key,
+    },
 
     #[error("checksum mismatch")]
     ChecksumMismatch,
