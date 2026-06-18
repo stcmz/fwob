@@ -118,10 +118,11 @@ fwob inspect ticks.fwob
 fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
 fwob convert v2 ticks.fwob ticks-delta.fwob columnar-delta zstd verify
-fwob append ticks-v2.fwob new-ticks.fwob verify
+fwob append ticks-v2.fwob new-ticks-1.fwob new-ticks-2.fwob verify
 fwob split ticks.fwob parts 1000 2000 3000 zstd columnar-basic
 fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob zstd
-fwob edit ticks-joined.fwob --title Renamed --append-string NASDAQ
+fwob concat v1 ticks-v1.fwob ticks-old.fwob ticks-new.fwob
+fwob edit ticks-joined.fwob --title Renamed --append-string NASDAQ --set-semantic Time=unix-milliseconds
 fwob find ticks-v2.fwob 100..200
 fwob find ticks-v2.fwob 100 200..300 500.. ..50
 fwob dump ticks-v2.fwob 100 200..300 csv
@@ -131,6 +132,12 @@ fwob delete ticks-v2.fwob 100 200 repack-to-end zstd columnar-basic compress-par
 fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```
+
+Append and concat assume every input file is internally valid. They validate
+cross-file schema, string-table, and key-boundary compatibility without rescanning
+each complete input. Run `fwob verify FILE` first when input corruption is a
+concern. Mixed v1/v2 concat preserves available v2 field semantics and warns when
+v1's missing semantic metadata requires a relaxed comparison.
 
 Positional tokens are case-sensitive. For example, `v2`, `zstd`, and `1MiB`
 are tokens; `V2`, `ZSTD`, and `1MIB` are treated as paths or values rather than

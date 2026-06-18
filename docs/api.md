@@ -148,6 +148,12 @@ frames. Transactionality covers frame validation and key ordering. An operating
 system I/O failure after validation can still leave an interrupted write, which
 `Maintenance::repair` handles.
 
+The CLI `fwob append TARGET INPUT...` accepts multiple v1/v2 inputs and writes
+them in argument order. It assumes each input file is internally valid and checks
+schema, string-table, and key-order compatibility at file boundaries. Run
+`fwob verify` explicitly before append when corruption is a concern; append does
+not rescan every source file.
+
 ### Edit
 
 ```rust
@@ -488,10 +494,17 @@ and header CRC values; a page-count reduction also shifts those pages forward.
 ## File Organization
 
 `Organizer::split` emits same-format files at the lower bound of each supplied
-first key. `Organizer::concat` accepts same-format inputs with identical schema
-and title, globally ordered keys, and compatible string tables. String tables
-are compatible when one is a matching prefix of the other; the longest table
-is written.
+first key. `Organizer::concat` accepts v1, v2, or mixed-format inputs with
+structurally compatible schemas, identical titles, globally ordered file
+boundaries, and compatible string tables. String tables are compatible when one
+is a matching prefix of the other; the longest table is written. All-v1 input
+defaults to v1 output; any v2 input defaults to v2 output. Callers may explicitly
+select either output format and may override the v2 page size.
+
+V1 cannot persist field semantics. For mixed v1/v2 input, concat therefore
+ignores missing v1 semantics and preserves the richest v2 schema. The CLI emits
+a warning when this relaxed comparison is used and a v2 source has any non-None
+semantic. Pure-v2 semantic differences remain incompatible.
 
 `Organizer` is operation-stateful but not bound to one open file. It owns
 `OperationOptions` and applies them to every split or concat call. This matches
@@ -504,6 +517,10 @@ Both operations stream through a 4 MiB buffer, verify each completed output,
 and atomically publish it. V1 copies raw frame byte ranges without decoding or
 re-encoding frames. V2 streams logical frames because page boundaries,
 compression, checksums, and `first_frame_index` values must be rebuilt.
+Concat assumes each source is already internally valid; it does not verify every
+input before copying. Run maintenance verification first when source corruption
+is a concern. It still verifies the completed output and validates metadata and
+key ordering between source-file boundaries.
 Splitting `N` frames into `M` parts takes `O(M log N + N)` time. Concatenation
 takes `O(N)` time after `O(M)` metadata and boundary checks. Extra copy memory
 is `O(B)` and independent of file size.
