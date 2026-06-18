@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use fwob_core::{FwobFrame, FwobKey, OwnedFrame};
+use fwob_core::{FormatVersion, FwobFrame, FwobKey, OwnedFrame};
 
 use crate::{Editor, FrameIter, MultiRangeFrameIter, OperationOptions, Reader, Result, Writer};
 
@@ -57,7 +57,7 @@ pub struct TypedReader<F> {
 
 impl<F: FwobFrame> TypedReader<F> {
     pub fn new(inner: Reader) -> Result<Self> {
-        ensure_schema::<F>(inner.schema())?;
+        ensure_schema::<F>(inner.schema(), inner.format_version())?;
         Ok(Self {
             inner,
             frame: PhantomData,
@@ -200,7 +200,7 @@ pub struct TypedWriter<F> {
 
 impl<F: FwobFrame> TypedWriter<F> {
     pub fn new(inner: Writer) -> Result<Self> {
-        ensure_schema::<F>(inner.schema())?;
+        ensure_schema::<F>(inner.schema(), inner.format_version())?;
         Ok(Self {
             inner,
             buffer: Vec::with_capacity(F::schema().frame_len as usize),
@@ -275,7 +275,7 @@ pub struct TypedEditor<F> {
 impl<F: FwobFrame> TypedEditor<F> {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let inner = Editor::open(path)?;
-        ensure_schema::<F>(inner.schema())?;
+        ensure_schema::<F>(inner.schema(), inner.format_version())?;
         Ok(Self {
             inner,
             frame: PhantomData,
@@ -287,7 +287,7 @@ impl<F: FwobFrame> TypedEditor<F> {
         options: OperationOptions,
     ) -> Result<Self> {
         let inner = Editor::open_with_operation_options(path, options)?;
-        ensure_schema::<F>(inner.schema())?;
+        ensure_schema::<F>(inner.schema(), inner.format_version())?;
         Ok(Self {
             inner,
             frame: PhantomData,
@@ -361,8 +361,15 @@ impl<F: FwobFrame> TypedEditor<F> {
     }
 }
 
-fn ensure_schema<F: FwobFrame>(schema: &fwob_core::Schema) -> Result<()> {
-    if schema == &F::schema() {
+fn ensure_schema<F: FwobFrame>(schema: &fwob_core::Schema, format: FormatVersion) -> Result<()> {
+    let target = F::schema();
+    // v1 cannot persist field semantics (they read back as None), so compare structurally and
+    // ignore semantics for v1 files. v2 keeps exact equality, so semantic differences are rejected.
+    let ok = match format {
+        FormatVersion::V1 => schema.is_compatible(&target),
+        FormatVersion::V2 => schema == &target,
+    };
+    if ok {
         Ok(())
     } else {
         Err(crate::Error::SchemaMismatch)
