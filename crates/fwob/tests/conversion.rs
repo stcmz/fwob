@@ -198,6 +198,63 @@ fn cli_converts_v2_to_v2_with_a_new_codec_and_v2_to_v1() {
 }
 
 #[test]
+fn cli_concat_merges_mixed_v1_and_v2_sources() {
+    let dir = tempdir().unwrap();
+    let v1_src = dir.path().join("v1.fwob");
+    let v2_src = dir.path().join("v2.fwob");
+    let out = dir.path().join("merged.fwob");
+    write_v1_file(&v1_src, tick_schema(), 0..30);
+    write_v2_file(&v2_src, timestamp_tick_schema(), 30..70);
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "concat",
+        out.to_str().unwrap(),
+        v1_src.to_str().unwrap(),
+        v2_src.to_str().unwrap(),
+    ]));
+
+    let reader = Reader::open(&out).unwrap();
+    assert_eq!(reader.format_version(), FormatVersion::V2);
+    assert_eq!(reader.frame_count(), 70);
+    // The richer (v2) schema's timestamp semantic survives the merge.
+    let v2 = fwob_v2::Reader::open(&out).unwrap();
+    assert_eq!(
+        v2.header().schema.fields[0].semantic,
+        FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)
+    );
+}
+
+#[test]
+fn cli_appends_into_a_v1_target_from_v1_and_v2_inputs() {
+    let dir = tempdir().unwrap();
+    let target = dir.path().join("target.fwob");
+    let v2_input = dir.path().join("input_v2.fwob");
+    let v1_input = dir.path().join("input_v1.fwob");
+    write_v1_file(&target, tick_schema(), 0..10);
+    write_v2_file(&v2_input, tick_schema(), 10..20);
+    write_v1_file(&v1_input, tick_schema(), 20..30);
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    // v2 input -> v1 target (previously errored "failed to open target v2 file").
+    assert_command_success(Command::new(exe).args([
+        "append",
+        target.to_str().unwrap(),
+        v2_input.to_str().unwrap(),
+    ]));
+    // v1 input -> v1 target.
+    assert_command_success(Command::new(exe).args([
+        "append",
+        target.to_str().unwrap(),
+        v1_input.to_str().unwrap(),
+    ]));
+
+    let reader = Reader::open(&target).unwrap();
+    assert_eq!(reader.format_version(), FormatVersion::V1);
+    assert_eq!(reader.frame_count(), 30);
+}
+
+#[test]
 fn cli_prints_package_version() {
     let output = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).arg("--version"));
     assert_eq!(
