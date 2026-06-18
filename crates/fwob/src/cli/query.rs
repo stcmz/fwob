@@ -2,10 +2,9 @@ use std::io::Write;
 
 use anyhow::{bail, Context, Result};
 
-use super::{
-    format_frame_preview_rows, preview_indices, DumpArgs, FindArgs, PreviewIndex, PreviewRow,
-};
+use super::inspect::{format_frame_preview_rows, preview_indices, PreviewIndex, PreviewRow};
 use super::{toml_kv_multiline, toml_kv_num, toml_kv_str, toml_section};
+use super::{DumpArgs, FindArgs};
 
 pub(super) fn dump_frames(args: DumpArgs) -> Result<()> {
     let mut format = None;
