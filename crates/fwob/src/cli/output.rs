@@ -7,6 +7,12 @@ const GITHUB_GREEN: &str = "38;2;165;214;255";
 const GITHUB_ORANGE: &str = "38;2;255;166;87";
 const GITHUB_PURPLE: &str = "38;2;210;168;255";
 
+const LOG_RED: &str = "38;2;248;81;73";
+const LOG_YELLOW: &str = "38;2;227;179;65";
+#[allow(dead_code)]
+const LOG_GREEN: &str = "38;2;63;185;80";
+const LOG_DIM: &str = "38;2;139;148;158";
+
 fn color_enabled() -> bool {
     std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
@@ -16,6 +22,45 @@ fn colorize(value: impl AsRef<str>, code: &str) -> String {
         format!("\x1b[{code}m{}\x1b[0m", value.as_ref())
     } else {
         value.as_ref().to_string()
+    }
+}
+
+fn stderr_color_enabled() -> bool {
+    std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn colorize_stderr(value: &str, code: &str) -> String {
+    if stderr_color_enabled() {
+        format!("\x1b[{code}m{value}\x1b[0m")
+    } else {
+        value.to_string()
+    }
+}
+
+/// Diagnostic/progress line (e.g. conversion progress). Goes to stderr so it never pollutes the
+/// command's structured stdout output.
+pub(super) fn log_info(message: impl AsRef<str>) {
+    eprintln!("{}", colorize_stderr(message.as_ref(), LOG_DIM));
+}
+
+#[allow(dead_code)]
+pub(super) fn log_warn(message: impl AsRef<str>) {
+    eprintln!("{}", colorize_stderr(message.as_ref(), LOG_YELLOW));
+}
+
+#[allow(dead_code)]
+pub(super) fn log_success(message: impl AsRef<str>) {
+    eprintln!("{}", colorize_stderr(message.as_ref(), LOG_GREEN));
+}
+
+/// Prints an error and its full cause chain to stderr, colorized in red.
+pub(super) fn log_error(error: &anyhow::Error) {
+    eprintln!("{}", colorize_stderr(&format!("error: {error}"), LOG_RED));
+    for cause in error.chain().skip(1) {
+        eprintln!(
+            "{}",
+            colorize_stderr(&format!("  caused by: {cause}"), LOG_RED)
+        );
     }
 }
 

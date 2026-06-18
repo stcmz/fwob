@@ -310,6 +310,10 @@ struct ConcatArgs {
     /// zstd level for v2 output pages.
     #[arg(long)]
     zstd_level: Option<i32>,
+    /// Overwrite OUTPUT if it already exists. Without this, concat refuses to clobber an
+    /// existing output so its contents are never silently discarded.
+    #[arg(long, visible_alias = "overwrite")]
+    force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -526,6 +530,11 @@ impl CodecArg {
     }
 }
 
+/// Prints an error and its cause chain to stderr, colorized in red (TTY-gated).
+pub fn print_error(error: &anyhow::Error) {
+    log_error(error);
+}
+
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -624,10 +633,10 @@ fn split_file(args: SplitArgs) -> Result<()> {
         keep_empty_parts: args.keep_empty_parts,
     }
     .split(&input, &output_dir, &keys)?;
-    println!("[split]");
-    println!("parts = {}", outputs.len());
+    toml_section("split");
+    toml_kv_num("parts", outputs.len());
     for (index, path) in outputs.iter().enumerate() {
-        println!("part_{index} = {:?}", path.display().to_string());
+        toml_kv_str(&format!("part_{index}"), &path.display().to_string());
     }
     Ok(())
 }
@@ -638,6 +647,12 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
         bail!("concat expects OUTPUT and at least one INPUT after tokens");
     }
     let output = PathBuf::from(parsed.paths[0]);
+    if output.exists() && !args.force {
+        bail!(
+            "output {} already exists; pass --force to overwrite it",
+            output.display()
+        );
+    }
     let inputs = parsed.paths[1..]
         .iter()
         .map(PathBuf::from)
@@ -653,9 +668,9 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
         ..Default::default()
     }
     .concat(&output, &inputs)?;
-    println!("[concat]");
-    println!("frames = {frames}");
-    println!("output = {:?}", output.display().to_string());
+    toml_section("concat");
+    toml_kv_num("frames", frames);
+    toml_kv_str("output", &output.display().to_string());
     Ok(())
 }
 
@@ -683,9 +698,9 @@ fn edit_file(args: EditArgs) -> Result<()> {
         None
     };
     editor.update_metadata(args.title.as_deref(), strings.as_deref())?;
-    println!("[edit]");
-    println!("title = {:?}", editor.title());
-    println!("string_count = {}", editor.string_table().len());
+    toml_section("edit");
+    toml_kv_str("title", editor.title());
+    toml_kv_num("string_count", editor.string_table().len());
     Ok(())
 }
 
@@ -767,7 +782,8 @@ fn create_blank(args: CreateArgs) -> Result<()> {
         }
     }
 
-    println!("created {}", output.display());
+    toml_section("create");
+    toml_kv_str("output", &output.display().to_string());
     Ok(())
 }
 
@@ -1273,10 +1289,11 @@ fn inspect_v1(args: V1FileArgs) -> Result<()> {
 
 fn verify_v1(args: V1FileArgs) -> Result<()> {
     let report = fwob_v1::verify_file(&args.path, args.key_field_index)?;
-    println!("ok");
-    println!("frame_count: {}", comma_u64(report.frame_count));
-    println!("string_count: {}", comma_u32(report.string_count));
-    println!("file_length: {}", comma_u64(report.file_length));
+    toml_section("verify");
+    toml_kv_str("status", "ok");
+    toml_kv_num("frame_count", comma_u64(report.frame_count));
+    toml_kv_num("string_count", comma_u32(report.string_count));
+    toml_kv_num("file_length", comma_u64(report.file_length));
     Ok(())
 }
 
@@ -1384,9 +1401,10 @@ fn inspect_v2(args: V2FileArgs) -> Result<()> {
 fn verify_v2(args: V2FileArgs) -> Result<()> {
     let mut reader = fwob_v2::Reader::open(&args.path)?;
     reader.verify()?;
-    println!("ok");
-    println!("page_count: {}", comma_u64(reader.header().page_count));
-    println!("frame_count: {}", comma_u64(reader.header().frame_count));
+    toml_section("verify");
+    toml_kv_str("status", "ok");
+    toml_kv_num("page_count", comma_u64(reader.header().page_count));
+    toml_kv_num("frame_count", comma_u64(reader.header().frame_count));
     Ok(())
 }
 
@@ -1632,7 +1650,7 @@ struct V2Metadata {
 }
 
 fn collect_v2_metadata(
-    path: &PathBuf,
+    path: &Path,
     reader: &mut fwob_v2::Reader<std::fs::File>,
 ) -> Result<V2Metadata> {
     let page_count = reader.header().page_count;
@@ -1812,7 +1830,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     let mut results = Vec::with_capacity(cases.len());
     for (case_index, case) in cases.iter().copied().enumerate() {
         let output = conversion_bench_output_path(&output_dir, &args.path, case_index, case);
-        eprintln!(
+        log_info(format!(
             "bench case {}/{}: page_size={} codec={} zstd_level={} encoding={} page_packing={}",
             comma_usize(case_index + 1),
             comma_usize(cases.len()),
@@ -1823,29 +1841,29 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
                 .unwrap_or_else(|| "-".to_string()),
             case.encoding.as_str(),
             case.page_packing.as_str()
-        );
+        ));
 
-        eprintln!("  test=conversion started");
+        log_info("  test=conversion started");
         let conversion_start = std::time::Instant::now();
         let packing_stats = convert_input_to_v2_for_bench(&args, case, &output)
             .with_context(|| format!("benchmark conversion failed for {}", output.display()))?;
         let elapsed_seconds = conversion_start.elapsed().as_secs_f64();
-        eprintln!(
+        log_info(format!(
             "  test=conversion completed elapsed_s={}",
             comma_f64(elapsed_seconds, 3)
-        );
+        ));
 
-        eprintln!("  test=metadata started");
+        log_info("  test=metadata started");
         let metadata_start = std::time::Instant::now();
         let mut inspect = fwob_v2::Reader::open(&output)?;
         let frame_count = inspect.header().frame_count;
         let page_count = inspect.header().page_count;
         let metadata = collect_v2_metadata(&output, &mut inspect)?;
         drop(inspect);
-        eprintln!(
+        log_info(format!(
             "  test=metadata completed elapsed_s={}",
             comma_f64(metadata_start.elapsed().as_secs_f64(), 3)
-        );
+        ));
 
         let read_performance =
             measure_v2_read_performance(&output, args.iterations, args.scan_iterations)?;
@@ -1898,7 +1916,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     });
 
     println!();
-    println!("[conversion_matrix_summary]");
+    toml_section("conversion_matrix_summary");
     print_aligned_table(
         &[
             "rank",
@@ -1944,7 +1962,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     );
 
     println!();
-    println!("[conversion_matrix_storage]");
+    toml_section("conversion_matrix_storage");
     print_aligned_table(
         &[
             "rank",
@@ -1993,7 +2011,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     );
 
     println!();
-    println!("[conversion_matrix_read_samples]");
+    toml_section("conversion_matrix_read_samples");
     print_aligned_table(
         &[
             "rank",
@@ -2039,7 +2057,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     );
 
     println!();
-    println!("[conversion_matrix_packing]");
+    toml_section("conversion_matrix_packing");
     print_aligned_table(
         &[
             "rank",
@@ -2083,7 +2101,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
 }
 
 fn print_conversion_bench_dimensions(cases: &[ConversionBenchCase], args: &ResolvedBenchArgs) {
-    println!("[conversion_matrix_dimensions]");
+    toml_section("conversion_matrix_dimensions");
     println!(
         "page_size ({}): {}",
         CONVERSION_BENCH_PAGE_SIZES.len(),
@@ -2162,7 +2180,7 @@ fn print_conversion_bench_dimensions(cases: &[ConversionBenchCase], args: &Resol
     println!("conditional: zstd_level applies only to codec=zstd");
 
     println!();
-    println!("[conversion_matrix_test_runs]");
+    toml_section("conversion_matrix_test_runs");
     println!("conversion: {}", comma_usize(cases.len()));
     println!(
         "random_page: {} cases x {} iterations = {} reads",
@@ -2354,10 +2372,10 @@ fn measure_v2_read_performance(
     let random_page_iterations = iterations.max(1);
     let mut random_reader = fwob_v2::Reader::open(path)?;
     let page_count = random_reader.header().page_count;
-    eprintln!(
+    log_info(format!(
         "  test=random-page started iterations={}",
         comma_u64(random_page_iterations)
-    );
+    ));
     let random_start = std::time::Instant::now();
     let mut random_page_frames = 0u64;
     if page_count > 0 {
@@ -2368,17 +2386,17 @@ fn measure_v2_read_performance(
     }
     let random_page_avg_us =
         random_start.elapsed().as_secs_f64() * 1_000_000.0 / random_page_iterations as f64;
-    eprintln!(
+    log_info(format!(
         "  test=random-page completed elapsed_s={} average_us={}",
         comma_f64(random_start.elapsed().as_secs_f64(), 3),
         comma_f64(random_page_avg_us, 3)
-    );
+    ));
 
     let scan_iterations = scan_iterations.max(1);
-    eprintln!(
+    log_info(format!(
         "  test=scan started iterations={}",
         comma_u64(scan_iterations)
-    );
+    ));
     let scan_start = std::time::Instant::now();
     let mut scan_frames = 0u64;
     for _ in 0..scan_iterations {
@@ -2386,11 +2404,11 @@ fn measure_v2_read_performance(
         scan_frames += scan_reader.read_all_frames()?.len() as u64;
     }
     let scan_avg_ms = scan_start.elapsed().as_secs_f64() * 1000.0 / scan_iterations as f64;
-    eprintln!(
+    log_info(format!(
         "  test=scan completed elapsed_s={} average_ms={}",
         comma_f64(scan_start.elapsed().as_secs_f64(), 3),
         comma_f64(scan_avg_ms, 3)
-    );
+    ));
 
     let range_iterations = iterations.max(1);
     let mut range_reader = fwob_v2::Reader::open(path)?;
@@ -2400,18 +2418,18 @@ fn measure_v2_read_performance(
         .transpose()?
         .map(|header| (header.first_key, header.last_key));
     if let (Some(page), Some((first_key, last_key))) = (range_page, range_keys) {
-        eprintln!(
+        log_info(format!(
             "  test=range started iterations={} page={} first_key={} last_key={}",
             comma_u64(range_iterations),
             comma_u64(page),
             toml_key_value(first_key),
             toml_key_value(last_key)
-        );
+        ));
     } else {
-        eprintln!(
+        log_info(format!(
             "  test=range started iterations={} empty_file=true",
             comma_u64(range_iterations)
-        );
+        ));
     }
     let range_start = std::time::Instant::now();
     let mut range_frames = 0u64;
@@ -2421,11 +2439,11 @@ fn measure_v2_read_performance(
         }
     }
     let range_avg_us = range_start.elapsed().as_secs_f64() * 1_000_000.0 / range_iterations as f64;
-    eprintln!(
+    log_info(format!(
         "  test=range completed elapsed_s={} average_us={}",
         comma_f64(range_start.elapsed().as_secs_f64(), 3),
         comma_f64(range_avg_us, 3)
-    );
+    ));
 
     Ok(ReadPerformance {
         random_page_iterations,
@@ -2487,80 +2505,189 @@ fn bench_scan_mode(args: &ResolvedBenchArgs) -> Result<usize> {
 }
 
 fn convert(args: ConvertArgs) -> Result<()> {
-    let (format, input, output, page_size, write) = parse_convert_target(&args.target, args.write)?;
-    match format {
-        TargetFormat::V1 => convert_v2_to_v1(input, output),
-        TargetFormat::V2 => convert_v1_to_v2(input, output, args.key_field_index, page_size, write),
+    let (target_format, input, output, page_size, write) =
+        parse_convert_target(&args.target, args.write)?;
+    validate_zstd_level(write.zstd_level)?;
+    // Detect the SOURCE format so any source (v1 or v2) can be converted to either target. This
+    // notably allows v2->v2 re-packs (different codec/encoding/page size).
+    let source_format = detect_format(&input)?;
+    let meta = read_source_meta(source_format, &input, args.key_field_index)?;
+    match target_format {
+        TargetFormat::V2 => convert_to_v2(
+            source_format,
+            &input,
+            &output,
+            args.key_field_index,
+            page_size,
+            write,
+            meta,
+        ),
+        TargetFormat::V1 => {
+            convert_to_v1(source_format, &input, &output, args.key_field_index, meta)
+        }
     }
 }
 
-fn convert_v1_to_v2(
-    input: PathBuf,
-    output: PathBuf,
+struct SourceMeta {
+    schema: fwob_core::Schema,
+    title: String,
+    string_table: Vec<String>,
+    frame_count: u64,
+    frame_len: usize,
+    page_count: u64,
+}
+
+fn read_source_meta(format: Format, input: &Path, key_field_index: usize) -> Result<SourceMeta> {
+    match format {
+        Format::V1 => {
+            let mut reader = fwob_v1::Reader::open(input, key_field_index)
+                .with_context(|| format!("failed to open v1 file {}", input.display()))?;
+            let string_table = reader.read_string_table()?;
+            Ok(SourceMeta {
+                schema: reader.schema().clone(),
+                title: reader.header().title.clone(),
+                string_table,
+                frame_count: reader.header().frame_count,
+                frame_len: reader.header().frame_length as usize,
+                page_count: 0,
+            })
+        }
+        Format::V2 => {
+            let reader = fwob_v2::Reader::open(input)
+                .with_context(|| format!("failed to open v2 file {}", input.display()))?;
+            let header = reader.header().clone();
+            Ok(SourceMeta {
+                schema: header.schema.clone(),
+                title: header.title.clone(),
+                string_table: header.string_table.clone(),
+                frame_count: header.frame_count,
+                frame_len: header.schema.frame_len as usize,
+                page_count: header.page_count,
+            })
+        }
+    }
+}
+
+/// Streams raw frame bytes from any source version into `sink`, batched by v1 chunk or v2 page,
+/// with periodic progress logging. Copies raw bytes only — no per-frame decode/allocation — so a
+/// single generic driver is as efficient as the version-specific ones it replaces.
+fn stream_source_raw<F>(
+    format: Format,
+    input: &Path,
+    key_field_index: usize,
+    chunk_frames: usize,
+    frame_len: usize,
+    total_frames: u64,
+    mut sink: F,
+) -> Result<()>
+where
+    F: FnMut(&[u8]) -> Result<()>,
+{
+    let started = std::time::Instant::now();
+    let progress_step = 5_000_000u64;
+    let mut next_progress = progress_step;
+    let mut report = |converted: u64| {
+        if converted >= next_progress || converted == total_frames {
+            log_info(format!(
+                "converted {}/{} frames ({:.1}%) in {:.1}s",
+                comma_u64(converted),
+                comma_u64(total_frames),
+                if total_frames == 0 {
+                    100.0
+                } else {
+                    converted as f64 * 100.0 / total_frames as f64
+                },
+                started.elapsed().as_secs_f64()
+            ));
+            while next_progress <= converted {
+                next_progress += progress_step;
+            }
+        }
+    };
+
+    match format {
+        Format::V1 => {
+            let mut reader = fwob_v1::Reader::open(input, key_field_index)?;
+            let chunk_frames = chunk_frames.max(1);
+            let mut frame_index = 0u64;
+            while frame_index < total_frames {
+                let raw = reader.read_raw_frames_chunk(frame_index, chunk_frames)?;
+                if raw.is_empty() {
+                    break;
+                }
+                sink(&raw)?;
+                frame_index += (raw.len() / frame_len) as u64;
+                report(frame_index);
+            }
+        }
+        Format::V2 => {
+            let mut reader = fwob_v2::Reader::open(input)?;
+            let page_count = reader.header().page_count;
+            let mut converted = 0u64;
+            for page_index in 0..page_count {
+                let raw = reader.read_page_raw_frames(page_index)?;
+                converted += (raw.len() / frame_len) as u64;
+                sink(&raw)?;
+                report(converted);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn convert_to_v2(
+    source_format: Format,
+    input: &Path,
+    output: &Path,
     key_field_index: usize,
     page_size: u32,
     write: V2WriteOptions,
+    meta: SourceMeta,
 ) -> Result<()> {
-    validate_zstd_level(write.zstd_level)?;
-    let mut v1 = fwob_v1::Reader::open(&input, key_field_index)
-        .with_context(|| format!("failed to open v1 file {}", input.display()))?;
-    let strings = v1.read_string_table()?;
-
-    let mut options = fwob_v2::WriterOptions::new(v1.header().title.clone());
+    let mut options = fwob_v2::WriterOptions::new(meta.title.clone());
     options.page_size = page_size;
     options.codec = write.codec.codec();
     options.codec_selection = write.codec.selection();
     options.zstd_level = write.zstd_level;
     options.encoding = write.encoding.encoding();
     options.encoding_selection = write.encoding.selection();
-    options.string_table = strings;
+    options.string_table = meta.string_table.clone();
     options.compress_partial_page = write.compress_partial_page;
     options.page_packing = write.page_packing.page_packing();
 
-    let mut writer = fwob_v2::Writer::create(&output, v1.schema().clone(), options)
+    let mut writer = fwob_v2::Writer::create(output, meta.schema.clone(), options)
         .with_context(|| format!("failed to create v2 file {}", output.display()))?;
 
-    let frame_len = v1.header().frame_length as usize;
     let chunk_frames = v1_conversion_chunk_frames(
         write.codec.codec(),
         write.encoding.selection(),
         page_size,
-        v1.schema(),
+        &meta.schema,
     );
-    let mut frame_index = 0u64;
-    let total_frames = v1.header().frame_count;
-    let progress_step = 5_000_000u64;
-    let mut next_progress = progress_step;
     let started = std::time::Instant::now();
-    let conversion_started = started;
-    while frame_index < v1.header().frame_count {
-        let chunk = v1.read_raw_frames_chunk(frame_index, chunk_frames)?;
-        writer.append_presorted_raw_frames(&chunk)?;
-        frame_index += (chunk.len() / frame_len) as u64;
-        if frame_index >= next_progress || frame_index == total_frames {
-            let line = format!(
-                "converted {}/{} frames ({:.1}%) in {:.1}s",
-                comma_u64(frame_index),
-                comma_u64(total_frames),
-                frame_index as f64 * 100.0 / total_frames as f64,
-                started.elapsed().as_secs_f64()
-            );
-            eprintln!("{line}");
-            while next_progress <= frame_index {
-                next_progress += progress_step;
-            }
-        }
-    }
+    stream_source_raw(
+        source_format,
+        input,
+        key_field_index,
+        chunk_frames,
+        meta.frame_len,
+        meta.frame_count,
+        |raw| {
+            writer.append_presorted_raw_frames(raw)?;
+            Ok(())
+        },
+    )?;
     let packing_stats = writer.finish_with_stats()?;
 
-    let mut inspect = fwob_v2::Reader::open(&output)?;
+    let mut inspect = fwob_v2::Reader::open(output)?;
     if write.verify {
         inspect.verify()?;
     }
-    let metadata = collect_v2_metadata(&output, &mut inspect)?;
+    let metadata = collect_v2_metadata(output, &mut inspect)?;
     print_convert_v2_toml(
-        &input,
-        &output,
+        input,
+        output,
         key_field_index,
         page_size,
         write,
@@ -2569,7 +2696,54 @@ fn convert_v1_to_v2(
         packing_stats,
         &metadata,
         write.verify,
-        conversion_started.elapsed().as_secs_f64(),
+        started.elapsed().as_secs_f64(),
+    );
+    Ok(())
+}
+
+fn convert_to_v1(
+    source_format: Format,
+    input: &Path,
+    output: &Path,
+    key_field_index: usize,
+    meta: SourceMeta,
+) -> Result<()> {
+    let mut options = fwob_v1::WriterOptions::new(meta.title.clone());
+    let estimated_string_bytes: usize = meta.string_table.iter().map(|s| s.len() + 5).sum();
+    options.string_table_preserved_length = estimated_string_bytes.max(1834) as u32;
+    let mut writer = fwob_v1::Writer::create(output, meta.schema.clone(), options)
+        .with_context(|| format!("failed to create v1 file {}", output.display()))?;
+    for value in &meta.string_table {
+        writer.append_string(value)?;
+    }
+
+    let chunk_frames = (4 * 1024 * 1024 / meta.frame_len.max(1)).max(1);
+    let started = std::time::Instant::now();
+    stream_source_raw(
+        source_format,
+        input,
+        key_field_index,
+        chunk_frames,
+        meta.frame_len,
+        meta.frame_count,
+        |raw| {
+            writer.append_presorted_raw_frames(raw)?;
+            Ok(())
+        },
+    )?;
+    drop(writer);
+
+    toml_section("conversion");
+    toml_kv_str("target_format", "fwob-v1");
+    toml_kv_str("input", &input.display().to_string());
+    toml_kv_str("output", &output.display().to_string());
+    toml_kv_num("frames", meta.frame_count);
+    if matches!(source_format, Format::V2) {
+        toml_kv_num("source_pages", meta.page_count);
+    }
+    toml_kv_num(
+        "elapsed_seconds",
+        format!("{:.3}", started.elapsed().as_secs_f64()),
     );
     Ok(())
 }
@@ -2624,70 +2798,20 @@ fn append_to_v2(args: AppendArgs) -> Result<()> {
         inspect.verify()?;
     }
     let metadata = collect_v2_metadata(&target, &mut inspect)?;
-    println!("appended {} -> {}", input.display(), target.display());
-    println!("frames: {}", comma_u64(inspect.header().frame_count));
-    println!("pages: {}", comma_u64(inspect.header().page_count));
-    print_packing_stats(packing_stats);
-    print_compression_stats(&metadata);
-    print_page_codec_encoding_stats(&metadata);
+    toml_section("append");
+    toml_kv_str("input", &input.display().to_string());
+    toml_kv_str("output", &target.display().to_string());
+    toml_kv_num("frames", inspect.header().frame_count);
+    toml_kv_num("pages", inspect.header().page_count);
+    toml_kv_bool("verified", write.verify);
     if !write.verify {
-        println!("verification: skipped (run `fwob verify` or pass verify)");
+        toml_kv_str("verification", "skipped (run `fwob verify` or pass verify)");
     }
+    println!();
+    print_packing_stats_toml(packing_stats);
+    print_compression_stats_toml(&metadata);
+    print_page_codec_encoding_stats_toml(&metadata);
     Ok(())
-}
-
-fn print_packing_stats(stats: fwob_v2::PackingStats) {
-    println!(
-        "first_page_compression_attempts: {}",
-        comma_u64(stats.first_page_attempts)
-    );
-    println!(
-        "subsequent_page_average_compression_attempts: {}",
-        comma_f64(stats.subsequent_average_attempts(), 2)
-    );
-    println!(
-        "subsequent_page_compression_attempts_range: {}..{}",
-        comma_u64(stats.subsequent_min_attempts),
-        comma_u64(stats.subsequent_max_attempts)
-    );
-    println!(
-        "subsequent_compressed_pages_measured: {}",
-        comma_u64(stats.subsequent_pages)
-    );
-    println!(
-        "average_initial_window_frame_span: {}, {}, {}, {}, {}, {}, {}, {}, {}, {}",
-        comma_f64(stats.average_window_frame_span(0), 2),
-        comma_f64(stats.average_window_frame_span(1), 2),
-        comma_f64(stats.average_window_frame_span(2), 2),
-        comma_f64(stats.average_window_frame_span(3), 2),
-        comma_f64(stats.average_window_frame_span(4), 2),
-        comma_f64(stats.average_window_frame_span(5), 2),
-        comma_f64(stats.average_window_frame_span(6), 2),
-        comma_f64(stats.average_window_frame_span(7), 2),
-        comma_f64(stats.average_window_frame_span(8), 2),
-        comma_f64(stats.average_window_frame_span(9), 2)
-    );
-    println!(
-        "average_initial_window_attempts: {}",
-        comma_f64(stats.average_initial_window_attempts(), 2)
-    );
-    println!(
-        "average_initial_window_final_position: {:.4}, {:.4}, {:.4}, {:.4}, {:.4}, {:.4}, {:.4}, {:.4}, {:.4}, {:.4}",
-        stats.average_window_final_position(0),
-        stats.average_window_final_position(1),
-        stats.average_window_final_position(2),
-        stats.average_window_final_position(3),
-        stats.average_window_final_position(4),
-        stats.average_window_final_position(5),
-        stats.average_window_final_position(6),
-        stats.average_window_final_position(7),
-        stats.average_window_final_position(8),
-        stats.average_window_final_position(9)
-    );
-    println!(
-        "initial_windows_measured: {}",
-        comma_u64(stats.initial_windows)
-    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2804,55 +2928,6 @@ fn print_compression_stats_toml(metadata: &V2Metadata) {
     }
 }
 
-fn print_compression_stats(metadata: &V2Metadata) {
-    println!(
-        "compressed_payload_bytes: {}",
-        comma_u64(metadata.compressed_total)
-    );
-    println!(
-        "uncompressed_payload_bytes: {}",
-        comma_u64(metadata.uncompressed_total)
-    );
-    let compressed_pages = metadata.codec_zstd_pages + metadata.codec_lz4_pages;
-    if compressed_pages > 0 {
-        println!(
-            "average_frames_per_compressed_page: {}",
-            comma_f64(
-                metadata.compressed_page_frames as f64 / compressed_pages as f64,
-                2
-            )
-        );
-    }
-    if metadata.uncompressed_total > 0 {
-        println!(
-            "payload_ratio: {:.4}",
-            metadata.compressed_total as f64 / metadata.uncompressed_total as f64
-        );
-        println!(
-            "physical_ratio: {:.4}",
-            metadata.physical_bytes as f64 / metadata.uncompressed_total as f64
-        );
-    }
-}
-
-fn print_page_codec_encoding_stats(metadata: &V2Metadata) {
-    println!("codec_none_pages: {}", comma_u64(metadata.codec_none_pages));
-    println!("codec_zstd_pages: {}", comma_u64(metadata.codec_zstd_pages));
-    println!("codec_lz4_pages: {}", comma_u64(metadata.codec_lz4_pages));
-    println!(
-        "encoding_row_raw_v1_pages: {}",
-        comma_u64(metadata.encoding_row_raw_v1_pages)
-    );
-    println!(
-        "encoding_columnar_basic_v1_pages: {}",
-        comma_u64(metadata.encoding_columnar_basic_v1_pages)
-    );
-    println!(
-        "encoding_columnar_delta_v1_pages: {}",
-        comma_u64(metadata.encoding_columnar_delta_v1_pages)
-    );
-}
-
 fn print_page_codec_encoding_stats_toml(metadata: &V2Metadata) {
     toml_kv_num("codec_none_pages", metadata.codec_none_pages);
     toml_kv_num("codec_zstd_pages", metadata.codec_zstd_pages);
@@ -2880,7 +2955,9 @@ fn append_v1_input(
 ) -> Result<()> {
     let mut input = fwob_v1::Reader::open(input_path, key_field_index)
         .with_context(|| format!("failed to open input v1 file {}", input_path.display()))?;
-    if input.schema() != &target_header.schema {
+    // The input is v1, which cannot persist field semantics (they read back as None), so compare
+    // structurally and ignore semantics. v2->v2 appends (append_v2_input) keep exact equality.
+    if !input.schema().is_compatible(&target_header.schema) {
         bail!("input schema does not match target schema");
     }
     let input_strings = input.read_string_table()?;
@@ -2920,61 +2997,6 @@ fn append_v2_input(
     for frame in input.read_all_frames()? {
         writer.append_frame(frame.bytes())?;
     }
-    Ok(())
-}
-
-fn convert_v2_to_v1(input: PathBuf, output: PathBuf) -> Result<()> {
-    let mut v2 = fwob_v2::Reader::open(&input)
-        .with_context(|| format!("failed to open v2 file {}", input.display()))?;
-    let mut options = fwob_v1::WriterOptions::new(v2.header().title.clone());
-    let estimated_string_bytes: usize = v2.header().string_table.iter().map(|s| s.len() + 5).sum();
-    options.string_table_preserved_length = estimated_string_bytes.max(1834) as u32;
-    let mut writer = fwob_v1::Writer::create(&output, v2.header().schema.clone(), options)?;
-    for value in &v2.header().string_table {
-        writer.append_string(value)?;
-    }
-
-    let total_pages = v2.header().page_count;
-    let total_frames = v2.header().frame_count;
-    let progress_step = 5_000_000u64;
-    let mut next_progress = progress_step;
-    let mut converted_frames = 0u64;
-    let started = std::time::Instant::now();
-    for page_index in 0..total_pages {
-        let raw = v2.read_page_raw_frames(page_index)?;
-        let frame_count = raw.len() / v2.header().schema.frame_len as usize;
-        writer.append_presorted_raw_frames(&raw)?;
-        converted_frames += frame_count as u64;
-        if converted_frames >= next_progress || converted_frames == total_frames {
-            let line = format!(
-                "converted {}/{} frames ({:.1}%) in {:.1}s",
-                comma_u64(converted_frames),
-                comma_u64(total_frames),
-                converted_frames as f64 * 100.0 / total_frames as f64,
-                started.elapsed().as_secs_f64()
-            );
-            eprintln!("{line}");
-            while next_progress <= converted_frames {
-                next_progress += progress_step;
-            }
-        }
-    }
-    toml_section("conversion");
-    toml_kv_str("target_format", "fwob-v1");
-    toml_kv_str("input", &input.display().to_string());
-    toml_kv_str("output", &output.display().to_string());
-    toml_kv_num("frames", total_frames);
-    toml_kv_num("pages", total_pages);
-    toml_kv_num(
-        "elapsed_seconds",
-        format!("{:.3}", started.elapsed().as_secs_f64()),
-    );
-
-    println!();
-    toml_section("parameters");
-    toml_kv_str("target_format", "fwob-v1");
-    toml_kv_num("source_page_count", total_pages);
-    toml_kv_num("source_frame_count", total_frames);
     Ok(())
 }
 
