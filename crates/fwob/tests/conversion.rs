@@ -1,8 +1,9 @@
 use std::process::Command;
 
 use fwob::Reader;
-use fwob_core::{Field, FieldSemantic, FieldType, Schema, TimestampUnit};
+use fwob_core::{Field, FieldSemantic, FieldType, FormatVersion, Schema, TimestampUnit};
 use fwob_v1::{Reader as V1Reader, Writer as V1Writer, WriterOptions};
+use fwob_v2::{Codec, Writer as V2Writer, WriterOptions as V2WriterOptions};
 use tempfile::tempdir;
 
 fn assert_command_success(command: &mut Command) {
@@ -56,12 +57,144 @@ fn tick_schema() -> Schema {
     .unwrap()
 }
 
+/// The same structure as `tick_schema`, but `Time` carries a Unix-second timestamp semantic. v2
+/// persists this; v1 reads it back as `None`.
+fn timestamp_tick_schema() -> Schema {
+    Schema::new(
+        "Tick",
+        vec![
+            Field::new("Time", FieldType::SignedInteger, 4, 0)
+                .with_semantic(FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)),
+            Field::new("Value", FieldType::FloatingPoint, 8, 4),
+            Field::new("Str", FieldType::Utf8String, 4, 12),
+        ],
+        0,
+    )
+    .unwrap()
+}
+
 fn tick(time: i32, value: f64) -> Vec<u8> {
     let mut out = Vec::with_capacity(16);
     out.extend_from_slice(&time.to_le_bytes());
     out.extend_from_slice(&value.to_le_bytes());
     out.extend_from_slice(&[b' '; 4]);
     out
+}
+
+fn write_v1_file(path: &std::path::Path, schema: Schema, times: std::ops::Range<i32>) {
+    let mut writer = V1Writer::create(path, schema, WriterOptions::new("Tick")).unwrap();
+    for i in times {
+        writer.append_frame(&tick(i, i as f64)).unwrap();
+    }
+}
+
+fn write_v2_file(path: &std::path::Path, schema: Schema, times: std::ops::Range<i32>) {
+    let mut writer = V2Writer::create(path, schema, V2WriterOptions::new("Tick")).unwrap();
+    for i in times {
+        writer.append_frame(&tick(i, i as f64)).unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+#[test]
+fn cli_concat_refuses_to_overwrite_existing_output_without_force() {
+    let dir = tempdir().unwrap();
+    let a = dir.path().join("a.fwob");
+    let b = dir.path().join("b.fwob");
+    let out = dir.path().join("out.fwob");
+    write_v1_file(&a, tick_schema(), 0..30);
+    write_v1_file(&b, tick_schema(), 30..70);
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    // Fresh output: concat succeeds and writes a's frames.
+    assert_command_success(Command::new(exe).args([
+        "concat",
+        out.to_str().unwrap(),
+        a.to_str().unwrap(),
+    ]));
+    assert_eq!(Reader::open(&out).unwrap().frame_count(), 30);
+
+    // Output now exists: refuse without --force.
+    assert_command_failure(
+        Command::new(exe).args(["concat", out.to_str().unwrap(), b.to_str().unwrap()]),
+        "already exists",
+    );
+    assert_eq!(Reader::open(&out).unwrap().frame_count(), 30);
+
+    // --force replaces it.
+    assert_command_success(Command::new(exe).args([
+        "concat",
+        "--force",
+        out.to_str().unwrap(),
+        b.to_str().unwrap(),
+    ]));
+    assert_eq!(Reader::open(&out).unwrap().frame_count(), 40);
+}
+
+#[test]
+fn cli_appends_v1_input_into_v2_target_with_timestamp_semantic() {
+    let dir = tempdir().unwrap();
+    let target = dir.path().join("target.fwob");
+    let input = dir.path().join("input.fwob");
+    // v2 target's Time has a timestamp semantic; v1 input's Time is structurally identical but has
+    // no semantic. Before the compatibility fix this failed with "input schema does not match".
+    write_v2_file(&target, timestamp_tick_schema(), 0..10);
+    write_v1_file(&input, tick_schema(), 10..20);
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "append",
+        target.to_str().unwrap(),
+        input.to_str().unwrap(),
+    ]));
+
+    let mut reader = Reader::open(&target).unwrap();
+    assert_eq!(reader.frame_count(), 20);
+    assert_eq!(
+        reader.schema().fields[0].semantic,
+        FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)
+    );
+}
+
+#[test]
+fn cli_converts_v2_to_v2_with_a_new_codec_and_v2_to_v1() {
+    let dir = tempdir().unwrap();
+    let input = dir.path().join("in.fwob");
+    let repacked = dir.path().join("repacked.fwob");
+    let downgraded = dir.path().join("down.fwob");
+    write_v2_file(&input, timestamp_tick_schema(), 0..50);
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    // v2 -> v2 re-pack with a different codec (previously errored "failed to open v1 file").
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        "v2",
+        input.to_str().unwrap(),
+        repacked.to_str().unwrap(),
+        "uncompressed",
+    ]));
+    let mut repacked_reader = fwob_v2::Reader::open(&repacked).unwrap();
+    assert_eq!(repacked_reader.header().frame_count, 50);
+    assert_eq!(
+        repacked_reader.read_page_header(0).unwrap().codec,
+        Codec::None
+    );
+    // The semantic is preserved across a v2 -> v2 conversion.
+    assert_eq!(
+        repacked_reader.header().schema.fields[0].semantic,
+        FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)
+    );
+
+    // v2 -> v1 still works.
+    assert_command_success(Command::new(exe).args([
+        "convert",
+        "v1",
+        input.to_str().unwrap(),
+        downgraded.to_str().unwrap(),
+    ]));
+    let mut reader = Reader::open(&downgraded).unwrap();
+    assert_eq!(reader.format_version(), FormatVersion::V1);
+    assert_eq!(reader.frame_count(), 50);
 }
 
 #[test]
