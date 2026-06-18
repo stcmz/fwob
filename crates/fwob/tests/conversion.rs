@@ -255,6 +255,117 @@ fn cli_appends_into_a_v1_target_from_v1_and_v2_inputs() {
 }
 
 #[test]
+fn cli_concat_honors_explicit_output_format() {
+    let dir = tempdir().unwrap();
+    let v1_src = dir.path().join("v1.fwob");
+    let v2_src = dir.path().join("v2.fwob");
+    write_v1_file(&v1_src, tick_schema(), 0..30);
+    write_v2_file(&v2_src, tick_schema(), 30..70);
+    let exe = env!("CARGO_BIN_EXE_fwob");
+
+    // Force a v1 output from mixed sources.
+    let out_v1 = dir.path().join("out_v1.fwob");
+    assert_command_success(Command::new(exe).args([
+        "concat",
+        "v1",
+        out_v1.to_str().unwrap(),
+        v1_src.to_str().unwrap(),
+        v2_src.to_str().unwrap(),
+    ]));
+    let reader = Reader::open(&out_v1).unwrap();
+    assert_eq!(reader.format_version(), FormatVersion::V1);
+    assert_eq!(reader.frame_count(), 70);
+
+    // Force a v2 output (with a codec write token) from a single v1 source.
+    let out_v2 = dir.path().join("out_v2.fwob");
+    assert_command_success(Command::new(exe).args([
+        "concat",
+        "v2",
+        out_v2.to_str().unwrap(),
+        v1_src.to_str().unwrap(),
+        "uncompressed",
+    ]));
+    let mut v2 = fwob_v2::Reader::open(&out_v2).unwrap();
+    assert_eq!(v2.header().frame_count, 30);
+    assert_eq!(v2.read_page_header(0).unwrap().codec, Codec::None);
+
+    // v2 write tokens are rejected for a v1 output.
+    assert_command_failure(
+        Command::new(exe).args([
+            "concat",
+            "v1",
+            dir.path().join("bad.fwob").to_str().unwrap(),
+            v1_src.to_str().unwrap(),
+            "zstd",
+        ]),
+        "v2 write tokens are not valid",
+    );
+}
+
+#[test]
+fn cli_appends_multiple_inputs() {
+    let dir = tempdir().unwrap();
+    let target = dir.path().join("target.fwob");
+    let in1 = dir.path().join("in1.fwob");
+    let in2 = dir.path().join("in2.fwob");
+    write_v2_file(&target, tick_schema(), 0..10);
+    write_v1_file(&in1, tick_schema(), 10..20);
+    write_v2_file(&in2, tick_schema(), 20..30);
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    assert_command_success(Command::new(exe).args([
+        "append",
+        target.to_str().unwrap(),
+        in1.to_str().unwrap(),
+        in2.to_str().unwrap(),
+    ]));
+    assert_eq!(Reader::open(&target).unwrap().frame_count(), 30);
+}
+
+#[test]
+fn cli_edit_sets_and_clears_field_semantic() {
+    let dir = tempdir().unwrap();
+    let v2 = dir.path().join("v2.fwob");
+    write_v2_file(&v2, tick_schema(), 0..10);
+    let exe = env!("CARGO_BIN_EXE_fwob");
+
+    assert_command_success(Command::new(exe).args([
+        "edit",
+        v2.to_str().unwrap(),
+        "--set-semantic",
+        "Time=unix-seconds",
+    ]));
+    assert_eq!(
+        fwob_v2::Reader::open(&v2).unwrap().header().schema.fields[0].semantic,
+        FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)
+    );
+
+    assert_command_success(Command::new(exe).args([
+        "edit",
+        v2.to_str().unwrap(),
+        "--set-semantic",
+        "Time=none",
+    ]));
+    assert_eq!(
+        fwob_v2::Reader::open(&v2).unwrap().header().schema.fields[0].semantic,
+        FieldSemantic::None
+    );
+
+    // v1 cannot store semantics.
+    let v1 = dir.path().join("v1.fwob");
+    write_v1_file(&v1, tick_schema(), 0..10);
+    assert_command_failure(
+        Command::new(exe).args([
+            "edit",
+            v1.to_str().unwrap(),
+            "--set-semantic",
+            "Time=unix-seconds",
+        ]),
+        "v1 files cannot store field semantics",
+    );
+}
+
+#[test]
 fn cli_prints_package_version() {
     let output = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).arg("--version"));
     assert_eq!(
