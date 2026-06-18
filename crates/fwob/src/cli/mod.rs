@@ -730,7 +730,7 @@ enum Format {
     V2,
 }
 
-fn detect_format(path: &PathBuf) -> Result<Format> {
+fn detect_format(path: &Path) -> Result<Format> {
     let mut file = File::open(path)?;
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic)?;
@@ -2589,7 +2589,7 @@ where
     let mut report = |converted: u64| {
         if converted >= next_progress || converted == total_frames {
             log_info(format!(
-                "converted {}/{} frames ({:.1}%) in {:.1}s",
+                "copied {}/{} frames ({:.1}%) in {:.1}s",
                 comma_u64(converted),
                 comma_u64(total_frames),
                 if total_frames == 0 {
@@ -2762,7 +2762,20 @@ fn append_to_v2(args: AppendArgs) -> Result<()> {
         bail!("target and input must be different files");
     }
 
-    let target_header = fwob_v2::Reader::open(&target)
+    // Append into the target in whatever format it already is; the input may be v1 or v2.
+    match detect_format(&target)? {
+        Format::V2 => append_into_v2_target(&target, &input, args.key_field_index, write),
+        Format::V1 => append_into_v1_target(&target, &input, args.key_field_index),
+    }
+}
+
+fn append_into_v2_target(
+    target: &Path,
+    input: &Path,
+    key_field_index: usize,
+    write: V2WriteOptions,
+) -> Result<()> {
+    let target_header = fwob_v2::Reader::open(target)
         .with_context(|| format!("failed to open target v2 file {}", target.display()))?
         .header()
         .clone();
@@ -2777,27 +2790,21 @@ fn append_to_v2(args: AppendArgs) -> Result<()> {
     options.compress_partial_page = write.compress_partial_page;
     options.page_packing = write.page_packing.page_packing();
 
-    let mut writer = fwob_v2::Writer::open_append(&target, options)
+    let mut writer = fwob_v2::Writer::open_append(target, options)
         .with_context(|| format!("failed to open target for append {}", target.display()))?;
 
-    match detect_format(&input)? {
-        Format::V1 => append_v1_input(
-            &input,
-            args.key_field_index,
-            write,
-            &target_header,
-            &mut writer,
-        )?,
-        Format::V2 => append_v2_input(&input, &target_header, &mut writer)?,
+    match detect_format(input)? {
+        Format::V1 => append_v1_input(input, key_field_index, write, &target_header, &mut writer)?,
+        Format::V2 => append_v2_input(input, &target_header, &mut writer)?,
     }
 
     let packing_stats = writer.finish_with_stats()?;
 
-    let mut inspect = fwob_v2::Reader::open(&target)?;
+    let mut inspect = fwob_v2::Reader::open(target)?;
     if write.verify {
         inspect.verify()?;
     }
-    let metadata = collect_v2_metadata(&target, &mut inspect)?;
+    let metadata = collect_v2_metadata(target, &mut inspect)?;
     toml_section("append");
     toml_kv_str("input", &input.display().to_string());
     toml_kv_str("output", &target.display().to_string());
@@ -2811,6 +2818,51 @@ fn append_to_v2(args: AppendArgs) -> Result<()> {
     print_packing_stats_toml(packing_stats);
     print_compression_stats_toml(&metadata);
     print_page_codec_encoding_stats_toml(&metadata);
+    Ok(())
+}
+
+fn append_into_v1_target(target: &Path, input: &Path, key_field_index: usize) -> Result<()> {
+    let input_format = detect_format(input)?;
+    let input_meta = read_source_meta(input_format, input, key_field_index)?;
+
+    // v1 cannot persist semantics, so compare structurally. Reuse the source reader for the
+    // target's schema/string table, then reopen for append.
+    let (target_schema, target_strings) = {
+        let mut reader = fwob_v1::Reader::open(target, key_field_index)
+            .with_context(|| format!("failed to open target v1 file {}", target.display()))?;
+        let strings = reader.read_string_table()?;
+        (reader.schema().clone(), strings)
+    };
+    if !input_meta.schema.is_compatible(&target_schema) {
+        bail!("input schema does not match target schema");
+    }
+    if input_meta.string_table != target_strings {
+        bail!("input string table does not match target string table");
+    }
+
+    let mut writer = fwob_v1::Writer::open_append(target, key_field_index)
+        .with_context(|| format!("failed to open target for append {}", target.display()))?;
+    let chunk_frames = (4 * 1024 * 1024 / input_meta.frame_len.max(1)).max(1);
+    // The v1 writer enforces key order at each chunk boundary, so an out-of-order input is rejected.
+    stream_source_raw(
+        input_format,
+        input,
+        key_field_index,
+        chunk_frames,
+        input_meta.frame_len,
+        input_meta.frame_count,
+        |raw| {
+            writer.append_presorted_raw_frames(raw)?;
+            Ok(())
+        },
+    )?;
+    let frame_count = writer.frame_count();
+    drop(writer);
+
+    toml_section("append");
+    toml_kv_str("input", &input.display().to_string());
+    toml_kv_str("output", &target.display().to_string());
+    toml_kv_num("frames", frame_count);
     Ok(())
 }
 
