@@ -10,6 +10,7 @@ use fwob_core::{Field, FieldType, Key, Schema};
 use fwob_v2::{Codec, CodecSelection, Encoding, EncodingSelection, PagePacking};
 
 mod bench;
+mod file_info;
 mod inspect;
 mod output;
 mod query;
@@ -36,6 +37,8 @@ enum Command {
     /// Verify a v1 or v2 file. v1 inputs need --key-field-index when the key is
     /// not field 0.
     Verify(AutoFileArgs),
+    /// Summarize multiple FWOB files in table, Markdown, CSV, or JSON Lines form.
+    Info(InfoArgs),
     /// Benchmark conversion and read performance for v1 or v2 inputs.
     Bench(BenchArgs),
     /// Convert between v1 and v2. Target format defaults to v2. Plain tokens
@@ -85,6 +88,24 @@ struct AutoFileArgs {
 struct V2FileArgs {
     /// v2 input file.
     path: PathBuf,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "fwob info [OPTIONS] [PATH...] [FORMAT]")]
+#[command(after_help = "Plain tokens:
+  formats: table (default), md, csv, jsonl
+
+PATH may name a file or directory. Directories contribute their immediate *.fwob files.
+With no PATH, the command lists immediate *.fwob files in the current directory.
+Format tokens win on exact match; use ./table for a file or directory named table.")]
+struct InfoArgs {
+    /// Files, directories, and one optional output-format token.
+    #[arg(value_name = "PATH_OR_FORMAT")]
+    target: Vec<String>,
+
+    /// Key field index for v1 files. Ignored for v2 because v2 stores it.
+    #[arg(long, default_value_t = 0)]
+    key_field_index: usize,
 }
 
 #[derive(Debug, Args)]
@@ -553,6 +574,7 @@ pub fn run() -> Result<()> {
         Command::Create(args) => create_blank(args),
         Command::Inspect(args) => inspect_auto(args),
         Command::Verify(args) => verify_auto(args),
+        Command::Info(args) => file_info::print_file_info(args),
         Command::Bench(args) => bench::bench_v2(args),
         Command::Convert(args) => convert(args),
         Command::Append(args) => append_to_v2(args),
@@ -1331,30 +1353,6 @@ fn parse_field_type(value: &str) -> Result<FieldType> {
     }
 }
 
-#[cfg(test)]
-mod token_case_tests {
-    use super::*;
-
-    #[test]
-    fn positional_tokens_are_case_sensitive() {
-        assert!(matches!(match_target_format("v2"), Some(TargetFormat::V2)));
-        assert!(match_target_format("V2").is_none());
-        assert!(matches!(match_bench_mode("range"), Some(BenchMode::Range)));
-        assert!(match_bench_mode("RANGE").is_none());
-
-        let values = vec!["ZSTD".to_string(), "input.fwob".to_string()];
-        let parsed = parse_command_tokens(&values, false, true, false, false, false).unwrap();
-        assert_eq!(parsed.paths, ["ZSTD", "input.fwob"]);
-        assert_eq!(parsed.codec, None);
-    }
-
-    #[test]
-    fn field_type_tokens_are_case_sensitive() {
-        assert_eq!(parse_field_type("u").unwrap(), FieldType::UnsignedInteger);
-        assert!(parse_field_type("U").is_err());
-    }
-}
-
 fn read_template_schema(
     path: &PathBuf,
     v1_key_field_index: usize,
@@ -2078,4 +2076,28 @@ fn parse_page_size_token(value: &str) -> Option<Result<u32>> {
         }
         Ok(size as u32)
     })())
+}
+
+#[cfg(test)]
+mod token_case_tests {
+    use super::*;
+
+    #[test]
+    fn positional_tokens_are_case_sensitive() {
+        assert!(matches!(match_target_format("v2"), Some(TargetFormat::V2)));
+        assert!(match_target_format("V2").is_none());
+        assert!(matches!(match_bench_mode("range"), Some(BenchMode::Range)));
+        assert!(match_bench_mode("RANGE").is_none());
+
+        let values = vec!["ZSTD".to_string(), "input.fwob".to_string()];
+        let parsed = parse_command_tokens(&values, false, true, false, false, false).unwrap();
+        assert_eq!(parsed.paths, ["ZSTD", "input.fwob"]);
+        assert_eq!(parsed.codec, None);
+    }
+
+    #[test]
+    fn field_type_tokens_are_case_sensitive() {
+        assert_eq!(parse_field_type("u").unwrap(), FieldType::UnsignedInteger);
+        assert!(parse_field_type("U").is_err());
+    }
 }

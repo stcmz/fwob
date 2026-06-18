@@ -115,6 +115,8 @@ nanosecond variants. Table and Markdown output render those fields as UTC.
 ```bash
 fwob verify ticks.fwob
 fwob inspect ticks.fwob
+fwob info
+fwob info data archive/ticks.fwob md
 fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
 fwob convert v2 ticks.fwob ticks-delta.fwob columnar-delta zstd verify
@@ -138,6 +140,13 @@ cross-file schema, string-table, and key-boundary compatibility without rescanni
 each complete input. Run `fwob verify FILE` first when input corruption is a
 concern. Mixed v1/v2 concat preserves available v2 field semantics and warns when
 v1's missing semantic metadata requires a relaxed comparison.
+
+`fwob info` summarizes FWOB files as a padded table. With no paths it lists
+immediate `*.fwob` files in the current directory. Each supplied path may be a
+file or directory; directory discovery is non-recursive. Add `table`, `md`,
+`csv`, or `jsonl` to select the output format. The summary includes path, format,
+title, frame type, key-field index, field count, frame length/count, boundary
+keys, raw frame bytes, and physical-to-raw ratio.
 
 Positional tokens are case-sensitive. For example, `v2`, `zstd`, and `1MiB`
 are tokens; `V2`, `ZSTD`, and `1MIB` are treated as paths or values rather than

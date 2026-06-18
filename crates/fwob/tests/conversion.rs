@@ -445,6 +445,63 @@ fn cli_prints_package_version() {
 }
 
 #[test]
+fn cli_info_discovers_files_and_supports_all_output_formats() {
+    let dir = tempdir().unwrap();
+    let v1 = dir.path().join("a.fwob");
+    let v2 = dir.path().join("b.fwob");
+    write_v1_file(&v1, tick_schema(), 0..3);
+    write_v2_file(&v2, tick_schema(), 3..7);
+    std::fs::write(dir.path().join("ignored.txt"), b"not fwob").unwrap();
+    let exe = env!("CARGO_BIN_EXE_fwob");
+
+    let table = command_output(Command::new(exe).arg("info").current_dir(dir.path()));
+    let table = String::from_utf8(table.stdout).unwrap();
+    assert!(table.contains("file") && table.contains("physical_ratio"));
+    assert!(table.contains("a.fwob") && table.contains("b.fwob"));
+    assert!(!table.contains("ignored.txt"));
+
+    let markdown =
+        command_output(Command::new(exe).args(["info", dir.path().to_str().unwrap(), "md"]));
+    let markdown = String::from_utf8(markdown.stdout).unwrap();
+    assert!(markdown.starts_with("| file | format | title |"));
+    assert!(markdown.contains("| fwob-v1 |") && markdown.contains("| fwob-v2 |"));
+
+    let csv = command_output(Command::new(exe).args([
+        "info",
+        v1.to_str().unwrap(),
+        dir.path().to_str().unwrap(),
+        "csv",
+    ]));
+    let csv = String::from_utf8(csv.stdout).unwrap();
+    assert_eq!(
+        csv.lines().count(),
+        3,
+        "explicit and discovered duplicates remain"
+    );
+    assert!(csv.starts_with("file,format,title,frame_type,key_field_index"));
+    assert!(csv.contains(",0,3,16,3,0,2,48,"));
+
+    let jsonl = command_output(Command::new(exe).args([
+        "info",
+        v1.to_str().unwrap(),
+        v2.to_str().unwrap(),
+        "jsonl",
+    ]));
+    let rows: Vec<serde_json::Value> = String::from_utf8(jsonl.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["format"], "fwob-v1");
+    assert_eq!(rows[0]["frame_count"], 3);
+    assert_eq!(rows[0]["first_key"], "0");
+    assert_eq!(rows[0]["last_key"], "2");
+    assert_eq!(rows[0]["data_bytes"], 48);
+    assert!(rows[0]["physical_ratio"].is_number());
+}
+
+#[test]
 fn cli_splits_concatenates_and_edits_metadata() {
     let dir = tempdir().unwrap();
     let input = dir.path().join("input.fwob");
