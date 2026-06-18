@@ -159,6 +159,43 @@ pub fn update_metadata(
     Ok(())
 }
 
+/// Updates the per-field `semantic` of an existing v2 file in place. Field semantics are metadata
+/// only (they do not affect frame layout), and the header is fixed-size, so this rewrites just the
+/// header and leaves all pages untouched. Each update names a field; the resulting schema is
+/// re-validated (e.g. timestamp semantics are only allowed on integer fields).
+pub fn update_field_semantics(
+    path: impl AsRef<std::path::Path>,
+    updates: &[(String, FieldSemantic)],
+) -> Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    let mut header = read_file_header(&mut file)?;
+    let actual_len = file.metadata()?.len();
+    let expected_len = FILE_HEADER_LEN + header.page_count * u64::from(header.page_size);
+    if actual_len != expected_len {
+        return Err(V2Error::InvalidFileHeader);
+    }
+    let mut fields = header.schema.fields.clone();
+    for (name, semantic) in updates {
+        let field = fields
+            .iter_mut()
+            .find(|field| &field.name == name)
+            .ok_or(V2Error::InvalidFileHeader)?;
+        field.semantic = *semantic;
+    }
+    let schema = Schema::new(
+        header.schema.frame_type.clone(),
+        fields,
+        header.schema.key_field_index,
+    )?;
+    header.schema = schema;
+    write_file_header(&mut file, &header)?;
+    file.flush()?;
+    Ok(())
+}
+
 pub fn update_counts<W: Write + Seek>(
     writer: &mut W,
     page_count: u64,
