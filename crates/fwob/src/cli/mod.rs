@@ -741,6 +741,22 @@ fn edit_file(args: EditArgs) -> Result<()> {
         bail!("edit requires --title, --append-string, --clear-strings, or --set-semantic");
     }
 
+    // Validate every semantic edit before applying any metadata change. This keeps deterministic
+    // validation failures from partially applying a combined edit command.
+    let semantic_updates = if args.set_semantics.is_empty() {
+        None
+    } else {
+        match detect_format(&args.path)? {
+            Format::V1 => bail!("v1 files cannot store field semantics; convert to v2 first"),
+            Format::V2 => {
+                let schema = fwob_v2::Reader::open(&args.path)?.header().schema.clone();
+                let updates = parse_semantic_updates(&args.set_semantics, &schema)?;
+                validate_semantic_updates(&schema, &updates)?;
+                Some(updates)
+            }
+        }
+    };
+
     // Title / string-table edits go through the version-neutral editor.
     if edits_metadata {
         let mut editor = Editor::open_with_options(
@@ -763,16 +779,8 @@ fn edit_file(args: EditArgs) -> Result<()> {
         editor.update_metadata(args.title.as_deref(), strings.as_deref())?;
     }
 
-    // Field-semantic edits only apply to v2 (v1 cannot store semantics).
-    if !args.set_semantics.is_empty() {
-        match detect_format(&args.path)? {
-            Format::V1 => bail!("v1 files cannot store field semantics; convert to v2 first"),
-            Format::V2 => {
-                let schema = fwob_v2::Reader::open(&args.path)?.header().schema.clone();
-                let updates = parse_semantic_updates(&args.set_semantics, &schema)?;
-                fwob_v2::update_field_semantics(&args.path, &updates)?;
-            }
-        }
+    if let Some(updates) = semantic_updates {
+        fwob_v2::update_field_semantics(&args.path, &updates)?;
     }
 
     let reader = fwob::Reader::open(&args.path)?;
@@ -789,6 +797,22 @@ fn edit_file(args: EditArgs) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+fn validate_semantic_updates(
+    schema: &Schema,
+    updates: &[(String, fwob_core::FieldSemantic)],
+) -> Result<()> {
+    let mut fields = schema.fields.clone();
+    for (name, semantic) in updates {
+        let field = fields
+            .iter_mut()
+            .find(|field| &field.name == name)
+            .expect("field names were validated while parsing semantic updates");
+        field.semantic = *semantic;
+    }
+    Schema::new(schema.frame_type.clone(), fields, schema.key_field_index)?;
     Ok(())
 }
 

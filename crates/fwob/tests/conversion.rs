@@ -400,6 +400,42 @@ fn cli_edit_sets_and_clears_field_semantic() {
 }
 
 #[test]
+fn cli_edit_validates_semantics_before_mutating_other_metadata() {
+    let dir = tempdir().unwrap();
+    let v1 = dir.path().join("v1.fwob");
+    let v2 = dir.path().join("v2.fwob");
+    write_v1_file(&v1, tick_schema(), 0..10);
+    write_v2_file(&v2, tick_schema(), 0..10);
+    let exe = env!("CARGO_BIN_EXE_fwob");
+
+    assert_command_failure(
+        Command::new(exe).args([
+            "edit",
+            v1.to_str().unwrap(),
+            "--title",
+            "Changed",
+            "--set-semantic",
+            "Time=unix-seconds",
+        ]),
+        "v1 files cannot store field semantics",
+    );
+    assert_eq!(Reader::open(&v1).unwrap().title(), "Tick");
+
+    assert_command_failure(
+        Command::new(exe).args([
+            "edit",
+            v2.to_str().unwrap(),
+            "--title",
+            "Changed",
+            "--set-semantic",
+            "Value=unix-seconds",
+        ]),
+        "timestamp semantics but is not an integer",
+    );
+    assert_eq!(Reader::open(&v2).unwrap().title(), "Tick");
+}
+
+#[test]
 fn cli_prints_package_version() {
     let output = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).arg("--version"));
     assert_eq!(
