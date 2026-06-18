@@ -501,18 +501,19 @@ fn cli_info_discovers_files_and_supports_all_output_formats() {
     assert!(csv.starts_with("file,format,title,frame_type,key_field_index"));
     assert!(csv.contains(",0,3,16,3,0,2,48,"));
 
-    let jsonl = command_output(Command::new(exe).args([
-        "info",
-        v1.to_str().unwrap(),
-        v2.to_str().unwrap(),
-        "jsonl",
-    ]));
+    let jsonl = command_output(
+        Command::new(exe)
+            .args(["info", v1.to_str().unwrap(), v2.to_str().unwrap(), "jsonl"])
+            .current_dir(dir.path()),
+    );
     let rows: Vec<serde_json::Value> = String::from_utf8(jsonl.stdout)
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["file"], "a.fwob");
+    assert_eq!(rows[1]["file"], "b.fwob");
     assert_eq!(rows[0]["format"], "fwob-v1");
     assert_eq!(rows[0]["frame_count"], 3);
     assert_eq!(rows[0]["first_key"], "0");

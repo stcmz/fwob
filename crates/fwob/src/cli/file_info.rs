@@ -34,7 +34,7 @@ impl InfoFormat {
 
 #[derive(Debug)]
 struct FileInfo {
-    path: PathBuf,
+    display_path: PathBuf,
     format: FormatVersion,
     title: String,
     frame_type: String,
@@ -51,9 +51,10 @@ struct FileInfo {
 pub(super) fn print_file_info(args: InfoArgs) -> Result<()> {
     let (paths, format) = parse_targets(&args.target)?;
     let files = discover_files(&paths)?;
+    let current_dir = fs::canonicalize(std::env::current_dir()?)?;
     let mut rows = Vec::with_capacity(files.len());
     for path in files {
-        rows.push(read_file_info(path, args.key_field_index)?);
+        rows.push(read_file_info(path, &current_dir, args.key_field_index)?);
     }
 
     let stdout = io::stdout();
@@ -125,7 +126,11 @@ fn has_fwob_extension(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("fwob"))
 }
 
-fn read_file_info(path: PathBuf, v1_key_field_index: usize) -> Result<FileInfo> {
+fn read_file_info(
+    path: PathBuf,
+    current_dir: &Path,
+    v1_key_field_index: usize,
+) -> Result<FileInfo> {
     let mut reader =
         fwob::Reader::open_with_options(&path, fwob::ReaderOptions { v1_key_field_index })
             .with_context(|| format!("failed to read FWOB metadata from {}", path.display()))?;
@@ -136,8 +141,10 @@ fn read_file_info(path: PathBuf, v1_key_field_index: usize) -> Result<FileInfo> 
         .context("raw data byte count overflows u64")?;
     let physical_bytes = fs::metadata(&path)?.len();
     let physical_ratio = (data_bytes != 0).then(|| physical_bytes as f64 / data_bytes as f64);
+    let absolute_path = fs::canonicalize(&path)?;
+    let display_path = pathdiff::diff_paths(&absolute_path, current_dir).unwrap_or(absolute_path);
     Ok(FileInfo {
-        path,
+        display_path,
         format: reader.format_version(),
         title: reader.title().to_owned(),
         frame_type: schema.frame_type,
@@ -181,7 +188,7 @@ fn display_cells(info: &FileInfo, grouped: bool) -> [String; 12] {
     };
     let usize_value = |value: usize| integer(value as u64);
     [
-        display_text(&info.path.display().to_string()),
+        display_text(&info.display_path.display().to_string()),
         format_name(info.format).to_owned(),
         display_text(&info.title),
         display_text(&info.frame_type),
@@ -259,7 +266,7 @@ fn write_csv(output: &mut impl Write, rows: &[FileInfo]) -> Result<()> {
 fn write_json_lines(output: &mut impl Write, rows: &[FileInfo]) -> Result<()> {
     for row in rows {
         let value = serde_json::json!({
-            "file": row.path.display().to_string(),
+            "file": row.display_path.display().to_string(),
             "format": format_name(row.format),
             "title": row.title,
             "frame_type": row.frame_type,
