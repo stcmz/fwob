@@ -243,21 +243,27 @@ struct V2WriteArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob append [OPTIONS] TARGET INPUT [TOKENS]")]
-#[command(after_help = "Plain tokens:
+#[command(override_usage = "fwob append [OPTIONS] TARGET INPUT... [TOKENS]")]
+#[command(
+    after_help = "Appends one or more inputs (v1 or v2) into an existing v1 or v2 target, in
+order. For a v2 target the write tokens below tune the appended pages (e.g. a
+different codec or --zstd-level).
+
+Plain tokens:
   codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
   page packing: estimate-shrink, tight-fit
   switches: verify, compress-partial-page
 
-Tokens may appear anywhere. Reserved tokens win on exact match; use ./row-raw for a file named row-raw.")]
+Tokens may appear anywhere. Reserved tokens win on exact match; use ./row-raw for a file named row-raw."
+)]
 struct AppendArgs {
-    /// Existing v2 target, input file, and plain tokens such as zstd, row-raw,
-    /// tight-fit, verify, and compress-partial-page.
+    /// Existing v1 or v2 target, one or more input files, and plain tokens such as
+    /// zstd, row-raw, tight-fit, verify, and compress-partial-page.
     #[arg(value_name = "TARGET", num_args = 2..)]
     target: Vec<String>,
 
-    /// Key field index for the v1 input. v1 does not store this in metadata.
+    /// Key field index for v1 inputs/targets. v1 does not store this in metadata.
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
 
@@ -329,6 +335,10 @@ struct EditArgs {
     /// Clear the string table before applying appended values.
     #[arg(long)]
     clear_strings: bool,
+    /// Set a field's semantic as NAME=VALUE, where VALUE is one of none, unix-seconds,
+    /// unix-milliseconds, unix-microseconds, unix-nanoseconds. v2 only. May be repeated.
+    #[arg(long = "set-semantic", value_name = "NAME=VALUE")]
+    set_semantics: Vec<String>,
     /// Key field index for v1 input only.
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
@@ -631,6 +641,7 @@ fn split_file(args: SplitArgs) -> Result<()> {
     let outputs = Organizer {
         operation_options,
         keep_empty_parts: args.keep_empty_parts,
+        ..Default::default()
     }
     .split(&input, &output_dir, &keys)?;
     toml_section("split");
@@ -642,9 +653,14 @@ fn split_file(args: SplitArgs) -> Result<()> {
 }
 
 fn concat_file(args: ConcatArgs) -> Result<()> {
-    let parsed = parse_command_tokens(&args.target, false, true, false, false, false)?;
+    // concat creates a new file, so (like create/convert) it accepts an output format token plus
+    // v2 write tokens and a page-size token.
+    let parsed = parse_command_tokens(&args.target, true, true, true, false, false)?;
     if parsed.paths.len() < 2 {
         bail!("concat expects OUTPUT and at least one INPUT after tokens");
+    }
+    if matches!(parsed.format, Some(TargetFormat::V1)) && parsed.has_v2_write_tokens() {
+        bail!("v2 write tokens are not valid when concatenating to v1");
     }
     let output = PathBuf::from(parsed.paths[0]);
     if output.exists() && !args.force {
@@ -657,6 +673,11 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
         .iter()
         .map(PathBuf::from)
         .collect::<Vec<_>>();
+    let output_format = parsed.format.map(|format| match format {
+        TargetFormat::V1 => fwob_core::FormatVersion::V1,
+        TargetFormat::V2 => fwob_core::FormatVersion::V2,
+    });
+    let output_page_size = parsed.page_size;
     let (operation_options, _) = parsed.operation_options(
         args.key_field_index,
         args.zstd_level,
@@ -665,43 +686,114 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
     );
     let frames = fwob::Organizer {
         operation_options,
+        output_format,
+        output_page_size,
         ..Default::default()
     }
     .concat(&output, &inputs)?;
     toml_section("concat");
-    toml_kv_num("frames", frames);
     toml_kv_str("output", &output.display().to_string());
+    if let Some(format) = parsed.format {
+        toml_kv_str(
+            "format",
+            match format {
+                TargetFormat::V1 => "fwob-v1",
+                TargetFormat::V2 => "fwob-v2",
+            },
+        );
+    }
+    toml_kv_num("frames", frames);
     Ok(())
 }
 
 fn edit_file(args: EditArgs) -> Result<()> {
     use fwob::Editor;
 
-    if args.title.is_none() && args.append_strings.is_empty() && !args.clear_strings {
-        bail!("edit requires --title, --append-string, or --clear-strings");
+    let edits_metadata =
+        args.title.is_some() || !args.append_strings.is_empty() || args.clear_strings;
+    if !edits_metadata && args.set_semantics.is_empty() {
+        bail!("edit requires --title, --append-string, --clear-strings, or --set-semantic");
     }
-    let mut editor = Editor::open_with_options(
-        &args.path,
-        fwob::ReaderOptions {
-            v1_key_field_index: args.key_field_index,
-        },
-    )?;
-    let strings = if args.clear_strings || !args.append_strings.is_empty() {
-        let mut values = if args.clear_strings {
-            Vec::new()
+
+    // Title / string-table edits go through the version-neutral editor.
+    if edits_metadata {
+        let mut editor = Editor::open_with_options(
+            &args.path,
+            fwob::ReaderOptions {
+                v1_key_field_index: args.key_field_index,
+            },
+        )?;
+        let strings = if args.clear_strings || !args.append_strings.is_empty() {
+            let mut values = if args.clear_strings {
+                Vec::new()
+            } else {
+                editor.string_table().to_vec()
+            };
+            values.extend(args.append_strings.clone());
+            Some(values)
         } else {
-            editor.string_table().to_vec()
+            None
         };
-        values.extend(args.append_strings);
-        Some(values)
-    } else {
-        None
-    };
-    editor.update_metadata(args.title.as_deref(), strings.as_deref())?;
+        editor.update_metadata(args.title.as_deref(), strings.as_deref())?;
+    }
+
+    // Field-semantic edits only apply to v2 (v1 cannot store semantics).
+    if !args.set_semantics.is_empty() {
+        match detect_format(&args.path)? {
+            Format::V1 => bail!("v1 files cannot store field semantics; convert to v2 first"),
+            Format::V2 => {
+                let schema = fwob_v2::Reader::open(&args.path)?.header().schema.clone();
+                let updates = parse_semantic_updates(&args.set_semantics, &schema)?;
+                fwob_v2::update_field_semantics(&args.path, &updates)?;
+            }
+        }
+    }
+
+    let reader = fwob::Reader::open(&args.path)?;
     toml_section("edit");
-    toml_kv_str("title", editor.title());
-    toml_kv_num("string_count", editor.string_table().len());
+    toml_kv_str("title", reader.title());
+    toml_kv_num("string_count", reader.string_table().len());
+    if !args.set_semantics.is_empty() {
+        for field in &reader.schema().fields {
+            if !matches!(field.semantic, fwob_core::FieldSemantic::None) {
+                toml_kv_str(
+                    &format!("semantic.{}", field.name),
+                    field_semantic_name(field.semantic),
+                );
+            }
+        }
+    }
     Ok(())
+}
+
+/// Parses `NAME=VALUE` semantic edits, validating field names against `schema`.
+fn parse_semantic_updates(
+    values: &[String],
+    schema: &Schema,
+) -> Result<Vec<(String, fwob_core::FieldSemantic)>> {
+    use fwob_core::{FieldSemantic, TimestampUnit};
+    let mut updates = Vec::with_capacity(values.len());
+    for value in values {
+        let (name, semantic) = value
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--set-semantic expects NAME=VALUE, got '{value}'"))?;
+        if !schema.fields.iter().any(|field| field.name == name) {
+            bail!("field '{name}' not found in schema");
+        }
+        let semantic = match semantic {
+            "none" => FieldSemantic::None,
+            "unix-seconds" => FieldSemantic::UnixTimestamp(TimestampUnit::Seconds),
+            "unix-milliseconds" => FieldSemantic::UnixTimestamp(TimestampUnit::Milliseconds),
+            "unix-microseconds" => FieldSemantic::UnixTimestamp(TimestampUnit::Microseconds),
+            "unix-nanoseconds" => FieldSemantic::UnixTimestamp(TimestampUnit::Nanoseconds),
+            other => bail!(
+                "unknown semantic '{other}'; expected none, unix-seconds, unix-milliseconds, \
+                 unix-microseconds, or unix-nanoseconds"
+            ),
+        };
+        updates.push((name.to_owned(), semantic));
+    }
+    Ok(updates)
 }
 
 fn inspect_auto(args: AutoFileArgs) -> Result<()> {
@@ -2751,27 +2843,31 @@ fn convert_to_v1(
 fn append_to_v2(args: AppendArgs) -> Result<()> {
     let parsed = parse_command_tokens(&args.target, false, true, false, false, false)?;
     let write = parsed.write_options(args.write);
-    let [target, input] = parsed.paths.as_slice() else {
-        bail!("append expects exactly target and input paths after tokens");
-    };
-    let target = PathBuf::from(target);
-    let input = PathBuf::from(input);
+    if parsed.paths.len() < 2 {
+        bail!("append expects a target and at least one input after tokens");
+    }
+    let target = PathBuf::from(parsed.paths[0]);
+    let inputs: Vec<PathBuf> = parsed.paths[1..].iter().map(PathBuf::from).collect();
 
     validate_zstd_level(write.zstd_level)?;
-    if std::fs::canonicalize(&target).ok() == std::fs::canonicalize(&input).ok() {
-        bail!("target and input must be different files");
+    let target_canonical = std::fs::canonicalize(&target).ok();
+    for input in &inputs {
+        if target_canonical.is_some() && std::fs::canonicalize(input).ok() == target_canonical {
+            bail!("target and input must be different files");
+        }
     }
 
-    // Append into the target in whatever format it already is; the input may be v1 or v2.
+    // Append into the target in whatever format it already is; inputs may be v1 or v2 and are
+    // appended in the given order.
     match detect_format(&target)? {
-        Format::V2 => append_into_v2_target(&target, &input, args.key_field_index, write),
-        Format::V1 => append_into_v1_target(&target, &input, args.key_field_index),
+        Format::V2 => append_into_v2_target(&target, &inputs, args.key_field_index, write),
+        Format::V1 => append_into_v1_target(&target, &inputs, args.key_field_index),
     }
 }
 
 fn append_into_v2_target(
     target: &Path,
-    input: &Path,
+    inputs: &[PathBuf],
     key_field_index: usize,
     write: V2WriteOptions,
 ) -> Result<()> {
@@ -2793,9 +2889,13 @@ fn append_into_v2_target(
     let mut writer = fwob_v2::Writer::open_append(target, options)
         .with_context(|| format!("failed to open target for append {}", target.display()))?;
 
-    match detect_format(input)? {
-        Format::V1 => append_v1_input(input, key_field_index, write, &target_header, &mut writer)?,
-        Format::V2 => append_v2_input(input, &target_header, &mut writer)?,
+    for input in inputs {
+        match detect_format(input)? {
+            Format::V1 => {
+                append_v1_input(input, key_field_index, write, &target_header, &mut writer)?
+            }
+            Format::V2 => append_v2_input(input, &target_header, &mut writer)?,
+        }
     }
 
     let packing_stats = writer.finish_with_stats()?;
@@ -2806,8 +2906,8 @@ fn append_into_v2_target(
     }
     let metadata = collect_v2_metadata(target, &mut inspect)?;
     toml_section("append");
-    toml_kv_str("input", &input.display().to_string());
     toml_kv_str("output", &target.display().to_string());
+    toml_kv_num("inputs", inputs.len());
     toml_kv_num("frames", inspect.header().frame_count);
     toml_kv_num("pages", inspect.header().page_count);
     toml_kv_bool("verified", write.verify);
@@ -2821,47 +2921,47 @@ fn append_into_v2_target(
     Ok(())
 }
 
-fn append_into_v1_target(target: &Path, input: &Path, key_field_index: usize) -> Result<()> {
-    let input_format = detect_format(input)?;
-    let input_meta = read_source_meta(input_format, input, key_field_index)?;
-
-    // v1 cannot persist semantics, so compare structurally. Reuse the source reader for the
-    // target's schema/string table, then reopen for append.
+fn append_into_v1_target(target: &Path, inputs: &[PathBuf], key_field_index: usize) -> Result<()> {
+    // v1 cannot persist semantics, so compare structurally.
     let (target_schema, target_strings) = {
         let mut reader = fwob_v1::Reader::open(target, key_field_index)
             .with_context(|| format!("failed to open target v1 file {}", target.display()))?;
         let strings = reader.read_string_table()?;
         (reader.schema().clone(), strings)
     };
-    if !input_meta.schema.is_compatible(&target_schema) {
-        bail!("input schema does not match target schema");
-    }
-    if input_meta.string_table != target_strings {
-        bail!("input string table does not match target string table");
-    }
 
     let mut writer = fwob_v1::Writer::open_append(target, key_field_index)
         .with_context(|| format!("failed to open target for append {}", target.display()))?;
-    let chunk_frames = (4 * 1024 * 1024 / input_meta.frame_len.max(1)).max(1);
-    // The v1 writer enforces key order at each chunk boundary, so an out-of-order input is rejected.
-    stream_source_raw(
-        input_format,
-        input,
-        key_field_index,
-        chunk_frames,
-        input_meta.frame_len,
-        input_meta.frame_count,
-        |raw| {
-            writer.append_presorted_raw_frames(raw)?;
-            Ok(())
-        },
-    )?;
+    for input in inputs {
+        let input_format = detect_format(input)?;
+        let input_meta = read_source_meta(input_format, input, key_field_index)?;
+        if !input_meta.schema.is_compatible(&target_schema) {
+            bail!("input schema does not match target schema");
+        }
+        if input_meta.string_table != target_strings {
+            bail!("input string table does not match target string table");
+        }
+        let chunk_frames = (4 * 1024 * 1024 / input_meta.frame_len.max(1)).max(1);
+        // The v1 writer enforces key order at each chunk boundary, so out-of-order input is rejected.
+        stream_source_raw(
+            input_format,
+            input,
+            key_field_index,
+            chunk_frames,
+            input_meta.frame_len,
+            input_meta.frame_count,
+            |raw| {
+                writer.append_presorted_raw_frames(raw)?;
+                Ok(())
+            },
+        )?;
+    }
     let frame_count = writer.frame_count();
     drop(writer);
 
     toml_section("append");
-    toml_kv_str("input", &input.display().to_string());
     toml_kv_str("output", &target.display().to_string());
+    toml_kv_num("inputs", inputs.len());
     toml_kv_num("frames", frame_count);
     Ok(())
 }

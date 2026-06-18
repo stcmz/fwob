@@ -17,6 +17,10 @@ const COPY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 pub struct Organizer {
     pub operation_options: OperationOptions,
     pub keep_empty_parts: bool,
+    /// Force the concat output format. `None` infers it from the sources (all-v1 -> v1, else v2).
+    pub output_format: Option<fwob_core::FormatVersion>,
+    /// Override the concat v2 output page size. `None` inherits the first source's page size.
+    pub output_page_size: Option<u32>,
 }
 
 impl Organizer {
@@ -36,7 +40,13 @@ impl Organizer {
     }
 
     pub fn concat(&self, destination: impl AsRef<Path>, sources: &[PathBuf]) -> Result<u64> {
-        concat_files(destination, sources, &self.operation_options)
+        concat_files(
+            destination,
+            sources,
+            &self.operation_options,
+            self.output_format,
+            self.output_page_size,
+        )
     }
 }
 
@@ -123,6 +133,8 @@ fn concat_files(
     destination: impl AsRef<Path>,
     sources: &[PathBuf],
     operation_options: &OperationOptions,
+    output_format: Option<fwob_core::FormatVersion>,
+    output_page_size: Option<u32>,
 ) -> Result<u64> {
     if sources.is_empty() {
         return Err(Error::EmptySources);
@@ -188,20 +200,41 @@ fn concat_files(
         return Err(Error::IncompatibleSchema);
     }
 
-    if all_v1 {
-        return concat_v1_raw(
+    // Output format: forced by the caller, otherwise inferred (all-v1 -> v1, else v2).
+    let final_format = output_format.unwrap_or(if all_v1 {
+        fwob_core::FormatVersion::V1
+    } else {
+        fwob_core::FormatVersion::V2
+    });
+
+    if final_format == fwob_core::FormatVersion::V1 {
+        if all_v1 {
+            // Fast path: raw v1 frame copy.
+            return concat_v1_raw(
+                destination.as_ref(),
+                sources,
+                &schema,
+                &title,
+                &string_table,
+                total_frames,
+                v1_key_field_index,
+            );
+        }
+        // Forced v1 output from v2/mixed sources: read every source through the version-neutral
+        // reader and write a v1 file (semantics are dropped, which v1 cannot store anyway).
+        return concat_to_v1(
             destination.as_ref(),
             sources,
-            &schema,
+            &output_schema,
             &title,
             &string_table,
             total_frames,
-            v1_key_field_index,
+            reader_options,
         );
     }
 
-    // All-v2 or mixed v1/v2 sources: read each through the version-neutral reader and write one v2
-    // output. Frame bytes are identical across formats, so mixing is lossless.
+    // v2 output (all-v2, mixed, or forced): read each source through the version-neutral reader.
+    // Frame bytes are identical across formats, so mixing is lossless.
     let destination = destination.as_ref();
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
@@ -209,7 +242,13 @@ fn concat_files(
     let mut writer = Writer::create_v2(
         &temporary_path,
         output_schema.clone(),
-        output_v2_options(&sources[0], &title, &string_table, operation_options),
+        output_v2_options(
+            &sources[0],
+            &title,
+            &string_table,
+            operation_options,
+            output_page_size,
+        ),
     )?;
     for path in sources {
         let mut reader = Reader::open_with_options(path, reader_options)?;
@@ -223,6 +262,51 @@ fn concat_files(
     }
     writer.finish()?;
     Maintenance::verify(&temporary_path, reader_options)?;
+    temporary_path
+        .persist(destination)
+        .map_err(|error| Error::Io(error.error))?;
+    Ok(total_frames)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn concat_to_v1(
+    destination: &Path,
+    sources: &[PathBuf],
+    schema: &Schema,
+    title: &str,
+    string_table: &[String],
+    total_frames: u64,
+    reader_options: fwob_core::ReaderOptions,
+) -> Result<u64> {
+    let v1_key_field_index = reader_options.v1_key_field_index;
+    let mut preserved_length = string_table
+        .iter()
+        .map(|value| value.len() + 5)
+        .sum::<usize>()
+        .max(1834) as u32;
+    for source in sources {
+        if let Ok(reader) = fwob_v1::Reader::open(source, v1_key_field_index) {
+            preserved_length = preserved_length.max(reader.header().string_table_preserved_length);
+        }
+    }
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let temporary = NamedTempFile::new_in(parent)?;
+    let temporary_path = temporary.into_temp_path();
+    let mut options = fwob_v1::WriterOptions::new(title);
+    options.string_table_preserved_length = preserved_length;
+    let mut writer = Writer::create_v1(&temporary_path, schema.clone(), options, string_table)?;
+    for source in sources {
+        let mut reader = Reader::open_with_options(source, reader_options)?;
+        let frame_count = reader.frame_count();
+        copy_range(
+            &mut reader,
+            &mut writer,
+            0..frame_count,
+            schema.frame_len as usize,
+        )?;
+    }
+    writer.finish()?;
+    fwob_v1::verify_file(&temporary_path, v1_key_field_index)?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -349,7 +433,7 @@ fn write_range_atomically(
     let mut writer = Writer::create_v2(
         &temporary_path,
         reader.schema().clone(),
-        output_v2_options(source, title, string_table, operation_options),
+        output_v2_options(source, title, string_table, operation_options, None),
     )?;
     copy_range(
         reader,
@@ -391,12 +475,16 @@ fn output_v2_options(
     title: &str,
     string_table: &[String],
     operation_options: &OperationOptions,
+    page_size_override: Option<u32>,
 ) -> fwob_v2::WriterOptions {
     let mut options = operation_options
         .v2
         .clone()
         .unwrap_or_else(|| inherited_v2_options(source));
-    if let Ok(reader) = fwob_v2::Reader::open(source) {
+    // An explicit page size wins; otherwise inherit the source's (when the source is v2).
+    if let Some(page_size) = page_size_override {
+        options.page_size = page_size;
+    } else if let Ok(reader) = fwob_v2::Reader::open(source) {
         options.page_size = reader.header().page_size;
     }
     options.title = title.to_owned();
