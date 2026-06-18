@@ -170,6 +170,26 @@ impl Schema {
         &self.fields[self.key_field_index]
     }
 
+    /// Structural compatibility that ignores per-field `semantic`.
+    ///
+    /// FWOB v1 has no on-disk slot for field semantics, so a v1 schema always reads back with
+    /// `FieldSemantic::None`. When an operation bridges v1 and v2 (e.g. appending a v1 file into a
+    /// v2 target, or opening a v1 file with a semantic-bearing typed schema), the schemas must be
+    /// treated as compatible even though their semantics differ. Callers that compare two v2
+    /// schemas should keep using `==` so that semantic differences are still rejected.
+    pub fn is_compatible(&self, other: &Schema) -> bool {
+        self.frame_type == other.frame_type
+            && self.key_field_index == other.key_field_index
+            && self.frame_len == other.frame_len
+            && self.fields.len() == other.fields.len()
+            && self.fields.iter().zip(&other.fields).all(|(a, b)| {
+                a.name == b.name
+                    && a.field_type == b.field_type
+                    && a.length == b.length
+                    && a.offset == b.offset
+            })
+    }
+
     pub fn validate_frame_len(&self, len: usize) -> Result<()> {
         if len == self.frame_len as usize {
             Ok(())
@@ -230,6 +250,56 @@ mod tests {
             0,
         )
         .is_err());
+    }
+
+    #[test]
+    fn is_compatible_ignores_semantics_but_not_structure() {
+        let v1 = Schema::new(
+            "Tick",
+            vec![
+                field("Time", FieldType::UnsignedInteger, 4, 0),
+                field("Price", FieldType::UnsignedInteger, 4, 4),
+            ],
+            0,
+        )
+        .unwrap();
+        let v2 = Schema::new(
+            "Tick",
+            vec![
+                field("Time", FieldType::UnsignedInteger, 4, 0)
+                    .with_semantic(FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)),
+                field("Price", FieldType::UnsignedInteger, 4, 4),
+            ],
+            0,
+        )
+        .unwrap();
+
+        // Semantics differ, so `==` rejects but `is_compatible` accepts.
+        assert_ne!(v1, v2);
+        assert!(v1.is_compatible(&v2));
+        assert!(v2.is_compatible(&v1));
+
+        // Structural differences are still incompatible.
+        let renamed = Schema::new(
+            "Tick",
+            vec![
+                field("Stamp", FieldType::UnsignedInteger, 4, 0),
+                field("Price", FieldType::UnsignedInteger, 4, 4),
+            ],
+            0,
+        )
+        .unwrap();
+        let different_key = Schema::new(
+            "Tick",
+            vec![
+                field("Time", FieldType::UnsignedInteger, 4, 0),
+                field("Price", FieldType::UnsignedInteger, 4, 4),
+            ],
+            1,
+        )
+        .unwrap();
+        assert!(!v1.is_compatible(&renamed));
+        assert!(!v1.is_compatible(&different_key));
     }
 
     #[test]
