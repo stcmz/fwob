@@ -502,9 +502,11 @@ defaults to v1 output; any v2 input defaults to v2 output. Callers may explicitl
 select either output format and may override the v2 page size.
 
 V1 cannot persist field semantics. For mixed v1/v2 input, concat therefore
-ignores missing v1 semantics and preserves the richest v2 schema. The CLI emits
-a warning when this relaxed comparison is used and a v2 source has any non-None
-semantic. Pure-v2 semantic differences remain incompatible.
+ignores missing v1 semantics. V2 output preserves the richest v2 schema; forced
+v1 output drops all semantics. The CLI emits a warning that states whether v2
+semantics were preserved or dropped whenever this relaxed comparison is used and
+a v2 source has any non-None semantic. Pure-v2 semantic differences remain
+incompatible.
 
 `Organizer` is operation-stateful but not bound to one open file. It owns
 `OperationOptions` and applies them to every split or concat call. This matches

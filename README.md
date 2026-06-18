@@ -138,8 +138,9 @@ fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 Append and concat assume every input file is internally valid. They validate
 cross-file schema, string-table, and key-boundary compatibility without rescanning
 each complete input. Run `fwob verify FILE` first when input corruption is a
-concern. Mixed v1/v2 concat preserves available v2 field semantics and warns when
-v1's missing semantic metadata requires a relaxed comparison.
+concern. Mixed v1/v2 concat warns when v1's missing semantic metadata requires a
+relaxed comparison. V2 output preserves available v2 semantics; forced v1 output
+drops them because v1 has no semantic metadata slot.
 
 `fwob info` summarizes FWOB files as a padded table. With no paths it lists
 immediate `*.fwob` files in the current directory. Each supplied path may be a

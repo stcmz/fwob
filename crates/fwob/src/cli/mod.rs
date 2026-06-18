@@ -717,9 +717,15 @@ fn concat_file(args: ConcatArgs) -> Result<()> {
     }
     .concat(&output, &inputs)?;
     if relaxed_semantics {
-        log_warn(
-            "warning: mixed v1/v2 concat ignored missing v1 field semantics; v2 semantics were preserved",
-        );
+        if output_format == Some(fwob_core::FormatVersion::V1) {
+            log_warn(
+                "warning: mixed v1/v2 concat ignored missing v1 field semantics; v2 semantics were dropped for v1 output",
+            );
+        } else {
+            log_warn(
+                "warning: mixed v1/v2 concat ignored missing v1 field semantics; v2 semantics were preserved in v2 output",
+            );
+        }
     }
     toml_section("concat");
     toml_kv_str("output", &output.display().to_string());

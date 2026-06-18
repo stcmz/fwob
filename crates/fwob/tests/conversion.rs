@@ -243,7 +243,7 @@ fn cli_concat_merges_mixed_v1_and_v2_sources() {
     ]));
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("mixed v1/v2 concat ignored missing v1 field semantics"),
+            .contains("v2 semantics were preserved in v2 output"),
         "stderr did not contain the relaxed-semantics warning\nstderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -257,6 +257,26 @@ fn cli_concat_merges_mixed_v1_and_v2_sources() {
         v2.header().schema.fields[0].semantic,
         FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)
     );
+
+    let v1_out = dir.path().join("merged-v1.fwob");
+    let output = command_output(Command::new(exe).args([
+        "concat",
+        "v1",
+        v1_out.to_str().unwrap(),
+        v1_src.to_str().unwrap(),
+        v2_src.to_str().unwrap(),
+    ]));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("v2 semantics were dropped for v1 output"),
+        "stderr did not explain dropped semantics\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(Reader::open(&v1_out)
+        .unwrap()
+        .schema()
+        .fields
+        .iter()
+        .all(|field| field.semantic == FieldSemantic::None));
 }
 
 #[test]
