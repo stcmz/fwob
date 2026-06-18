@@ -137,7 +137,7 @@ pub(super) fn inspect_v2(args: V2FileArgs) -> Result<()> {
             ),
         );
     }
-    print_page_codec_encoding_stats_toml(&metadata);
+    transfer::print_page_codec_encoding_stats_toml(&metadata);
 
     println!();
     toml_section("schema");
