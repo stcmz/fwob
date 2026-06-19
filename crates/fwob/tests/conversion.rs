@@ -600,6 +600,31 @@ fn cli_info_discovers_files_and_supports_all_output_formats() {
 }
 
 #[test]
+fn cli_info_reports_corrupt_files_and_continues() {
+    let dir = tempdir().unwrap();
+    let valid = dir.path().join("valid.fwob");
+    let corrupt = dir.path().join("corrupt.fwob");
+    write_v2_file(&valid, tick_schema(), 0..3);
+    std::fs::write(&corrupt, b"not a FWOB file").unwrap();
+
+    let output = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).args([
+        "info",
+        dir.path().to_str().unwrap(),
+        "csv",
+    ]));
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 2);
+    assert!(stdout.contains("valid.fwob,fwob-v2"));
+    assert!(!stdout.contains("corrupt.fwob"));
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("failed to read FWOB metadata from"));
+    assert!(stderr.contains("corrupt.fwob"));
+}
+
+#[test]
 fn cli_splits_concatenates_and_edits_metadata() {
     let dir = tempdir().unwrap();
     let input = dir.path().join("input.fwob");

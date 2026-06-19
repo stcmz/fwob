@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 use fwob_core::FormatVersion;
 use unicode_width::UnicodeWidthStr;
 
-use super::{comma_u64, InfoArgs};
+use super::{comma_u64, log_error, InfoArgs};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum InfoFormat {
@@ -54,7 +54,10 @@ pub(super) fn print_file_info(args: InfoArgs) -> Result<()> {
     let current_dir = fs::canonicalize(std::env::current_dir()?)?;
     let mut rows = Vec::with_capacity(files.len());
     for path in files {
-        rows.push(read_file_info(path, &current_dir, args.key_field_index)?);
+        match read_file_info(path, &current_dir, args.key_field_index) {
+            Ok(info) => rows.push(info),
+            Err(error) => log_error(&error),
+        }
     }
 
     let stdout = io::stdout();
