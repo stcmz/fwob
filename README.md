@@ -166,6 +166,12 @@ New v2 outputs use 512 KiB pages unless another page size is supplied; append
 and delete retain the existing file's fixed page size. Create, convert, and
 concat default to v2 output; pass `v1` explicitly when v1 output is required.
 
+Convert, append, concat, split, and delete write progress diagnostics to stderr
+and keep structured TOML on stdout. Mutation summaries contain one
+operation-specific section followed by `[parameters]`, `[packing]`,
+`[compression]`, and `[page_stats]`; the operation section includes
+`elapsed_seconds`.
+
 Positional tokens are case-sensitive. For example, `v2`, `zstd`, and `1MiB`
 are tokens; `V2`, `ZSTD`, and `1MIB` are treated as paths or values rather than
 their lowercase token forms.

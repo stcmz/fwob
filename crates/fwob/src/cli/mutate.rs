@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
+    let started = std::time::Instant::now();
     let parsed = parse_command_tokens(&args.target, false, true, false, false, true)?;
     let deletion_packing = parsed
         .deletion_packing
@@ -29,6 +30,13 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
     }
     drop(reader);
 
+    log_info(format!(
+        "deletion started: {} keys={}..{}",
+        path.display(),
+        first_key,
+        last_key_value
+    ));
+    let progress = ProgressTicker::start("deletion");
     let effective_compress_partial_page =
         matches!(deletion_packing, DeletionPackingArg::LocalRepack) || write.compress_partial_page;
     let mut editor = fwob::Editor::open_with_operation_options(&path, operation_options)?;
@@ -40,21 +48,44 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
     if write.verify {
         fwob::Maintenance::verify(&path, reader_options)?;
     }
+    let remaining_frames = editor.frame_count();
+    drop(editor);
+    let storage = StorageSummary::collect(std::slice::from_ref(&path), args.key_field_index)?;
+    let page_size = storage
+        .v2_metadata()
+        .map(|_| fwob_v2::Reader::open(&path).map(|reader| reader.header().page_size))
+        .transpose()?;
+    drop(progress);
+    log_info(format!("deletion completed: {}", path.display()));
 
     toml_section("deletion");
     toml_kv_str("path", &path.display().to_string());
     toml_kv_key("first_key", first_key);
     toml_kv_key("last_key", last_key_value);
     toml_kv_num("deleted_frames", removed);
-    toml_kv_num("remaining_frames", editor.frame_count());
+    toml_kv_num("remaining_frames", remaining_frames);
     toml_kv_str("deletion_packing", deletion_packing.as_str());
     toml_kv_bool("compress_partial_page", effective_compress_partial_page);
     toml_kv_bool("verified", write.verify);
+    toml_kv_num(
+        "elapsed_seconds",
+        format!("{:.3}", started.elapsed().as_secs_f64()),
+    );
+    print_common_sections(CommonSummary {
+        storage: &storage,
+        key_field_index: args.key_field_index,
+        page_size,
+        write: storage.v2_metadata().map(|_| write),
+        packing: None,
+        parallelism: None,
+        verified: write.verify,
+    });
     Ok(())
 }
 
 pub(super) fn split_file(args: SplitArgs) -> Result<()> {
     use fwob::{Organizer, Reader};
+    let started = std::time::Instant::now();
 
     let parsed = parse_command_tokens(&args.target, false, true, true, false, false)?;
     if parsed.paths.len() < 3 {
@@ -70,12 +101,19 @@ pub(super) fn split_file(args: SplitArgs) -> Result<()> {
     );
     let reader_options = operation_options.reader_options;
     let reader = Reader::open_with_options(&input, reader_options)?;
+    let source_format = reader.format_version();
     let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
     let keys = parsed.paths[2..]
         .iter()
         .map(|value| Key::parse(key_type, value).map_err(Into::into))
         .collect::<Result<Vec<_>>>()?;
     drop(reader);
+    log_info(format!(
+        "split started: {} boundaries={}",
+        input.display(),
+        keys.len()
+    ));
+    let progress = ProgressTicker::start("split");
     let outputs = Organizer {
         operation_options,
         keep_empty_parts: args.keep_empty_parts,
@@ -88,15 +126,44 @@ pub(super) fn split_file(args: SplitArgs) -> Result<()> {
             fwob::Maintenance::verify(output, reader_options)?;
         }
     }
+    let output_page_size = parsed.page_size.unwrap_or(fwob_v2::DEFAULT_PAGE_SIZE);
+    let storage = if outputs.is_empty() {
+        StorageSummary::empty(source_format, output_page_size)
+    } else {
+        StorageSummary::collect(&outputs, args.key_field_index)?
+    };
+    drop(progress);
+    log_info(format!(
+        "split completed: {} parts={}",
+        input.display(),
+        outputs.len()
+    ));
     toml_section("split");
+    toml_kv_str("input", &input.display().to_string());
+    toml_kv_str("output_directory", &output_dir.display().to_string());
     toml_kv_num("parts", outputs.len());
+    toml_kv_bool("verified", write.verify);
+    toml_kv_num(
+        "elapsed_seconds",
+        format!("{:.3}", started.elapsed().as_secs_f64()),
+    );
     for (index, path) in outputs.iter().enumerate() {
         toml_kv_str(&format!("part_{index}"), &path.display().to_string());
     }
+    print_common_sections(CommonSummary {
+        storage: &storage,
+        key_field_index: args.key_field_index,
+        page_size: storage.v2_metadata().map(|_| output_page_size),
+        write: storage.v2_metadata().map(|_| write),
+        packing: None,
+        parallelism: None,
+        verified: write.verify,
+    });
     Ok(())
 }
 
 pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
+    let started = std::time::Instant::now();
     // concat creates a new file, so (like create/convert) it accepts an output format token plus
     // v2 write tokens and a page-size token.
     let parsed = parse_command_tokens(&args.target, true, true, true, false, false)?;
@@ -131,6 +198,12 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
         false,
     );
     let reader_options = operation_options.reader_options;
+    log_info(format!(
+        "concat started: output={} inputs={}",
+        output.display(),
+        inputs.len()
+    ));
+    let progress = ProgressTicker::start("concat");
     let frames = fwob::Organizer {
         operation_options,
         output_format,
@@ -152,6 +225,9 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
             );
         }
     }
+    let storage = StorageSummary::collect(std::slice::from_ref(&output), args.key_field_index)?;
+    drop(progress);
+    log_info(format!("concat completed: {}", output.display()));
     toml_section("concat");
     toml_kv_str("output", &output.display().to_string());
     toml_kv_str(
@@ -163,6 +239,21 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
     );
     toml_kv_num("frames", frames);
     toml_kv_bool("verified", write.verify);
+    toml_kv_num(
+        "elapsed_seconds",
+        format!("{:.3}", started.elapsed().as_secs_f64()),
+    );
+    print_common_sections(CommonSummary {
+        storage: &storage,
+        key_field_index: args.key_field_index,
+        page_size: storage
+            .v2_metadata()
+            .map(|_| parsed.page_size.unwrap_or(fwob_v2::DEFAULT_PAGE_SIZE)),
+        write: storage.v2_metadata().map(|_| write),
+        packing: None,
+        parallelism: None,
+        verified: write.verify,
+    });
     Ok(())
 }
 

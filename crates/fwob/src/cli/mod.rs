@@ -13,10 +13,12 @@ mod bench;
 mod file_info;
 mod inspect;
 mod mutate;
+mod operation_summary;
 mod output;
 mod query;
 mod transfer;
 
+use operation_summary::*;
 use output::*;
 
 #[derive(Debug, Parser)]
@@ -442,7 +444,7 @@ struct DeleteArgs {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct V2WriteOptions {
+pub(super) struct V2WriteOptions {
     codec: CodecArg,
     encoding: EncodingArg,
     zstd_level: i32,
@@ -1104,28 +1106,29 @@ fn read_template_schema(
     }
 }
 
-struct V2Metadata {
-    physical_bytes: u64,
-    expected_physical_bytes: u64,
-    payload_capacity_per_page: u64,
-    payload_capacity_total: u64,
-    compressed_total: u64,
-    uncompressed_total: u64,
-    padding_bytes: u64,
-    min_frames: u32,
-    max_frames: u32,
-    first_key: Option<fwob_core::Key>,
-    last_key: Option<fwob_core::Key>,
-    codec_none_pages: u64,
-    codec_zstd_pages: u64,
-    codec_lz4_pages: u64,
-    compressed_page_frames: u64,
-    encoding_row_raw_v1_pages: u64,
-    encoding_columnar_basic_v1_pages: u64,
-    encoding_columnar_delta_v1_pages: u64,
+#[derive(Default)]
+pub(super) struct V2Metadata {
+    pub(super) physical_bytes: u64,
+    pub(super) expected_physical_bytes: u64,
+    pub(super) payload_capacity_per_page: u64,
+    pub(super) payload_capacity_total: u64,
+    pub(super) compressed_total: u64,
+    pub(super) uncompressed_total: u64,
+    pub(super) padding_bytes: u64,
+    pub(super) min_frames: u32,
+    pub(super) max_frames: u32,
+    pub(super) first_key: Option<fwob_core::Key>,
+    pub(super) last_key: Option<fwob_core::Key>,
+    pub(super) codec_none_pages: u64,
+    pub(super) codec_zstd_pages: u64,
+    pub(super) codec_lz4_pages: u64,
+    pub(super) compressed_page_frames: u64,
+    pub(super) encoding_row_raw_v1_pages: u64,
+    pub(super) encoding_columnar_basic_v1_pages: u64,
+    pub(super) encoding_columnar_delta_v1_pages: u64,
 }
 
-fn collect_v2_metadata(
+pub(super) fn collect_v2_metadata(
     path: &Path,
     reader: &mut fwob_v2::Reader<std::fs::File>,
 ) -> Result<V2Metadata> {

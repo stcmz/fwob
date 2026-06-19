@@ -29,6 +29,34 @@ fn command_output(command: &mut Command) -> std::process::Output {
     output
 }
 
+fn assert_operation_summary(output: &std::process::Output, operation: &str) {
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let sections = stdout
+        .lines()
+        .filter(|line| line.starts_with('['))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sections,
+        [
+            format!("[{operation}]"),
+            "[parameters]".to_owned(),
+            "[packing]".to_owned(),
+            "[compression]".to_owned(),
+            "[page_stats]".to_owned(),
+        ],
+        "unexpected summary sections\nstdout:\n{stdout}"
+    );
+    assert!(stdout.contains("elapsed_seconds = "), "{stdout}");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(&format!("{operation} started")), "{stderr}");
+    assert!(
+        stderr.contains(&format!("{operation} completed")),
+        "{stderr}"
+    );
+}
+
 fn assert_command_failure(command: &mut Command, expected_stderr: &str) {
     let output = command.output().unwrap();
     assert!(
@@ -368,11 +396,13 @@ fn cli_appends_into_a_v1_target_from_v1_and_v2_inputs() {
 
     let exe = env!("CARGO_BIN_EXE_fwob");
     // v2 input -> v1 target (previously errored "failed to open target v2 file").
-    assert_command_success(Command::new(exe).args([
+    let v1_append = command_output(Command::new(exe).args([
         "append",
         target.to_str().unwrap(),
         v2_input.to_str().unwrap(),
     ]));
+    assert_operation_summary(&v1_append, "append");
+    assert!(String::from_utf8_lossy(&v1_append.stdout).contains("available = false"));
     // v1 input -> v1 target.
     assert_command_success(Command::new(exe).args([
         "append",
@@ -396,11 +426,12 @@ fn cli_concat_honors_explicit_output_format() {
 
     // The default output is v2 with the shared default page size.
     let out_default = dir.path().join("out_default.fwob");
-    assert_command_success(Command::new(exe).args([
+    let default_concat = command_output(Command::new(exe).args([
         "concat",
         out_default.to_str().unwrap(),
         v1_src.to_str().unwrap(),
     ]));
+    assert_operation_summary(&default_concat, "concat");
     let default_reader = fwob_v2::Reader::open(&out_default).unwrap();
     assert_eq!(default_reader.header().frame_count, 30);
     assert_eq!(
@@ -410,13 +441,15 @@ fn cli_concat_honors_explicit_output_format() {
 
     // Force a v1 output from mixed sources.
     let out_v1 = dir.path().join("out_v1.fwob");
-    assert_command_success(Command::new(exe).args([
+    let v1_concat = command_output(Command::new(exe).args([
         "concat",
         "v1",
         out_v1.to_str().unwrap(),
         v1_src.to_str().unwrap(),
         v2_src.to_str().unwrap(),
     ]));
+    assert_operation_summary(&v1_concat, "concat");
+    assert!(String::from_utf8_lossy(&v1_concat.stdout).contains("available = false"));
     let reader = Reader::open(&out_v1).unwrap();
     assert_eq!(reader.format_version(), FormatVersion::V1);
     assert_eq!(reader.frame_count(), 70);
@@ -460,12 +493,13 @@ fn cli_split_uses_shared_default_v2_page_size() {
     }
     writer.finish().unwrap();
 
-    assert_command_success(Command::new(env!("CARGO_BIN_EXE_fwob")).args([
+    let split = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).args([
         "split",
         source.to_str().unwrap(),
         parts.to_str().unwrap(),
         "50",
     ]));
+    assert_operation_summary(&split, "split");
     for entry in std::fs::read_dir(parts).unwrap() {
         let reader = fwob_v2::Reader::open(entry.unwrap().path()).unwrap();
         assert_eq!(reader.header().page_size, fwob_v2::DEFAULT_PAGE_SIZE);
@@ -483,12 +517,13 @@ fn cli_appends_multiple_inputs() {
     write_v2_file(&in2, tick_schema(), 20..30);
 
     let exe = env!("CARGO_BIN_EXE_fwob");
-    assert_command_success(Command::new(exe).args([
+    let append = command_output(Command::new(exe).args([
         "append",
         target.to_str().unwrap(),
         in1.to_str().unwrap(),
         in2.to_str().unwrap(),
     ]));
+    assert_operation_summary(&append, "append");
     assert_eq!(Reader::open(&target).unwrap().frame_count(), 30);
 }
 
@@ -784,6 +819,7 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
         "verify",
     ]));
     let stdout = String::from_utf8_lossy(&deletion.stdout);
+    assert_operation_summary(&deletion, "deletion");
     assert!(stdout.contains("[deletion]"));
     assert!(stdout.contains("deleted_frames = 3"));
     assert!(stdout.contains("remaining_frames = 27"));

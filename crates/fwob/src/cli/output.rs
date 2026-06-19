@@ -1,4 +1,5 @@
 use std::io::IsTerminal;
+use std::{sync::mpsc, thread, time::Duration};
 
 use fwob_core::Key;
 
@@ -45,6 +46,40 @@ pub(super) fn log_info(message: impl AsRef<str>) {
 
 pub(super) fn log_warn(message: impl AsRef<str>) {
     eprintln!("{}", colorize_stderr(message.as_ref(), LOG_YELLOW));
+}
+
+pub(super) struct ProgressTicker {
+    stop: mpsc::Sender<()>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+impl ProgressTicker {
+    pub(super) fn start(operation: &'static str) -> Self {
+        let (stop, receiver) = mpsc::channel();
+        let started = std::time::Instant::now();
+        let worker = thread::spawn(move || loop {
+            match receiver.recv_timeout(Duration::from_secs(5)) {
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => log_info(format!(
+                    "{operation} in progress: elapsed={:.1}s",
+                    started.elapsed().as_secs_f64()
+                )),
+            }
+        });
+        Self {
+            stop,
+            worker: Some(worker),
+        }
+    }
+}
+
+impl Drop for ProgressTicker {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 #[allow(dead_code)]

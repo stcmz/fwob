@@ -396,7 +396,7 @@ fn convert_to_v2(
         inspect.header().frame_count,
         inspect.header().page_count,
         packing_stats,
-        &metadata,
+        metadata,
         write.verify,
         started.elapsed().as_secs_f64(),
         parallelism,
@@ -457,6 +457,7 @@ fn convert_to_v1(
 }
 
 pub(super) fn append_to_v2(args: AppendArgs) -> Result<()> {
+    let started = std::time::Instant::now();
     let parsed = parse_command_tokens(&args.target, false, true, false, false, false)?;
     let write = parsed.write_options(args.write);
     if parsed.paths.len() < 2 {
@@ -475,10 +476,27 @@ pub(super) fn append_to_v2(args: AppendArgs) -> Result<()> {
 
     // Append into the target in whatever format it already is; inputs may be v1 or v2 and are
     // appended in the given order.
-    match detect_format(&target)? {
-        Format::V2 => append_into_v2_target(&target, &inputs, args.key_field_index, write),
-        Format::V1 => append_into_v1_target(&target, &inputs, args.key_field_index),
+    log_info(format!(
+        "append started: target={} inputs={}",
+        target.display(),
+        inputs.len()
+    ));
+    let progress = ProgressTicker::start("append");
+    let result = match detect_format(&target)? {
+        Format::V2 => append_into_v2_target(&target, &inputs, args.key_field_index, write, started),
+        Format::V1 => append_into_v1_target(
+            &target,
+            &inputs,
+            args.key_field_index,
+            write.verify,
+            started,
+        ),
+    };
+    drop(progress);
+    if result.is_ok() {
+        log_info(format!("append completed: {}", target.display()));
     }
+    result
 }
 
 fn append_into_v2_target(
@@ -486,6 +504,7 @@ fn append_into_v2_target(
     inputs: &[PathBuf],
     key_field_index: usize,
     write: V2WriteOptions,
+    started: std::time::Instant,
 ) -> Result<()> {
     let target_header = fwob_v2::Reader::open(target)
         .with_context(|| format!("failed to open target v2 file {}", target.display()))?
@@ -531,19 +550,30 @@ fn append_into_v2_target(
     if !write.verify {
         toml_kv_str("verification", "skipped (run `fwob verify` or pass verify)");
     }
-    println!();
-    print_packing_stats_toml(packing_stats);
-
-    println!();
-    print_compression_stats_toml(&metadata);
-
-    println!();
-    toml_section("page_stats");
-    print_page_codec_encoding_stats_toml(&metadata);
+    toml_kv_num(
+        "elapsed_seconds",
+        format!("{:.3}", started.elapsed().as_secs_f64()),
+    );
+    let storage = StorageSummary::V2(metadata);
+    print_common_sections(CommonSummary {
+        storage: &storage,
+        key_field_index,
+        page_size: Some(target_header.page_size),
+        write: Some(write),
+        packing: Some(packing_stats),
+        parallelism: None,
+        verified: write.verify,
+    });
     Ok(())
 }
 
-fn append_into_v1_target(target: &Path, inputs: &[PathBuf], key_field_index: usize) -> Result<()> {
+fn append_into_v1_target(
+    target: &Path,
+    inputs: &[PathBuf],
+    key_field_index: usize,
+    verified: bool,
+    started: std::time::Instant,
+) -> Result<()> {
     // v1 cannot persist semantics, so compare structurally.
     let (target_schema, target_strings) = {
         let mut reader = fwob_v1::Reader::open(target, key_field_index)
@@ -581,11 +611,34 @@ fn append_into_v1_target(target: &Path, inputs: &[PathBuf], key_field_index: usi
     }
     let frame_count = writer.frame_count();
     drop(writer);
+    if verified {
+        fwob::Maintenance::verify(
+            target,
+            fwob::ReaderOptions {
+                v1_key_field_index: key_field_index,
+            },
+        )?;
+    }
 
     toml_section("append");
     toml_kv_str("output", &target.display().to_string());
     toml_kv_num("inputs", inputs.len());
     toml_kv_num("frames", frame_count);
+    toml_kv_bool("verified", verified);
+    toml_kv_num(
+        "elapsed_seconds",
+        format!("{:.3}", started.elapsed().as_secs_f64()),
+    );
+    let storage = StorageSummary::collect(&[target.to_path_buf()], key_field_index)?;
+    print_common_sections(CommonSummary {
+        storage: &storage,
+        key_field_index,
+        page_size: None,
+        write: None,
+        packing: None,
+        parallelism: None,
+        verified,
+    });
     Ok(())
 }
 
@@ -599,7 +652,7 @@ fn print_convert_v2_toml(
     frame_count: u64,
     page_count: u64,
     packing_stats: fwob_v2::PackingStats,
-    metadata: &V2Metadata,
+    metadata: V2Metadata,
     verified: bool,
     elapsed_seconds: f64,
     parallelism: usize,
@@ -616,111 +669,16 @@ fn print_convert_v2_toml(
     }
     toml_kv_num("elapsed_seconds", format!("{elapsed_seconds:.3}"));
 
-    println!();
-    toml_section("parameters");
-    toml_kv_str("target_format", "fwob-v2");
-    toml_kv_num("key_field_index", key_field_index);
-    toml_kv_num("page_size", page_size);
-    toml_kv_num("parallelism", parallelism);
-    toml_kv_str("codec", write.codec.as_str());
-    toml_kv_str("encoding", write.encoding.as_str());
-    toml_kv_num("zstd_level", write.zstd_level);
-    toml_kv_bool("compress_partial_page", write.compress_partial_page);
-    toml_kv_str("page_packing", write.page_packing.as_str());
-    toml_kv_bool("verify", write.verify);
-
-    println!();
-    print_packing_stats_toml(packing_stats);
-
-    println!();
-    print_compression_stats_toml(metadata);
-
-    println!();
-    toml_section("page_stats");
-    print_page_codec_encoding_stats_toml(metadata);
-}
-
-fn print_packing_stats_toml(stats: fwob_v2::PackingStats) {
-    toml_section("packing");
-    toml_kv_num("first_page_compression_attempts", stats.first_page_attempts);
-    toml_kv_num(
-        "subsequent_page_average_compression_attempts",
-        format!("{:.2}", stats.subsequent_average_attempts()),
-    );
-    toml_kv_str(
-        "subsequent_page_compression_attempts_range",
-        &format!(
-            "{}..{}",
-            stats.subsequent_min_attempts, stats.subsequent_max_attempts
-        ),
-    );
-    toml_kv_num(
-        "subsequent_compressed_pages_measured",
-        stats.subsequent_pages,
-    );
-    let spans = (0..10)
-        .map(|index| stats.average_window_frame_span(index))
-        .collect::<Vec<_>>();
-    toml_kv_float_array("average_initial_window_frame_span", &spans, 2);
-    toml_kv_num(
-        "average_initial_window_attempts",
-        format!("{:.2}", stats.average_initial_window_attempts()),
-    );
-    let positions = (0..10)
-        .map(|index| stats.average_window_final_position(index))
-        .collect::<Vec<_>>();
-    toml_kv_float_array("average_initial_window_final_position", &positions, 4);
-    toml_kv_num("initial_windows_measured", stats.initial_windows);
-}
-
-fn print_compression_stats_toml(metadata: &V2Metadata) {
-    toml_section("compression");
-    toml_kv_num("compressed_payload_bytes", metadata.compressed_total);
-    toml_kv_num("uncompressed_payload_bytes", metadata.uncompressed_total);
-    let compressed_pages = metadata.codec_zstd_pages + metadata.codec_lz4_pages;
-    if compressed_pages > 0 {
-        toml_kv_num(
-            "average_frames_per_compressed_page",
-            format!(
-                "{:.2}",
-                metadata.compressed_page_frames as f64 / compressed_pages as f64
-            ),
-        );
-    }
-    if metadata.uncompressed_total > 0 {
-        toml_kv_num(
-            "payload_ratio",
-            format!(
-                "{:.4}",
-                metadata.compressed_total as f64 / metadata.uncompressed_total as f64
-            ),
-        );
-        toml_kv_num(
-            "physical_ratio",
-            format!(
-                "{:.4}",
-                metadata.physical_bytes as f64 / metadata.uncompressed_total as f64
-            ),
-        );
-    }
-}
-
-pub(super) fn print_page_codec_encoding_stats_toml(metadata: &V2Metadata) {
-    toml_kv_num("codec_none_pages", metadata.codec_none_pages);
-    toml_kv_num("codec_zstd_pages", metadata.codec_zstd_pages);
-    toml_kv_num("codec_lz4_pages", metadata.codec_lz4_pages);
-    toml_kv_num(
-        "encoding_row_raw_v1_pages",
-        metadata.encoding_row_raw_v1_pages,
-    );
-    toml_kv_num(
-        "encoding_columnar_basic_v1_pages",
-        metadata.encoding_columnar_basic_v1_pages,
-    );
-    toml_kv_num(
-        "encoding_columnar_delta_v1_pages",
-        metadata.encoding_columnar_delta_v1_pages,
-    );
+    let storage = StorageSummary::V2(metadata);
+    print_common_sections(CommonSummary {
+        storage: &storage,
+        key_field_index,
+        page_size: Some(page_size),
+        write: Some(write),
+        packing: Some(packing_stats),
+        parallelism: Some(parallelism),
+        verified,
+    });
 }
 
 fn append_v1_input(
