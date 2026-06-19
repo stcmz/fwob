@@ -117,6 +117,7 @@ fwob verify ticks.fwob
 fwob inspect ticks.fwob
 fwob info
 fwob info data archive/ticks.fwob md
+fwob create ticks-empty.fwob --template ticks.fwob
 fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
 fwob convert v2 ticks.fwob ticks-delta.fwob columnar-delta zstd verify
@@ -135,6 +136,9 @@ fwob delete ticks-v2.fwob 100 200 repack-to-end zstd columnar-basic compress-par
 fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```
+
+`fwob create` and `fwob concat` refuse to overwrite an existing output. Pass
+`--force` (or `--overwrite`) to replace it explicitly.
 
 Append and concat assume every input file is internally valid. They validate
 cross-file schema, string-table, and key-boundary compatibility without rescanning

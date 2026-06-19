@@ -153,6 +153,11 @@ struct CreateArgs {
     /// v2 templates, the stored key field index is used.
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
+
+    /// Overwrite OUTPUT if it already exists. Without this, create refuses to
+    /// clobber an existing file.
+    #[arg(long, visible_alias = "overwrite")]
+    force: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

@@ -160,6 +160,42 @@ fn cli_concat_refuses_to_overwrite_existing_output_without_force() {
 }
 
 #[test]
+fn cli_create_refuses_to_overwrite_existing_output_without_force() {
+    let dir = tempdir().unwrap();
+    let output = dir.path().join("existing.fwob");
+    let original = b"existing contents";
+    std::fs::write(&output, original).unwrap();
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let output_path = output.to_str().unwrap();
+
+    assert_command_failure(
+        Command::new(exe).args([
+            "create",
+            output_path,
+            "--frame-type",
+            "Tick",
+            "--field",
+            "Time:i:4",
+        ]),
+        "already exists",
+    );
+    assert_eq!(std::fs::read(&output).unwrap(), original);
+
+    assert_command_success(Command::new(exe).args([
+        "create",
+        "--force",
+        output_path,
+        "--frame-type",
+        "Tick",
+        "--field",
+        "Time:i:4",
+    ]));
+    let reader = Reader::open(&output).unwrap();
+    assert_eq!(reader.format_version(), FormatVersion::V2);
+    assert_eq!(reader.frame_count(), 0);
+}
+
+#[test]
 fn cli_append_key_order_error_names_the_input_file_and_keys() {
     let dir = tempdir().unwrap();
     let target = dir.path().join("target.fwob");

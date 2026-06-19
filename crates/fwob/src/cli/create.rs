@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn create_blank(args: CreateArgs) -> Result<()> {
     let (format, output, page_size) = parse_create_target(&args.target)?;
+    ensure_output_available(&output, args.force)?;
     let (schema, strings, template_title) = if let Some(template) = &args.template {
         read_template_schema(template, args.key_field_index)?
     } else {

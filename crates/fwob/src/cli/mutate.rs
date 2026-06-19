@@ -174,12 +174,7 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
         bail!("v2 write tokens are not valid when concatenating to v1");
     }
     let output = PathBuf::from(parsed.paths[0]);
-    if output.exists() && !args.force {
-        bail!(
-            "output {} already exists; pass --force to overwrite it",
-            output.display()
-        );
-    }
+    ensure_output_available(&output, args.force)?;
     let inputs = parsed.paths[1..]
         .iter()
         .map(PathBuf::from)

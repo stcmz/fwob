@@ -18,3 +18,13 @@ pub(super) fn detect_format(path: &Path) -> Result<Format> {
         _ => bail!("unrecognized FWOB file signature"),
     }
 }
+
+pub(super) fn ensure_output_available(path: &Path, force: bool) -> Result<()> {
+    if path.exists() && !force {
+        bail!(
+            "output {} already exists; pass --force to overwrite it",
+            path.display()
+        );
+    }
+    Ok(())
+}
