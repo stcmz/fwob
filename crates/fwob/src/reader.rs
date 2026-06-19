@@ -105,6 +105,10 @@ impl Reader {
         Ok(self.inner.read_frame(index)?)
     }
 
+    pub fn read_raw_frames_chunk(&mut self, start: u64, max_frames: usize) -> Result<Vec<u8>> {
+        Ok(self.inner.read_raw_frames_chunk(start, max_frames)?)
+    }
+
     pub fn read_key(&mut self, index: u64) -> Result<Option<Key>> {
         Ok(self.inner.read_key(index)?)
     }

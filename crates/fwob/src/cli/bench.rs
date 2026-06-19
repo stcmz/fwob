@@ -571,22 +571,7 @@ pub(super) fn v1_conversion_chunk_frames(
     page_size: u32,
     schema: &fwob_core::Schema,
 ) -> usize {
-    let frame_len = schema.frame_len as usize;
-    if codec != Codec::None {
-        return ((page_size as usize * 16) / frame_len).max(1);
-    }
-
-    let payload_capacity = page_size as usize - fwob_v2::PAGE_HEADER_LEN;
-    let encoding_overhead = match encoding_selection {
-        EncodingSelection::Fixed(Encoding::ColumnarDeltaV1) => schema.fields.len(),
-        EncodingSelection::Fixed(Encoding::RowRawV1 | Encoding::ColumnarBasicV1)
-        | EncodingSelection::Smallest => 0,
-    };
-    if payload_capacity <= encoding_overhead {
-        1
-    } else {
-        ((payload_capacity - encoding_overhead) / frame_len).max(1)
-    }
+    fwob_v2::recommended_input_chunk_frames(codec, encoding_selection, page_size, schema)
 }
 
 fn convert_v1_input_to_v2_for_bench(

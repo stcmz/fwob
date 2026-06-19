@@ -74,6 +74,32 @@ impl<R: Read + Seek> Reader<R> {
         Ok(self.cached_page.as_ref().expect("page loaded").raw.clone())
     }
 
+    pub fn read_raw_frames_chunk(&mut self, start: u64, max_frames: usize) -> Result<Vec<u8>> {
+        if start >= self.header.frame_count || max_frames == 0 {
+            return Ok(Vec::new());
+        }
+        let count = max_frames.min((self.header.frame_count - start) as usize);
+        let frame_len = self.header.schema.frame_len as usize;
+        let mut raw = Vec::with_capacity(count * frame_len);
+        let mut next = start;
+        let end = start + count as u64;
+        while next < end {
+            let page_index = self
+                .page_for_index_with_cache(next)?
+                .expect("bounded frame index has a page");
+            self.load_page(page_index)?;
+            let cached = self.cached_page.as_ref().expect("page loaded");
+            let local_start = (next - cached.header.first_frame_index) as usize;
+            let available = cached.header.frame_count as usize - local_start;
+            let take = available.min((end - next) as usize);
+            let byte_start = local_start * frame_len;
+            let byte_end = byte_start + take * frame_len;
+            raw.extend_from_slice(&cached.raw[byte_start..byte_end]);
+            next += take as u64;
+        }
+        Ok(raw)
+    }
+
     pub fn read_frame_at(&mut self, index: u64) -> Result<Option<OwnedFrame>> {
         let Some(page_index) = self.page_for_index_with_cache(index)? else {
             return Ok(None);

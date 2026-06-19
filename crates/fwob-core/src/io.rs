@@ -41,6 +41,8 @@ pub trait FileInfo {
 /// details remain private to the format crate.
 pub trait ReaderBackend: FileInfo + Send {
     fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>>;
+    /// Reads up to `max_frames` contiguous logical frames as packed raw bytes.
+    fn read_raw_frames_chunk(&mut self, start: u64, max_frames: usize) -> Result<Vec<u8>>;
     fn read_key(&mut self, index: u64) -> Result<Option<Key>>;
     fn first_frame(&mut self) -> Result<Option<OwnedFrame>> {
         self.read_frame(0)
@@ -169,6 +171,10 @@ impl Reader {
 
     pub fn read_frame(&mut self, index: u64) -> Result<Option<OwnedFrame>> {
         self.inner.read_frame(index)
+    }
+
+    pub fn read_raw_frames_chunk(&mut self, start: u64, max_frames: usize) -> Result<Vec<u8>> {
+        self.inner.read_raw_frames_chunk(start, max_frames)
     }
 
     pub fn read_key(&mut self, index: u64) -> Result<Option<Key>> {
@@ -372,6 +378,9 @@ impl ExactSizeIterator for MultiRangeFrameIter<'_> {}
 pub trait WriterBackend: FileInfo + Send {
     fn append_frame(&mut self, frame: &[u8]) -> Result<()>;
     fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()>;
+    fn append_presorted_frames_owned(&mut self, frames: Vec<u8>) -> Result<()> {
+        self.append_presorted_frames(&frames)
+    }
     fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()>;
     fn finish(self: Box<Self>) -> Result<()>;
 }
@@ -414,6 +423,10 @@ impl Writer {
 
     pub fn append_presorted_frames(&mut self, frames: &[u8]) -> Result<()> {
         self.inner.append_presorted_frames(frames)
+    }
+
+    pub fn append_presorted_frames_owned(&mut self, frames: Vec<u8>) -> Result<()> {
+        self.inner.append_presorted_frames_owned(frames)
     }
 
     pub fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()> {

@@ -160,6 +160,12 @@ limit and defaults to the logical CPU count. Progress lines may interleave on
 stderr and include the input filename, while each file's structured stdout
 summary is printed atomically.
 
+V2 writes default consistently across convert, append, concat, delete, and
+split: zstd level 6, columnar-basic encoding, and estimate-shrink packing.
+New v2 outputs use 512 KiB pages unless another page size is supplied; append
+and delete retain the existing file's fixed page size. Create, convert, and
+concat default to v2 output; pass `v1` explicitly when v1 output is required.
+
 Positional tokens are case-sensitive. For example, `v2`, `zstd`, and `1MiB`
 are tokens; `V2`, `ZSTD`, and `1MIB` are treated as paths or values rather than
 their lowercase token forms.

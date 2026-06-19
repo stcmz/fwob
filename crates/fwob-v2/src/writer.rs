@@ -23,6 +23,7 @@ const INITIAL_COMPRESSED_PROBE_RAW_PAGES: usize = 4;
 /// when opening a file for append. Bounds the work: a file with thousands of raw pages reclaims
 /// at most this many. `Codec::None` only ever coalesces the single trailing page.
 const MAX_APPEND_TAIL_PAGES: usize = 10;
+const RECOMMENDED_COMPRESSED_INPUT_PAGES: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodecSelection {
@@ -47,6 +48,31 @@ pub const DEFAULT_CODEC: Codec = Codec::Zstd;
 pub const DEFAULT_ZSTD_LEVEL: i32 = 6;
 pub const DEFAULT_ENCODING: Encoding = Encoding::ColumnarBasicV1;
 pub const DEFAULT_PAGE_PACKING: PagePacking = PagePacking::EstimateShrink;
+
+/// Returns a bounded input chunk size that avoids undersupplying page packing while streaming.
+pub fn recommended_input_chunk_frames(
+    codec: Codec,
+    encoding_selection: EncodingSelection,
+    page_size: u32,
+    schema: &Schema,
+) -> usize {
+    let frame_len = schema.frame_len as usize;
+    if codec != Codec::None {
+        return ((page_size as usize * RECOMMENDED_COMPRESSED_INPUT_PAGES) / frame_len).max(1);
+    }
+
+    let payload_capacity = page_size as usize - PAGE_HEADER_LEN;
+    let encoding_overhead = match encoding_selection {
+        EncodingSelection::Fixed(Encoding::ColumnarDeltaV1) => schema.fields.len(),
+        EncodingSelection::Fixed(Encoding::RowRawV1 | Encoding::ColumnarBasicV1)
+        | EncodingSelection::Smallest => 0,
+    };
+    payload_capacity
+        .saturating_sub(encoding_overhead)
+        .checked_div(frame_len)
+        .unwrap_or(0)
+        .max(1)
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PackingStats {

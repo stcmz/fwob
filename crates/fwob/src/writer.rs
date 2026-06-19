@@ -96,6 +96,10 @@ impl Writer {
         Ok(self.inner.append_presorted_frames(frames)?)
     }
 
+    pub fn append_presorted_frames_owned(&mut self, frames: Vec<u8>) -> Result<()> {
+        Ok(self.inner.append_presorted_frames_owned(frames)?)
+    }
+
     pub fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()> {
         Ok(self.inner.append_frames_transactional(frames)?)
     }

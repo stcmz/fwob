@@ -185,6 +185,7 @@ fn assert_reader_contract(path: &Path, expected_version: FormatVersion) {
     assert_eq!(reader.title(), "facade");
     assert_eq!(reader.frame_count(), 2);
     assert_eq!(reader.string_table(), ["alpha"]);
+    assert_eq!(reader.read_raw_frames_chunk(1, 10).unwrap(), frame(2, 20));
     let frames = reader.read_all_frames().unwrap();
     assert_eq!(frames.len(), 2);
     assert_eq!(frames[0].bytes(), frame(1, 10));

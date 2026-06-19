@@ -7,9 +7,7 @@ use std::{
 use fwob_core::{FieldSemantic, Key, Schema};
 use tempfile::NamedTempFile;
 
-use crate::{
-    writer::inherited_v2_options, Error, Maintenance, OperationOptions, Reader, Result, Writer,
-};
+use crate::{writer::inherited_v2_options, Error, OperationOptions, Reader, Result, Writer};
 
 const COPY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
@@ -19,7 +17,7 @@ pub struct Organizer {
     pub keep_empty_parts: bool,
     /// Force the concat output format. `None` infers it from the sources (all-v1 -> v1, else v2).
     pub output_format: Option<fwob_core::FormatVersion>,
-    /// Override the concat v2 output page size. `None` inherits the first source's page size.
+    /// Override split/concat v2 output page size. `None` inherits the source page size.
     pub output_page_size: Option<u32>,
 }
 
@@ -36,6 +34,7 @@ impl Organizer {
             first_keys,
             &self.operation_options,
             self.keep_empty_parts,
+            self.output_page_size,
         )
     }
 
@@ -73,6 +72,7 @@ fn split_by_keys(
     first_keys: &[Key],
     operation_options: &OperationOptions,
     keep_empty_parts: bool,
+    output_page_size: Option<u32>,
 ) -> Result<Vec<PathBuf>> {
     if first_keys.is_empty() {
         return Err(Error::EmptySplitKeys);
@@ -122,6 +122,7 @@ fn split_by_keys(
                 &title,
                 &string_table,
                 operation_options,
+                output_page_size,
             )?;
         }
         outputs.push(path);
@@ -239,29 +240,26 @@ fn concat_files(
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut writer = Writer::create_v2(
-        &temporary_path,
-        output_schema.clone(),
-        output_v2_options(
-            &sources[0],
-            &title,
-            &string_table,
-            operation_options,
-            output_page_size,
-        ),
-    )?;
+    let options = output_v2_options(
+        &sources[0],
+        &title,
+        &string_table,
+        operation_options,
+        output_page_size,
+    );
+    let chunk_frames = fwob_v2::recommended_input_chunk_frames(
+        options.codec,
+        options.encoding_selection,
+        options.page_size,
+        &output_schema,
+    );
+    let mut writer = Writer::create_v2(&temporary_path, output_schema.clone(), options)?;
     for path in sources {
         let mut reader = Reader::open_with_options(path, reader_options)?;
         let frame_count = reader.frame_count();
-        copy_range(
-            &mut reader,
-            &mut writer,
-            0..frame_count,
-            output_schema.frame_len as usize,
-        )?;
+        copy_range(&mut reader, &mut writer, 0..frame_count, chunk_frames)?;
     }
     writer.finish()?;
-    Maintenance::verify(&temporary_path, reader_options)?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -298,15 +296,10 @@ fn concat_to_v1(
     for source in sources {
         let mut reader = Reader::open_with_options(source, reader_options)?;
         let frame_count = reader.frame_count();
-        copy_range(
-            &mut reader,
-            &mut writer,
-            0..frame_count,
-            schema.frame_len as usize,
-        )?;
+        let chunk_frames = (COPY_BUFFER_BYTES / schema.frame_len as usize).max(1);
+        copy_range(&mut reader, &mut writer, 0..frame_count, chunk_frames)?;
     }
     writer.finish()?;
-    fwob_v1::verify_file(&temporary_path, v1_key_field_index)?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -334,7 +327,6 @@ fn write_v1_range_atomically(
     }
     copy_v1_raw_range(&mut source, &mut destination_writer, range)?;
     drop(destination_writer);
-    fwob_v1::verify_file(&temporary_path, key_field_index)?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -373,7 +365,6 @@ fn concat_v1_raw(
         copy_v1_raw_range(&mut source, &mut writer, 0..frame_count)?;
     }
     drop(writer);
-    fwob_v1::verify_file(&temporary_path, key_field_index)?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -418,6 +409,7 @@ fn merge_string_tables(destination: &mut Vec<String>, source: &[String]) -> Resu
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_range_atomically(
     reader: &mut Reader,
     source: &Path,
@@ -426,23 +418,27 @@ fn write_range_atomically(
     title: &str,
     string_table: &[String],
     operation_options: &OperationOptions,
+    output_page_size: Option<u32>,
 ) -> Result<()> {
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
     let temporary = NamedTempFile::new_in(parent)?;
     let temporary_path = temporary.into_temp_path();
-    let mut writer = Writer::create_v2(
-        &temporary_path,
-        reader.schema().clone(),
-        output_v2_options(source, title, string_table, operation_options, None),
-    )?;
-    copy_range(
-        reader,
-        &mut writer,
-        range,
-        reader.schema().frame_len as usize,
-    )?;
+    let options = output_v2_options(
+        source,
+        title,
+        string_table,
+        operation_options,
+        output_page_size,
+    );
+    let chunk_frames = fwob_v2::recommended_input_chunk_frames(
+        options.codec,
+        options.encoding_selection,
+        options.page_size,
+        reader.schema(),
+    );
+    let mut writer = Writer::create_v2(&temporary_path, reader.schema().clone(), options)?;
+    copy_range(reader, &mut writer, range, chunk_frames)?;
     writer.finish()?;
-    Maintenance::verify(&temporary_path, operation_options.reader_options)?;
     temporary_path
         .persist(destination)
         .map_err(|error| Error::Io(error.error))?;
@@ -453,18 +449,13 @@ fn copy_range(
     source: &mut Reader,
     destination: &mut Writer,
     range: Range<u64>,
-    frame_len: usize,
+    frames_per_buffer: usize,
 ) -> Result<()> {
-    let frames_per_buffer = (COPY_BUFFER_BYTES / frame_len).max(1);
     let mut next = range.start;
-    let mut bytes = Vec::with_capacity(frames_per_buffer * frame_len);
     while next < range.end {
-        bytes.clear();
         let end = range.end.min(next + frames_per_buffer as u64);
-        for frame in source.frames(next..end)? {
-            bytes.extend_from_slice(frame?.bytes());
-        }
-        destination.append_presorted_frames(&bytes)?;
+        let bytes = source.read_raw_frames_chunk(next, (end - next) as usize)?;
+        destination.append_presorted_frames_owned(bytes)?;
         next = end;
     }
     Ok(())

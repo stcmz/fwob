@@ -56,19 +56,20 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
 pub(super) fn split_file(args: SplitArgs) -> Result<()> {
     use fwob::{Organizer, Reader};
 
-    let parsed = parse_command_tokens(&args.target, false, true, false, false, false)?;
+    let parsed = parse_command_tokens(&args.target, false, true, true, false, false)?;
     if parsed.paths.len() < 3 {
         bail!("split expects INPUT OUTPUT_DIR and at least one FIRST_KEY after tokens");
     }
     let input = PathBuf::from(parsed.paths[0]);
     let output_dir = PathBuf::from(parsed.paths[1]);
-    let (operation_options, _) = parsed.operation_options(
+    let (operation_options, write) = parsed.operation_options(
         args.key_field_index,
         args.zstd_level,
         fwob::DeletionPacking::LocalRepack,
         false,
     );
-    let reader = Reader::open_with_options(&input, operation_options.reader_options)?;
+    let reader_options = operation_options.reader_options;
+    let reader = Reader::open_with_options(&input, reader_options)?;
     let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
     let keys = parsed.paths[2..]
         .iter()
@@ -78,9 +79,15 @@ pub(super) fn split_file(args: SplitArgs) -> Result<()> {
     let outputs = Organizer {
         operation_options,
         keep_empty_parts: args.keep_empty_parts,
+        output_page_size: Some(parsed.page_size.unwrap_or(fwob_v2::DEFAULT_PAGE_SIZE)),
         ..Default::default()
     }
     .split(&input, &output_dir, &keys)?;
+    if write.verify {
+        for output in &outputs {
+            fwob::Maintenance::verify(output, reader_options)?;
+        }
+    }
     toml_section("split");
     toml_kv_num("parts", outputs.len());
     for (index, path) in outputs.iter().enumerate() {
@@ -111,17 +118,19 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
         .map(PathBuf::from)
         .collect::<Vec<_>>();
     let relaxed_semantics = concat_uses_relaxed_semantics(&inputs)?;
-    let output_format = parsed.format.map(|format| match format {
+    let target_format = parsed.format.unwrap_or(DEFAULT_TARGET_FORMAT);
+    let output_format = Some(match target_format {
         TargetFormat::V1 => fwob_core::FormatVersion::V1,
         TargetFormat::V2 => fwob_core::FormatVersion::V2,
     });
-    let output_page_size = parsed.page_size;
-    let (operation_options, _) = parsed.operation_options(
+    let output_page_size = Some(parsed.page_size.unwrap_or(fwob_v2::DEFAULT_PAGE_SIZE));
+    let (operation_options, write) = parsed.operation_options(
         args.key_field_index,
         args.zstd_level,
         fwob::DeletionPacking::LocalRepack,
         false,
     );
+    let reader_options = operation_options.reader_options;
     let frames = fwob::Organizer {
         operation_options,
         output_format,
@@ -129,8 +138,11 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
         ..Default::default()
     }
     .concat(&output, &inputs)?;
+    if write.verify {
+        fwob::Maintenance::verify(&output, reader_options)?;
+    }
     if relaxed_semantics {
-        if output_format == Some(fwob_core::FormatVersion::V1) {
+        if matches!(target_format, TargetFormat::V1) {
             log_warn(
                 "warning: mixed v1/v2 concat ignored missing v1 field semantics; v2 semantics were dropped for v1 output",
             );
@@ -142,16 +154,15 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
     }
     toml_section("concat");
     toml_kv_str("output", &output.display().to_string());
-    if let Some(format) = parsed.format {
-        toml_kv_str(
-            "format",
-            match format {
-                TargetFormat::V1 => "fwob-v1",
-                TargetFormat::V2 => "fwob-v2",
-            },
-        );
-    }
+    toml_kv_str(
+        "format",
+        match target_format {
+            TargetFormat::V1 => "fwob-v1",
+            TargetFormat::V2 => "fwob-v2",
+        },
+    );
     toml_kv_num("frames", frames);
+    toml_kv_bool("verified", write.verify);
     Ok(())
 }
 

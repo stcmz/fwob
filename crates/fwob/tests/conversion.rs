@@ -394,6 +394,20 @@ fn cli_concat_honors_explicit_output_format() {
     write_v2_file(&v2_src, tick_schema(), 30..70);
     let exe = env!("CARGO_BIN_EXE_fwob");
 
+    // The default output is v2 with the shared default page size.
+    let out_default = dir.path().join("out_default.fwob");
+    assert_command_success(Command::new(exe).args([
+        "concat",
+        out_default.to_str().unwrap(),
+        v1_src.to_str().unwrap(),
+    ]));
+    let default_reader = fwob_v2::Reader::open(&out_default).unwrap();
+    assert_eq!(default_reader.header().frame_count, 30);
+    assert_eq!(
+        default_reader.header().page_size,
+        fwob_v2::DEFAULT_PAGE_SIZE
+    );
+
     // Force a v1 output from mixed sources.
     let out_v1 = dir.path().join("out_v1.fwob");
     assert_command_success(Command::new(exe).args([
@@ -431,6 +445,31 @@ fn cli_concat_honors_explicit_output_format() {
         ]),
         "v2 write tokens are not valid",
     );
+}
+
+#[test]
+fn cli_split_uses_shared_default_v2_page_size() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join("source.fwob");
+    let parts = dir.path().join("parts");
+    let mut options = V2WriterOptions::new("Tick");
+    options.page_size = 2 * 1024;
+    let mut writer = V2Writer::create(&source, tick_schema(), options).unwrap();
+    for value in 0..100 {
+        writer.append_frame(&tick(value, value as f64)).unwrap();
+    }
+    writer.finish().unwrap();
+
+    assert_command_success(Command::new(env!("CARGO_BIN_EXE_fwob")).args([
+        "split",
+        source.to_str().unwrap(),
+        parts.to_str().unwrap(),
+        "50",
+    ]));
+    for entry in std::fs::read_dir(parts).unwrap() {
+        let reader = fwob_v2::Reader::open(entry.unwrap().path()).unwrap();
+        assert_eq!(reader.header().page_size, fwob_v2::DEFAULT_PAGE_SIZE);
+    }
 }
 
 #[test]

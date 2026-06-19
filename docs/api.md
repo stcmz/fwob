@@ -501,6 +501,10 @@ is a matching prefix of the other; the longest table is written. All-v1 input
 defaults to v1 output; any v2 input defaults to v2 output. Callers may explicitly
 select either output format and may override the v2 page size.
 
+The CLI chooses v2 output for create, convert, and concat when no format token
+is supplied. The library-level `Organizer` retains source-based inference when
+`output_format` is `None`, allowing callers to opt into preservation explicitly.
+
 V1 cannot persist field semantics. For mixed v1/v2 input, concat therefore
 ignores missing v1 semantics. V2 output preserves the richest v2 schema; forced
 v1 output drops all semantics. The CLI emits a warning that states whether v2
@@ -511,18 +515,23 @@ incompatible.
 `Organizer` is operation-stateful but not bound to one open file. It owns
 `OperationOptions` and applies them to every split or concat call. This matches
 the configuration model of `Writer` and `Editor` without retaining file handles
-or making a multi-source concat pretend to belong to one source file. V2 output
-preserves the source page size; explicit options control codec, encoding,
-compression level, packing, and partial-page handling.
+or making a multi-source concat pretend to belong to one source file.
+Library-level v2 output preserves the source page size unless
+`output_page_size` is set; explicit options control codec, encoding,
+compression level, packing, and partial-page handling. CLI concat and split
+use the shared 512 KiB default unless another page size token is supplied.
 
-Both operations stream through a 4 MiB buffer, verify each completed output,
-and atomically publish it. V1 copies raw frame byte ranges without decoding or
-re-encoding frames. V2 streams logical frames because page boundaries,
-compression, checksums, and `first_frame_index` values must be rebuilt.
+Both operations use bounded bulk-frame buffers sized for the selected v2 page
+packing policy and atomically publish each completed output. V1 copies raw
+frame byte ranges without decoding or re-encoding frames. V2 decodes each
+touched source page once and streams packed raw frame chunks because page
+boundaries, compression, checksums, and `first_frame_index` values must be
+rebuilt.
 Concat assumes each source is already internally valid; it does not verify every
 input before copying. Run maintenance verification first when source corruption
-is a concern. It still verifies the completed output and validates metadata and
-key ordering between source-file boundaries.
+is a concern. Metadata and key ordering are validated at source-file boundaries;
+output writers enforce structural integrity as data is written. The CLI `verify`
+token requests an additional full post-write verification pass.
 Splitting `N` frames into `M` parts takes `O(M log N + N)` time. Concatenation
 takes `O(N)` time after `O(M)` metadata and boundary checks. Extra copy memory
 is `O(B)` and independent of file size.

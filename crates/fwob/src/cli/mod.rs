@@ -155,6 +155,8 @@ enum TargetFormat {
     V2,
 }
 
+const DEFAULT_TARGET_FORMAT: TargetFormat = TargetFormat::V2;
+
 #[derive(Debug, Args)]
 #[command(override_usage = "fwob bench [OPTIONS] [MODE] PATH")]
 #[command(after_help = "Plain tokens:
@@ -311,10 +313,11 @@ struct AppendArgs {
   codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
   page packing: estimate-shrink, tight-fit
-  switches: compress-partial-page
+  page size: INTEGER{B|KB|KiB|MB|MiB} (1KiB..16MiB; default 512KiB)
+  switches: verify, compress-partial-page
 
-V2 parts preserve the source page size. Without write tokens, codec and encoding
-are inherited from the source. Tokens may appear anywhere.")]
+V2 parts default to zstd level 6, columnar-basic, estimate-shrink, and 512KiB pages.
+Tokens may appear anywhere.")]
 struct SplitArgs {
     /// Input, output directory, split keys, and optional v2 output tokens.
     #[arg(value_name = "TARGET", num_args = 3..)]
@@ -332,14 +335,17 @@ struct SplitArgs {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "fwob concat [OPTIONS] OUTPUT INPUT... [TOKENS]")]
-#[command(after_help = "V2 output tokens:
+#[command(after_help = "Output format defaults to v2.
+
+V2 output tokens:
   codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
   page packing: estimate-shrink, tight-fit
-  switches: compress-partial-page
+  page size: INTEGER{B|KB|KiB|MB|MiB} (1KiB..16MiB; default 512KiB)
+  switches: verify, compress-partial-page
 
-V2 output preserves the first source page size. Without write tokens, codec and
-encoding are inherited from the first source. Tokens may appear anywhere.")]
+V2 output defaults to zstd level 6, columnar-basic, estimate-shrink, and 512KiB pages.
+Tokens may appear anywhere.")]
 struct ConcatArgs {
     /// Output, ordered input files, and optional v2 output tokens.
     #[arg(value_name = "TARGET", num_args = 2..)]
@@ -696,7 +702,7 @@ fn parse_create_target(values: &[String]) -> Result<(TargetFormat, PathBuf, u32)
             paths.push(value);
         }
     }
-    let format = format.unwrap_or(TargetFormat::V2);
+    let format = format.unwrap_or(DEFAULT_TARGET_FORMAT);
     if matches!(format, TargetFormat::V1) && page_size.is_some() {
         bail!("page size token is not valid when creating v1");
     }
@@ -716,7 +722,7 @@ fn parse_convert_target(
     write_args: V2WriteArgs,
 ) -> Result<(TargetFormat, PathBuf, PathBuf, u32, V2WriteOptions)> {
     let parsed = parse_command_tokens(values, true, true, true, false, false)?;
-    let format = parsed.format.unwrap_or(TargetFormat::V2);
+    let format = parsed.format.unwrap_or(DEFAULT_TARGET_FORMAT);
     if matches!(format, TargetFormat::V1) && parsed.has_v2_write_tokens() {
         bail!("v2 write tokens are not valid when converting to v1");
     }
@@ -827,13 +833,6 @@ impl ParsedTokens<'_> {
         write
     }
 
-    fn has_mutation_write_tokens(&self) -> bool {
-        self.codec.is_some()
-            || self.encoding.is_some()
-            || self.page_packing.is_some()
-            || self.compress_partial_page
-    }
-
     fn operation_options(
         &self,
         v1_key_field_index: usize,
@@ -841,12 +840,11 @@ impl ParsedTokens<'_> {
         deletion_packing: fwob::DeletionPacking,
         force_compress_partial_page: bool,
     ) -> (fwob::OperationOptions, V2WriteOptions) {
-        let explicit_v2_options = self.has_mutation_write_tokens() || zstd_level.is_some();
         let mut write = self.write_options(V2WriteArgs {
             zstd_level: zstd_level.unwrap_or(fwob_v2::DEFAULT_ZSTD_LEVEL),
         });
         write.compress_partial_page |= force_compress_partial_page;
-        let v2 = explicit_v2_options.then(|| {
+        let v2 = Some({
             let mut options = fwob_v2::WriterOptions::new("");
             options.codec = write.codec.codec();
             options.codec_selection = write.codec.selection();
@@ -1264,5 +1262,45 @@ mod token_case_tests {
     fn field_type_tokens_are_case_sensitive() {
         assert_eq!(parse_field_type("u").unwrap(), FieldType::UnsignedInteger);
         assert!(parse_field_type("U").is_err());
+    }
+
+    #[test]
+    fn write_defaults_are_shared_by_creation_and_mutation_commands() {
+        let creation = V2WriteOptions::from_args(V2WriteArgs {
+            zstd_level: fwob_v2::DEFAULT_ZSTD_LEVEL,
+        });
+        let parsed = ParsedTokens::default();
+        let (mutation, resolved) =
+            parsed.operation_options(0, None, fwob::DeletionPacking::LocalRepack, false);
+        let mutation = mutation.v2.expect("mutation defaults are explicit");
+
+        assert_eq!(resolved.codec, creation.codec);
+        assert_eq!(resolved.encoding, creation.encoding);
+        assert_eq!(resolved.zstd_level, creation.zstd_level);
+        assert_eq!(resolved.page_packing, creation.page_packing);
+        assert_eq!(mutation.codec, fwob_v2::DEFAULT_CODEC);
+        assert_eq!(mutation.encoding, fwob_v2::DEFAULT_ENCODING);
+        assert_eq!(mutation.zstd_level, fwob_v2::DEFAULT_ZSTD_LEVEL);
+        assert_eq!(mutation.page_packing, fwob_v2::DEFAULT_PAGE_PACKING);
+    }
+
+    #[test]
+    fn new_file_commands_share_the_v2_format_default() {
+        assert!(matches!(DEFAULT_TARGET_FORMAT, TargetFormat::V2));
+        assert!(matches!(
+            parse_create_target(&["created.fwob".to_owned()]).unwrap().0,
+            TargetFormat::V2
+        ));
+        assert!(matches!(
+            parse_convert_target(
+                &["input.fwob".to_owned(), "output.fwob".to_owned()],
+                V2WriteArgs {
+                    zstd_level: fwob_v2::DEFAULT_ZSTD_LEVEL,
+                },
+            )
+            .unwrap()
+            .0,
+            TargetFormat::V2
+        ));
     }
 }

@@ -63,6 +63,12 @@ impl ReaderBackend for ReaderAdapter {
             .map_err(fwob_core::FwobError::backend)
     }
 
+    fn read_raw_frames_chunk(&mut self, start: u64, max_frames: usize) -> CoreResult<Vec<u8>> {
+        self.reader
+            .read_raw_frames_chunk(start, max_frames)
+            .map_err(fwob_core::FwobError::backend)
+    }
+
     fn read_key(&mut self, index: u64) -> CoreResult<Option<Key>> {
         self.reader
             .read_key_at(index)

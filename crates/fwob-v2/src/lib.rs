@@ -21,8 +21,9 @@ pub use page::{Encoding, PageHeader, PAGE_HEADER_LEN};
 pub use reader::Reader;
 pub use repair::repair_committed_tail;
 pub use writer::{
-    CodecSelection, EncodingSelection, PackingStats, PagePacking, Writer, WriterOptions,
-    DEFAULT_CODEC, DEFAULT_ENCODING, DEFAULT_PAGE_PACKING, DEFAULT_PAGE_SIZE, DEFAULT_ZSTD_LEVEL,
+    recommended_input_chunk_frames, CodecSelection, EncodingSelection, PackingStats, PagePacking,
+    Writer, WriterOptions, DEFAULT_CODEC, DEFAULT_ENCODING, DEFAULT_PAGE_PACKING,
+    DEFAULT_PAGE_SIZE, DEFAULT_ZSTD_LEVEL,
 };
 
 use thiserror::Error;
