@@ -1,5 +1,42 @@
 use super::*;
 
+fn resolve_bench_args(args: BenchArgs) -> Result<ResolvedBenchArgs> {
+    let (mode, path) = parse_bench_target(&args.target)?;
+    Ok(ResolvedBenchArgs {
+        path,
+        mode,
+        iterations: args.iterations,
+        first_key_i32: args.first_key_i32,
+        last_key_i32: args.last_key_i32,
+        key_field_index: args.key_field_index,
+        output_dir: args.output_dir,
+        scan_iterations: args.scan_iterations,
+        keep_outputs: args.keep_outputs,
+    })
+}
+
+fn parse_bench_target(values: &[String]) -> Result<(BenchMode, PathBuf)> {
+    let mut mode = None;
+    let mut paths = Vec::new();
+    for value in values {
+        if let Some(parsed) = match_bench_mode(value) {
+            set_once(&mut mode, parsed, "bench mode")?;
+        } else if is_any_reserved_token(value) {
+            bail!("token '{value}' is not valid for bench");
+        } else {
+            paths.push(value);
+        }
+    }
+    match paths.as_slice() {
+        [path] => Ok((
+            mode.unwrap_or(BenchMode::ConversionMatrix),
+            PathBuf::from(path),
+        )),
+        [] => bail!("bench expects PATH or MODE PATH"),
+        _ => bail!("bench expects exactly one input path"),
+    }
+}
+
 pub(super) fn bench_v2(args: BenchArgs) -> Result<()> {
     let args = resolve_bench_args(args)?;
     if matches!(args.mode, BenchMode::ConversionMatrix) {
