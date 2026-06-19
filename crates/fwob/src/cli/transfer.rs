@@ -440,19 +440,28 @@ fn convert_to_v1(
     let _output_guard = CONVERSION_OUTPUT_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    toml_section("conversion");
-    toml_kv_str("target_format", "fwob-v1");
-    toml_kv_str("input", &input.display().to_string());
-    toml_kv_str("output", &output.display().to_string());
-    toml_kv_num("frames", meta.frame_count);
-    toml_kv_num("parallelism", parallelism);
+    let storage = StorageSummary::collect(&[output.to_path_buf()], key_field_index)?;
+    print_operation_result(OperationResult {
+        section: "conversion",
+        storage: &storage,
+        input: Some(input),
+        output,
+        input_count: 1,
+        verified: false,
+        elapsed_seconds: started.elapsed().as_secs_f64(),
+    });
     if matches!(source_format, Format::V2) {
         toml_kv_num("source_pages", meta.page_count);
     }
-    toml_kv_num(
-        "elapsed_seconds",
-        format!("{:.3}", started.elapsed().as_secs_f64()),
-    );
+    print_common_sections(CommonSummary {
+        storage: &storage,
+        key_field_index,
+        page_size: None,
+        write: None,
+        packing: None,
+        parallelism: Some(parallelism),
+        verified: false,
+    });
     Ok(())
 }
 
@@ -541,20 +550,16 @@ fn append_into_v2_target(
         inspect.verify()?;
     }
     let metadata = collect_v2_metadata(target, &mut inspect)?;
-    toml_section("append");
-    toml_kv_str("output", &target.display().to_string());
-    toml_kv_num("inputs", inputs.len());
-    toml_kv_num("frames", inspect.header().frame_count);
-    toml_kv_num("pages", inspect.header().page_count);
-    toml_kv_bool("verified", write.verify);
-    if !write.verify {
-        toml_kv_str("verification", "skipped (run `fwob verify` or pass verify)");
-    }
-    toml_kv_num(
-        "elapsed_seconds",
-        format!("{:.3}", started.elapsed().as_secs_f64()),
-    );
     let storage = StorageSummary::V2(metadata);
+    print_operation_result(OperationResult {
+        section: "append",
+        storage: &storage,
+        input: None,
+        output: target,
+        input_count: inputs.len(),
+        verified: write.verify,
+        elapsed_seconds: started.elapsed().as_secs_f64(),
+    });
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index,
@@ -620,16 +625,17 @@ fn append_into_v1_target(
         )?;
     }
 
-    toml_section("append");
-    toml_kv_str("output", &target.display().to_string());
-    toml_kv_num("inputs", inputs.len());
-    toml_kv_num("frames", frame_count);
-    toml_kv_bool("verified", verified);
-    toml_kv_num(
-        "elapsed_seconds",
-        format!("{:.3}", started.elapsed().as_secs_f64()),
-    );
     let storage = StorageSummary::collect(&[target.to_path_buf()], key_field_index)?;
+    debug_assert_eq!(storage.frame_count(), frame_count);
+    print_operation_result(OperationResult {
+        section: "append",
+        storage: &storage,
+        input: None,
+        output: target,
+        input_count: inputs.len(),
+        verified,
+        elapsed_seconds: started.elapsed().as_secs_f64(),
+    });
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index,
@@ -657,19 +663,18 @@ fn print_convert_v2_toml(
     elapsed_seconds: f64,
     parallelism: usize,
 ) {
-    toml_section("conversion");
-    toml_kv_str("target_format", "fwob-v2");
-    toml_kv_str("input", &input.display().to_string());
-    toml_kv_str("output", &output.display().to_string());
-    toml_kv_num("frames", frame_count);
-    toml_kv_num("pages", page_count);
-    toml_kv_bool("verified", verified);
-    if !verified {
-        toml_kv_str("verification", "skipped (run `fwob verify` or pass verify)");
-    }
-    toml_kv_num("elapsed_seconds", format!("{elapsed_seconds:.3}"));
-
     let storage = StorageSummary::V2(metadata);
+    debug_assert_eq!(storage.frame_count(), frame_count);
+    debug_assert_eq!(storage.page_count(), Some(page_count));
+    print_operation_result(OperationResult {
+        section: "conversion",
+        storage: &storage,
+        input: Some(input),
+        output,
+        input_count: 1,
+        verified,
+        elapsed_seconds,
+    });
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index,

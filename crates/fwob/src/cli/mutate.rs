@@ -58,19 +58,21 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
     drop(progress);
     log_info(format!("deletion completed: {}", path.display()));
 
-    toml_section("deletion");
-    toml_kv_str("path", &path.display().to_string());
+    print_operation_result(OperationResult {
+        section: "deletion",
+        storage: &storage,
+        input: None,
+        output: &path,
+        input_count: 1,
+        verified: write.verify,
+        elapsed_seconds: started.elapsed().as_secs_f64(),
+    });
     toml_kv_key("first_key", first_key);
     toml_kv_key("last_key", last_key_value);
     toml_kv_num("deleted_frames", removed);
-    toml_kv_num("remaining_frames", remaining_frames);
+    debug_assert_eq!(storage.frame_count(), remaining_frames);
     toml_kv_str("deletion_packing", deletion_packing.as_str());
     toml_kv_bool("compress_partial_page", effective_compress_partial_page);
-    toml_kv_bool("verified", write.verify);
-    toml_kv_num(
-        "elapsed_seconds",
-        format!("{:.3}", started.elapsed().as_secs_f64()),
-    );
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index: args.key_field_index,
@@ -138,15 +140,16 @@ pub(super) fn split_file(args: SplitArgs) -> Result<()> {
         input.display(),
         outputs.len()
     ));
-    toml_section("split");
-    toml_kv_str("input", &input.display().to_string());
-    toml_kv_str("output_directory", &output_dir.display().to_string());
+    print_operation_result(OperationResult {
+        section: "split",
+        storage: &storage,
+        input: Some(&input),
+        output: &output_dir,
+        input_count: 1,
+        verified: write.verify,
+        elapsed_seconds: started.elapsed().as_secs_f64(),
+    });
     toml_kv_num("parts", outputs.len());
-    toml_kv_bool("verified", write.verify);
-    toml_kv_num(
-        "elapsed_seconds",
-        format!("{:.3}", started.elapsed().as_secs_f64()),
-    );
     for (index, path) in outputs.iter().enumerate() {
         toml_kv_str(&format!("part_{index}"), &path.display().to_string());
     }
@@ -223,21 +226,16 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
     let storage = StorageSummary::collect(std::slice::from_ref(&output), args.key_field_index)?;
     drop(progress);
     log_info(format!("concat completed: {}", output.display()));
-    toml_section("concat");
-    toml_kv_str("output", &output.display().to_string());
-    toml_kv_str(
-        "format",
-        match target_format {
-            TargetFormat::V1 => "fwob-v1",
-            TargetFormat::V2 => "fwob-v2",
-        },
-    );
-    toml_kv_num("frames", frames);
-    toml_kv_bool("verified", write.verify);
-    toml_kv_num(
-        "elapsed_seconds",
-        format!("{:.3}", started.elapsed().as_secs_f64()),
-    );
+    debug_assert_eq!(storage.frame_count(), frames);
+    print_operation_result(OperationResult {
+        section: "concat",
+        storage: &storage,
+        input: None,
+        output: &output,
+        input_count: inputs.len(),
+        verified: write.verify,
+        elapsed_seconds: started.elapsed().as_secs_f64(),
+    });
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index: args.key_field_index,

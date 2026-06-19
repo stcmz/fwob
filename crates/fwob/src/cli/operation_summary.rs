@@ -1,7 +1,11 @@
 use super::*;
 
 pub(super) enum StorageSummary {
-    V1 { physical_bytes: u64, raw_bytes: u64 },
+    V1 {
+        frame_count: u64,
+        physical_bytes: u64,
+        raw_bytes: u64,
+    },
     V2(V2Metadata),
 }
 
@@ -9,6 +13,7 @@ impl StorageSummary {
     pub(super) fn empty(format: fwob_core::FormatVersion, page_size: u32) -> Self {
         match format {
             fwob_core::FormatVersion::V1 => Self::V1 {
+                frame_count: 0,
                 physical_bytes: 0,
                 raw_bytes: 0,
             },
@@ -28,12 +33,14 @@ impl StorageSummary {
             Format::V1 => {
                 let mut physical_bytes = 0u64;
                 let mut raw_bytes = 0u64;
+                let mut frame_count = 0u64;
                 for path in paths {
                     if !matches!(detect_format(path)?, Format::V1) {
                         bail!("operation outputs use mixed format versions");
                     }
                     let reader = fwob_v1::Reader::open(path, key_field_index)?;
                     physical_bytes = physical_bytes.saturating_add(std::fs::metadata(path)?.len());
+                    frame_count = frame_count.saturating_add(reader.frame_count());
                     raw_bytes = raw_bytes.saturating_add(
                         reader
                             .frame_count()
@@ -41,6 +48,7 @@ impl StorageSummary {
                     );
                 }
                 Ok(Self::V1 {
+                    frame_count,
                     physical_bytes,
                     raw_bytes,
                 })
@@ -77,9 +85,22 @@ impl StorageSummary {
             Self::V2(metadata) => Some(metadata),
         }
     }
+
+    pub(super) fn frame_count(&self) -> u64 {
+        match self {
+            Self::V1 { frame_count, .. } => *frame_count,
+            Self::V2(metadata) => metadata.frame_count,
+        }
+    }
+
+    pub(super) fn page_count(&self) -> Option<u64> {
+        self.v2_metadata().map(|metadata| metadata.page_count)
+    }
 }
 
 fn merge_v2_metadata(target: &mut V2Metadata, source: V2Metadata) {
+    target.frame_count = target.frame_count.saturating_add(source.frame_count);
+    target.page_count = target.page_count.saturating_add(source.page_count);
     target.physical_bytes = target.physical_bytes.saturating_add(source.physical_bytes);
     target.expected_physical_bytes = target
         .expected_physical_bytes
@@ -119,6 +140,40 @@ fn merge_v2_metadata(target: &mut V2Metadata, source: V2Metadata) {
     target.encoding_columnar_delta_v1_pages = target
         .encoding_columnar_delta_v1_pages
         .saturating_add(source.encoding_columnar_delta_v1_pages);
+}
+
+pub(super) struct OperationResult<'a> {
+    pub section: &'a str,
+    pub storage: &'a StorageSummary,
+    pub input: Option<&'a Path>,
+    pub output: &'a Path,
+    pub input_count: usize,
+    pub verified: bool,
+    pub elapsed_seconds: f64,
+}
+
+pub(super) fn print_operation_result(result: OperationResult<'_>) {
+    toml_section(result.section);
+    toml_kv_str("target_format", result.storage.format_name());
+    if let Some(input) = result.input {
+        toml_kv_str("input", &input.display().to_string());
+    }
+    toml_kv_str("output", &result.output.display().to_string());
+    toml_kv_num("input_count", result.input_count);
+    toml_kv_num("frames", result.storage.frame_count());
+    if let Some(page_count) = result.storage.page_count() {
+        toml_kv_num("pages", page_count);
+    }
+    toml_kv_bool("verified", result.verified);
+    toml_kv_str(
+        "verification",
+        if result.verified {
+            "completed"
+        } else {
+            "skipped (run `fwob verify` or pass verify)"
+        },
+    );
+    toml_kv_num("elapsed_seconds", format!("{:.3}", result.elapsed_seconds));
 }
 
 pub(super) struct CommonSummary<'a> {
@@ -165,6 +220,7 @@ pub(super) fn print_common_sections(summary: CommonSummary<'_>) {
         StorageSummary::V1 {
             physical_bytes,
             raw_bytes,
+            ..
         } => {
             toml_kv_num("compressed_payload_bytes", raw_bytes);
             toml_kv_num("uncompressed_payload_bytes", raw_bytes);

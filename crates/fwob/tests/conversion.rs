@@ -47,6 +47,11 @@ fn assert_operation_summary(output: &std::process::Output, operation: &str) {
         ],
         "unexpected summary sections\nstdout:\n{stdout}"
     );
+    assert!(stdout.contains("target_format = \"fwob-v"), "{stdout}");
+    assert!(stdout.contains("input_count = "), "{stdout}");
+    assert!(stdout.contains("frames = "), "{stdout}");
+    assert!(stdout.contains("verified = "), "{stdout}");
+    assert!(stdout.contains("verification = "), "{stdout}");
     assert!(stdout.contains("elapsed_seconds = "), "{stdout}");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -858,7 +863,7 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
     assert_operation_summary(&deletion, "deletion");
     assert!(stdout.contains("[deletion]"));
     assert!(stdout.contains("deleted_frames = 3"));
-    assert!(stdout.contains("remaining_frames = 27"));
+    assert!(stdout.contains("frames = 27"));
     assert!(stdout.contains("deletion_packing = \"repack-to-end\""));
     assert!(stdout.contains("verified = true"));
 

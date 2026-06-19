@@ -2,6 +2,8 @@ use super::*;
 
 #[derive(Default)]
 pub(super) struct V2Metadata {
+    pub(super) frame_count: u64,
+    pub(super) page_count: u64,
     pub(super) physical_bytes: u64,
     pub(super) expected_physical_bytes: u64,
     pub(super) payload_capacity_per_page: u64,
@@ -79,6 +81,8 @@ pub(super) fn collect_v2_metadata(
     let padding_bytes = payload_capacity_total.saturating_sub(compressed_total);
 
     Ok(V2Metadata {
+        frame_count: reader.header().frame_count,
+        page_count,
         physical_bytes,
         expected_physical_bytes,
         payload_capacity_per_page,
