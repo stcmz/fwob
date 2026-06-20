@@ -6,10 +6,12 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
     let deletion_packing = parsed
         .deletion_packing
         .unwrap_or(DeletionPackingArg::LocalRepack);
-    let ([path, first_key] | [path, first_key, _]) = parsed.paths.as_slice() else {
-        bail!("delete expects PATH FIRST_KEY or PATH FIRST_KEY LAST_KEY after tokens");
+    let Some((path, selector_values)) = parsed.paths.split_first() else {
+        bail!("delete expects PATH and at least one SELECTOR after tokens");
     };
-    let last_key = parsed.paths.get(2).copied();
+    if selector_values.is_empty() {
+        bail!("delete requires at least one selector");
+    }
     let path = PathBuf::from(path);
     let (operation_options, write) = parsed.operation_options(
         args.key_field_index,
@@ -18,33 +20,23 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
         matches!(deletion_packing, DeletionPackingArg::LocalRepack),
     );
     let reader_options = operation_options.reader_options;
-    let reader = fwob::Reader::open_with_options(&path, reader_options)?;
-    let key_type = fwob_core::KeyType::from_field(reader.schema().key_field())?;
-    let first_key = Key::parse(key_type, first_key)?;
-    let last_key_value = last_key
-        .map(|value| Key::parse(key_type, value))
-        .transpose()?
-        .unwrap_or(first_key);
-    if first_key > last_key_value {
-        bail!("FIRST_KEY must be less than or equal to LAST_KEY");
-    }
+    let mut reader = fwob::Reader::open_with_options(&path, reader_options)?;
+    let resolved = resolve_selectors(&mut reader, selector_values.iter().copied())?;
+    let ranges = resolved.selection.ranges().to_vec();
+    let selected_frames = resolved.selection.frame_count();
     drop(reader);
 
     log_info(format!(
-        "deletion started: {} keys={}..{}",
+        "deletion started: {} selectors={} frames={}",
         path.display(),
-        first_key,
-        last_key_value
+        resolved.selector_count,
+        selected_frames
     ));
     let progress = ProgressTicker::start("deletion");
     let effective_compress_partial_page =
         matches!(deletion_packing, DeletionPackingArg::LocalRepack) || write.compress_partial_page;
     let mut editor = fwob::Editor::open_with_operation_options(&path, operation_options)?;
-    let removed = if first_key == last_key_value {
-        editor.delete_key(first_key)?
-    } else {
-        editor.delete_key_range(first_key..=last_key_value)?
-    };
+    let removed = editor.delete_ranges(&ranges)?;
     if write.verify {
         fwob::Maintenance::verify(&path, reader_options)?;
     }
@@ -67,8 +59,8 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
         verified: write.verify,
         elapsed_seconds: started.elapsed().as_secs_f64(),
     });
-    toml_kv_key("first_key", first_key);
-    toml_kv_key("last_key", last_key_value);
+    toml_kv_num("selector_count", resolved.selector_count);
+    toml_kv_num("range_count", ranges.len());
     toml_kv_num("deleted_frames", removed);
     debug_assert_eq!(storage.frame_count(), remaining_frames);
     toml_kv_str("deletion_packing", deletion_packing.as_str());

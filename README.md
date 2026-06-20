@@ -131,8 +131,9 @@ fwob find ticks-v2.fwob 100..200
 fwob find ticks-v2.fwob 100 200..300 500.. ..50
 fwob dump ticks-v2.fwob 100 200..300 csv
 fwob dump ticks-v2.fwob raw > ticks.txt
-fwob delete ticks-v2.fwob 100 200 local-repack verify
-fwob delete ticks-v2.fwob 100 200 repack-to-end zstd columnar-basic compress-partial-page
+fwob delete ticks-v2.fwob 100..200 local-repack verify
+fwob delete ticks-v2.fwob 100.. 250 300..400 repack-to-end zstd columnar-basic compress-partial-page
+fwob delete GOOGL.fwob 1772563641.. verify
 fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```

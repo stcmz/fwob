@@ -851,8 +851,7 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
     let deletion = command_output(Command::new(exe).args([
         "delete",
         v2_path.to_str().unwrap(),
-        "10",
-        "12",
+        "10..12",
         "repack-to-end",
         "zstd",
         "columnar-basic",
@@ -870,6 +869,84 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
     let mut reader = Reader::open(&v2_path).unwrap();
     assert_eq!(reader.equal_range(fwob_core::Key::I32(10)).unwrap(), 10..10);
     assert_eq!(reader.read_key(10).unwrap(), Some(fwob_core::Key::I32(13)));
+}
+
+#[test]
+fn cli_delete_uses_dump_selectors_and_requires_one() {
+    let dir = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_fwob");
+
+    for format in ["v1", "v2"] {
+        let path = dir.path().join(format!("delete-selectors-{format}.fwob"));
+        if format == "v1" {
+            let mut writer =
+                V1Writer::create(&path, tick_schema(), WriterOptions::new("Delete")).unwrap();
+            for i in 0..10 {
+                writer.append_frame(&tick(i, i as f64)).unwrap();
+            }
+        } else {
+            let source = dir.path().join("delete-selector-source.fwob");
+            let mut writer =
+                V1Writer::create(&source, tick_schema(), WriterOptions::new("Delete")).unwrap();
+            for i in 0..10 {
+                writer.append_frame(&tick(i, i as f64)).unwrap();
+            }
+            assert_command_success(Command::new(exe).args([
+                "convert",
+                source.to_str().unwrap(),
+                path.to_str().unwrap(),
+            ]));
+            std::fs::remove_file(source).unwrap();
+        }
+
+        let deletion = command_output(Command::new(exe).args([
+            "delete",
+            path.to_str().unwrap(),
+            "8..",
+            "2",
+            "4..5",
+            "5",
+            "..0",
+            "verify",
+        ]));
+        assert!(
+            deletion.status.success(),
+            "{}",
+            String::from_utf8_lossy(&deletion.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&deletion.stdout);
+        assert!(stdout.contains("selector_count = 5"), "{stdout}");
+        assert!(stdout.contains("range_count = 4"), "{stdout}");
+        assert!(stdout.contains("deleted_frames = 6"), "{stdout}");
+
+        let mut reader = Reader::open(&path).unwrap();
+        let keys = (0..reader.frame_count())
+            .map(|index| reader.read_key(index).unwrap().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            keys,
+            [
+                fwob_core::Key::I32(1),
+                fwob_core::Key::I32(3),
+                fwob_core::Key::I32(6),
+                fwob_core::Key::I32(7),
+            ]
+        );
+    }
+
+    let path = dir.path().join("delete-all.fwob");
+    let mut writer = V1Writer::create(&path, tick_schema(), WriterOptions::new("All")).unwrap();
+    writer.append_frame(&tick(1, 1.0)).unwrap();
+    drop(writer);
+
+    let missing = Command::new(exe)
+        .args(["delete", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+
+    assert_command_success(Command::new(exe).args(["delete", path.to_str().unwrap(), ".."]));
+    assert_eq!(Reader::open(&path).unwrap().frame_count(), 0);
 }
 
 #[test]

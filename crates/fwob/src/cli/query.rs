@@ -3,8 +3,8 @@ use std::io::Write;
 use anyhow::{bail, Context, Result};
 
 use super::inspect::{format_frame_preview_rows, preview_indices, PreviewIndex, PreviewRow};
+use super::{resolve_selectors, DumpArgs, FindArgs};
 use super::{toml_kv_multiline, toml_kv_num, toml_kv_str, toml_section};
-use super::{DumpArgs, FindArgs};
 
 pub(super) fn dump_frames(args: DumpArgs) -> Result<()> {
     let mut format = None;
@@ -25,12 +25,8 @@ pub(super) fn dump_frames(args: DumpArgs) -> Result<()> {
     let mut reader = fwob::Reader::open_with_options(&args.path, reader_options)?;
     let schema = reader.schema().clone();
     let string_table = reader.string_table().to_vec();
-    let key_type = fwob_core::KeyType::from_field(schema.key_field())?;
-    let selectors = selector_values
-        .into_iter()
-        .map(|value| fwob::KeySelector::parse(value, key_type))
-        .collect::<fwob::Result<Vec<_>>>()?;
-    let selection = fwob::FrameSelection::resolve(&mut reader, &selectors)?;
+    let resolved = resolve_selectors(&mut reader, selector_values.into_iter().map(String::as_str))?;
+    let selection = resolved.selection;
     let mut formatter = fwob::formatting::FrameFormatter::new(
         &schema,
         &string_table,
@@ -54,18 +50,13 @@ pub(super) fn find_frames(args: FindArgs) -> Result<()> {
     };
     let mut reader = fwob::Reader::open_with_options(&args.path, reader_options)?;
     let schema = reader.schema().clone();
-    let key_type = fwob_core::KeyType::from_field(schema.key_field())?;
-    let selectors = args
-        .selectors
-        .iter()
-        .map(|value| fwob::KeySelector::parse(value, key_type))
-        .collect::<fwob::Result<Vec<_>>>()?;
-    let selection = fwob::FrameSelection::resolve(&mut reader, &selectors)?;
+    let resolved = resolve_selectors(&mut reader, args.selectors.iter().map(String::as_str))?;
+    let selection = resolved.selection;
     let rows = selection_preview_rows(&mut reader, &selection)?;
 
     toml_section("find");
     toml_kv_str("path", &args.path.display().to_string());
-    toml_kv_num("selector_count", selectors.len());
+    toml_kv_num("selector_count", resolved.selector_count);
     toml_kv_num("range_count", selection.ranges().len());
     if let Some(start) = selection.first_index() {
         toml_kv_num("start_index", start);

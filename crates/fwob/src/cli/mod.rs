@@ -15,6 +15,7 @@ mod mutate;
 mod operation_summary;
 mod output;
 mod query;
+mod selection;
 mod tokens;
 mod transfer;
 
@@ -23,6 +24,7 @@ use format::*;
 use metadata::*;
 use operation_summary::*;
 use output::*;
+use selection::*;
 use tokens::*;
 
 #[derive(Debug, Parser)]
@@ -65,7 +67,7 @@ enum Command {
     /// Stream selected frame data in raw, table, Markdown, CSV, JSON Lines, or
     /// hexadecimal form.
     Dump(DumpArgs),
-    /// Delete frames matching one key or an inclusive key range.
+    /// Delete frames matching one or more key selectors.
     Delete(DeleteArgs),
 }
 
@@ -428,19 +430,21 @@ struct DumpArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob delete [OPTIONS] PATH FIRST_KEY [LAST_KEY] [TOKENS]")]
+#[command(override_usage = "fwob delete [OPTIONS] PATH SELECTOR... [TOKENS]")]
 #[command(after_help = "Plain tokens:
+  selectors: KEY, FIRST.., ..LAST, FIRST..LAST, ..
   deletion packing: local-repack (default), repack-to-end
   codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
   page packing: estimate-shrink, tight-fit
   switches: verify, compress-partial-page
 
-FIRST_KEY alone deletes every equal key. FIRST_KEY LAST_KEY deletes the inclusive range.
+Selectors may be mixed, reordered, or duplicated. Overlapping selectors are
+silently unioned. At least one selector is required; `..` deletes all frames.
 compress-partial-page applies to the final EOF remainder in repack-to-end mode.
 Tokens may appear anywhere. Reserved tokens win on exact match.")]
 struct DeleteArgs {
-    /// File, one key or key range, and optional v2 mutation tokens.
+    /// File, one or more selectors, and optional v2 mutation tokens.
     #[arg(value_name = "TARGET", num_args = 2..)]
     target: Vec<String>,
     /// Key field index for v1 input only.
