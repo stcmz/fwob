@@ -24,7 +24,7 @@ anyhow = "1.0"
 bitflags = "2.5"
 byteorder = "1.5"
 clap = { version = "4.5", features = ["derive"] }
-criterion = "0.5"
+criterion = "0.8"
 crc32fast = "1.4"
 lz4_flex = "0.13"
 proptest = "1.4"
