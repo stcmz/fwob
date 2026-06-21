@@ -115,8 +115,8 @@ nanosecond variants. Table and Markdown output render those fields as UTC.
 ```bash
 fwob verify ticks.fwob
 fwob inspect ticks.fwob
-fwob info
-fwob info data archive/ticks.fwob md
+fwob ls
+fwob ls data archive/ticks.fwob md
 fwob create ticks-empty.fwob --template ticks.fwob
 fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
@@ -126,7 +126,8 @@ fwob append ticks-v2.fwob new-ticks-1.fwob new-ticks-2.fwob verify
 fwob split ticks.fwob parts 1000 2000 3000 zstd columnar-basic
 fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob zstd
 fwob concat v1 ticks-v1.fwob ticks-old.fwob ticks-new.fwob
-fwob edit ticks-joined.fwob --title Renamed --append-string NASDAQ --set-semantic Time=unix-milliseconds
+fwob edit ticks-joined.fwob --title Renamed --frame-type Quote --append-string NASDAQ --set-semantic Time=unix-milliseconds
+fwob edit data archive/ticks.fwob --set-semantic Price=fixed-4
 fwob find ticks-v2.fwob 100..200
 fwob find ticks-v2.fwob 100 200..300 500.. ..50
 fwob dump ticks-v2.fwob 100 200..300 csv
@@ -148,12 +149,19 @@ concern. Mixed v1/v2 concat warns when v1's missing semantic metadata requires a
 relaxed comparison. V2 output preserves available v2 semantics; forced v1 output
 drops them because v1 has no semantic metadata slot.
 
-`fwob info` summarizes FWOB files as a padded table. With no paths it lists
+`fwob ls` lists FWOB files as a padded table. With no paths it lists
 immediate `*.fwob` files in the current directory. Each supplied path may be a
 file or directory; directory discovery is non-recursive. Add `table`, `md`,
 `csv`, or `jsonl` to select the output format. The summary includes path, format,
 title, frame type, key-field index, field count, frame length/count, boundary
 keys, raw frame bytes, and physical-to-raw ratio.
+
+`fwob edit` rewrites metadata (`--title`, `--frame-type`, `--append-string` /
+`--clear-strings`, `--set-semantic NAME=VALUE`) without touching frames. Like
+`ls`, it accepts multiple files and directories and defaults to the current
+directory's immediate `*.fwob` files when no path is given, applying the same
+edit to every file and reporting any it cannot edit. Field semantics are v2
+only.
 
 `fwob convert` accepts file-to-file, file-to-directory, and
 directory-to-directory conversion. Directory input discovers immediate

@@ -126,6 +126,7 @@ pub fn write_file_header<W: Write + Seek>(writer: &mut W, header: &FileHeader) -
 
 pub fn update_metadata(
     path: impl AsRef<std::path::Path>,
+    frame_type: Option<&str>,
     title: Option<&str>,
     string_table: Option<&[String]>,
 ) -> Result<()> {
@@ -143,7 +144,8 @@ pub fn update_metadata(
         if title.is_empty() {
             return Err(V2Error::InvalidFileHeader);
         }
-        if string_table.is_none() && title.len() == header.title.len() {
+        // Fast path: only an equal-length title changes, so overwrite the title bytes in place.
+        if frame_type.is_none() && string_table.is_none() && title.len() == header.title.len() {
             file.seek(SeekFrom::Start(TITLE_BYTES_OFFSET))?;
             file.write_all(title.as_bytes())?;
             file.flush()?;
@@ -151,9 +153,17 @@ pub fn update_metadata(
         }
         header.title = title.to_owned();
     }
+    if let Some(frame_type) = frame_type {
+        if frame_type.is_empty() {
+            return Err(V2Error::InvalidFileHeader);
+        }
+        header.schema.frame_type = frame_type.to_owned();
+    }
     if let Some(strings) = string_table {
         header.string_table = strings.to_vec();
     }
+    // The v2 header is a fixed FILE_HEADER_LEN region, so this rewrite never shifts frame data;
+    // write_file_header rejects a header that no longer fits.
     write_file_header(&mut file, &header)?;
     file.flush()?;
     Ok(())

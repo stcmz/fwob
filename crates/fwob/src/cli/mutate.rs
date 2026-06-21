@@ -263,23 +263,52 @@ fn concat_uses_relaxed_semantics(inputs: &[PathBuf]) -> Result<bool> {
 }
 
 pub(super) fn edit_file(args: EditArgs) -> Result<()> {
-    use fwob::Editor;
-
-    let edits_metadata =
-        args.title.is_some() || !args.append_strings.is_empty() || args.clear_strings;
+    let edits_metadata = args.title.is_some()
+        || args.frame_type.is_some()
+        || !args.append_strings.is_empty()
+        || args.clear_strings;
     if !edits_metadata && args.set_semantics.is_empty() {
-        bail!("edit requires --title, --append-string, --clear-strings, or --set-semantic");
+        bail!(
+            "edit requires --title, --frame-type, --append-string, --clear-strings, or --set-semantic"
+        );
     }
+
+    let mut paths: Vec<PathBuf> = args.target.iter().map(PathBuf::from).collect();
+    if paths.is_empty() {
+        paths.push(PathBuf::from("."));
+    }
+    let files = super::discovery::discover_files(&paths)?;
+    if files.is_empty() {
+        bail!("no .fwob files found to edit");
+    }
+
+    // Apply the same edit to every discovered file, reporting and skipping any that fail so one
+    // bad file does not abort the batch. A non-zero exit still signals partial failure.
+    let mut failures = 0usize;
+    for path in &files {
+        if let Err(error) = edit_one_file(path, &args, edits_metadata) {
+            log_error(&error.context(format!("failed to edit {}", path.display())));
+            failures += 1;
+        }
+    }
+    if failures > 0 {
+        bail!("{failures} of {} file(s) could not be edited", files.len());
+    }
+    Ok(())
+}
+
+fn edit_one_file(path: &Path, args: &EditArgs, edits_metadata: bool) -> Result<()> {
+    use fwob::Editor;
 
     // Validate every semantic edit before applying any metadata change. This keeps deterministic
     // validation failures from partially applying a combined edit command.
     let semantic_updates = if args.set_semantics.is_empty() {
         None
     } else {
-        match detect_format(&args.path)? {
+        match detect_format(path)? {
             Format::V1 => bail!("v1 files cannot store field semantics; convert to v2 first"),
             Format::V2 => {
-                let schema = fwob_v2::Reader::open(&args.path)?.header().schema.clone();
+                let schema = fwob_v2::Reader::open(path)?.header().schema.clone();
                 let updates = parse_semantic_updates(&args.set_semantics, &schema)?;
                 validate_semantic_updates(&schema, &updates)?;
                 Some(updates)
@@ -287,10 +316,10 @@ pub(super) fn edit_file(args: EditArgs) -> Result<()> {
         }
     };
 
-    // Title / string-table edits go through the version-neutral editor.
+    // Title / frame-type / string-table edits go through the version-neutral editor.
     if edits_metadata {
         let mut editor = Editor::open_with_options(
-            &args.path,
+            path,
             fwob::ReaderOptions {
                 v1_key_field_index: args.key_field_index,
             },
@@ -306,25 +335,29 @@ pub(super) fn edit_file(args: EditArgs) -> Result<()> {
         } else {
             None
         };
-        editor.update_metadata(args.title.as_deref(), strings.as_deref())?;
+        editor.update_metadata(
+            args.frame_type.as_deref(),
+            args.title.as_deref(),
+            strings.as_deref(),
+        )?;
     }
 
     if let Some(updates) = semantic_updates {
-        fwob_v2::update_field_semantics(&args.path, &updates)?;
+        fwob_v2::update_field_semantics(path, &updates)?;
     }
 
-    let reader = fwob::Reader::open(&args.path)?;
-    toml_section("edit");
+    let reader = fwob::Reader::open(path)?;
+    toml_array_section("edit");
+    toml_kv_str("path", &path.display().to_string());
     toml_kv_str("title", reader.title());
+    toml_kv_str("frame_type", &reader.schema().frame_type);
     toml_kv_num("string_count", reader.string_table().len());
-    if !args.set_semantics.is_empty() {
-        for field in &reader.schema().fields {
-            if !matches!(field.semantic, fwob_core::FieldSemantic::None) {
-                toml_kv_str(
-                    &format!("semantic.{}", field.name),
-                    inspect::field_semantic_name(field.semantic),
-                );
-            }
+    for field in &reader.schema().fields {
+        if !matches!(field.semantic, fwob_core::FieldSemantic::None) {
+            toml_kv_str(
+                &format!("semantic.{}", field.name),
+                inspect::field_semantic_name(field.semantic),
+            );
         }
     }
     Ok(())

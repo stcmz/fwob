@@ -349,6 +349,7 @@ fn v1_metadata_edits_do_not_rewrite_frames_or_resize_the_file() {
     let mut editor = Editor::open(&path).unwrap();
     editor
         .update_metadata(
+            None,
             Some("renamed"),
             Some(&["one".into(), "two".into(), "three".into()]),
         )
@@ -464,6 +465,7 @@ fn v2_metadata_edits_touch_only_the_fixed_header() {
     let mut editor = Editor::open(&path).unwrap();
     editor
         .update_metadata(
+            None,
             Some("renamed"),
             Some(&["one".into(), "two".into(), "three".into()]),
         )

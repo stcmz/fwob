@@ -7,6 +7,7 @@ use fwob_v2::{Codec, CodecSelection, Encoding, EncodingSelection, PagePacking};
 
 mod bench;
 mod create;
+mod discovery;
 mod file_info;
 mod format;
 mod inspect;
@@ -47,8 +48,8 @@ enum Command {
     /// Verify a v1 or v2 file. v1 inputs need --key-field-index when the key is
     /// not field 0.
     Verify(AutoFileArgs),
-    /// Summarize multiple FWOB files in table, Markdown, CSV, or JSON Lines form.
-    Info(InfoArgs),
+    /// List FWOB files with per-file stats in table, Markdown, CSV, or JSON Lines form.
+    Ls(LsArgs),
     /// Benchmark conversion and read performance for v1 or v2 inputs.
     Bench(BenchArgs),
     /// Convert between v1 and v2. Target format defaults to v2. Plain tokens
@@ -60,7 +61,8 @@ enum Command {
     Split(SplitArgs),
     /// Concatenate ordered, compatible v1 or v2 files.
     Concat(ConcatArgs),
-    /// Rewrite title or string-table metadata without changing frames.
+    /// Rewrite title, frame type, string-table, or field-semantic metadata without changing
+    /// frames. Accepts multiple files and directories.
     Edit(EditArgs),
     /// Find all frames or the union of exact keys and inclusive key ranges.
     Find(FindArgs),
@@ -101,14 +103,14 @@ struct V2FileArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob info [OPTIONS] [PATH...] [FORMAT]")]
+#[command(override_usage = "fwob ls [OPTIONS] [PATH...] [FORMAT]")]
 #[command(after_help = "Plain tokens:
   formats: table (default), md, csv, jsonl
 
 PATH may name a file or directory. Directories contribute their immediate *.fwob files.
 With no PATH, the command lists immediate *.fwob files in the current directory.
 Format tokens win on exact match; use ./table for a file or directory named table.")]
-struct InfoArgs {
+struct LsArgs {
     /// Files, directories, and one optional output-format token.
     #[arg(value_name = "PATH_OR_FORMAT")]
     target: Vec<String>,
@@ -376,12 +378,23 @@ struct ConcatArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "fwob edit [PATH...] [OPTIONS]")]
+#[command(
+    after_help = "PATH may name a file or directory; directories contribute their immediate \
+*.fwob files. With no PATH, the current directory's immediate *.fwob files are edited. The same \
+edit is applied to every file; a file that cannot be edited is reported and skipped."
+)]
 struct EditArgs {
-    /// Input v1 or v2 file to rewrite atomically.
-    path: PathBuf,
+    /// Input v1 or v2 files and directories to rewrite atomically. Defaults to the current
+    /// directory's *.fwob files.
+    #[arg(value_name = "PATH")]
+    target: Vec<String>,
     /// Replacement title.
     #[arg(long)]
     title: Option<String>,
+    /// Replacement schema frame-type name.
+    #[arg(long = "frame-type")]
+    frame_type: Option<String>,
     /// Append a string-table value. May be repeated.
     #[arg(long = "append-string")]
     append_strings: Vec<String>,
@@ -607,7 +620,7 @@ pub fn run() -> Result<()> {
         Command::Create(args) => create_blank(args),
         Command::Inspect(args) => inspect_auto(args),
         Command::Verify(args) => verify_auto(args),
-        Command::Info(args) => file_info::print_file_info(args),
+        Command::Ls(args) => file_info::print_file_info(args),
         Command::Bench(args) => bench::bench_v2(args),
         Command::Convert(args) => transfer::convert(args),
         Command::Append(args) => transfer::append_to_v2(args),

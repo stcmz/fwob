@@ -91,26 +91,30 @@ impl Editor {
 
     pub fn update_metadata(
         &mut self,
+        frame_type: Option<&str>,
         title: Option<&str>,
         string_table: Option<&[String]>,
     ) -> Result<()> {
+        let new_frame_type = frame_type.unwrap_or(&self.schema.frame_type).to_owned();
         let new_title = title.unwrap_or(&self.title).to_owned();
         let new_string_table = string_table.unwrap_or(&self.string_table).to_vec();
-        if new_title == self.title && new_string_table == self.string_table {
+        if new_frame_type == self.schema.frame_type
+            && new_title == self.title
+            && new_string_table == self.string_table
+        {
             return Ok(());
         }
         match self.format_version {
             FormatVersion::V1 => {
-                fwob_v1::update_metadata(&self.path, title, string_table)?;
-                self.title = new_title;
-                self.string_table = new_string_table;
+                fwob_v1::update_metadata(&self.path, frame_type, title, string_table)?;
             }
             FormatVersion::V2 => {
-                fwob_v2::update_metadata(&self.path, title, string_table)?;
-                self.title = new_title;
-                self.string_table = new_string_table;
+                fwob_v2::update_metadata(&self.path, frame_type, title, string_table)?;
             }
         }
+        self.schema.frame_type = new_frame_type;
+        self.title = new_title;
+        self.string_table = new_string_table;
         Ok(())
     }
 
@@ -252,7 +256,11 @@ impl Editor {
     }
 
     pub fn set_title(&mut self, title: &str) -> Result<()> {
-        self.update_metadata(Some(title), None)
+        self.update_metadata(None, Some(title), None)
+    }
+
+    pub fn set_frame_type(&mut self, frame_type: &str) -> Result<()> {
+        self.update_metadata(Some(frame_type), None, None)
     }
 
     pub fn append_string(&mut self, value: &str) -> Result<u32> {
@@ -263,12 +271,12 @@ impl Editor {
         })?;
         let mut strings = self.string_table.clone();
         strings.push(value.to_owned());
-        self.update_metadata(None, Some(&strings))?;
+        self.update_metadata(None, None, Some(&strings))?;
         Ok(index)
     }
 
     pub fn replace_string_table(&mut self, strings: &[String]) -> Result<()> {
-        self.update_metadata(None, Some(strings))
+        self.update_metadata(None, None, Some(strings))
     }
 
     pub fn clear_string_table(&mut self) -> Result<()> {

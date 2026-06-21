@@ -5,20 +5,22 @@ use std::{
 };
 
 use crate::{
-    header::{read_header, update_string_table_len, HEADER_LEN, MAX_TITLE_LEN},
+    header::{read_header, update_string_table_len, HEADER_LEN, MAX_FRAME_TYPE_LEN, MAX_TITLE_LEN},
     writer::write_dotnet_string,
     Result, V1Error,
 };
 
 const TITLE_OFFSET: u64 = HEADER_LEN - MAX_TITLE_LEN as u64;
+const FRAME_TYPE_OFFSET: u64 = TITLE_OFFSET - MAX_FRAME_TYPE_LEN as u64;
 
 /// Updates v1 metadata in place without moving or rewriting frame data.
 pub fn update_metadata(
     path: impl AsRef<Path>,
+    frame_type: Option<&str>,
     title: Option<&str>,
     string_table: Option<&[String]>,
 ) -> Result<()> {
-    if title.is_none() && string_table.is_none() {
+    if frame_type.is_none() && title.is_none() && string_table.is_none() {
         return Ok(());
     }
 
@@ -47,8 +49,17 @@ pub fn update_metadata(
             });
         }
     }
+    if let Some(frame_type) = frame_type {
+        validate_frame_type(frame_type)?;
+    }
     if let Some(title) = title {
         validate_title(title)?;
+    }
+
+    if let Some(frame_type) = frame_type {
+        file.seek(SeekFrom::Start(FRAME_TYPE_OFFSET))?;
+        file.write_all(frame_type.as_bytes())?;
+        file.write_all(&vec![b' '; MAX_FRAME_TYPE_LEN - frame_type.len()])?;
     }
 
     if let Some(title) = title {
@@ -74,6 +85,15 @@ fn validate_title(title: &str) -> Result<()> {
     if title.is_empty() || !title.is_ascii() || title.len() > MAX_TITLE_LEN {
         return Err(V1Error::Core(fwob_core::FwobError::InvalidSchema(
             "title exceeds FWOB v1 limits".into(),
+        )));
+    }
+    Ok(())
+}
+
+fn validate_frame_type(frame_type: &str) -> Result<()> {
+    if frame_type.is_empty() || !frame_type.is_ascii() || frame_type.len() > MAX_FRAME_TYPE_LEN {
+        return Err(V1Error::Core(fwob_core::FwobError::InvalidSchema(
+            "frame type exceeds FWOB v1 limits".into(),
         )));
     }
     Ok(())

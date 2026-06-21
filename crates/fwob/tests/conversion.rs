@@ -648,6 +648,37 @@ fn cli_edit_validates_semantics_before_mutating_other_metadata() {
 }
 
 #[test]
+fn cli_edit_handles_folders_multiple_files_frame_type_and_cwd_default() {
+    let dir = tempdir().unwrap();
+    let a = dir.path().join("a.fwob");
+    let b = dir.path().join("b.fwob");
+    write_v2_file(&a, tick_schema(), 0..3);
+    write_v1_file(&b, tick_schema(), 0..3);
+    let exe = env!("CARGO_BIN_EXE_fwob");
+
+    // Editing a directory applies to every *.fwob inside it; frame type works for v1 and v2.
+    let out = command_output(Command::new(exe).args([
+        "edit",
+        dir.path().to_str().unwrap(),
+        "--frame-type",
+        "Renamed",
+    ]));
+    assert!(out.status.success());
+    assert_eq!(Reader::open(&a).unwrap().schema().frame_type, "Renamed");
+    assert_eq!(Reader::open(&b).unwrap().schema().frame_type, "Renamed");
+
+    // No path edits the current directory's *.fwob files.
+    let out = command_output(
+        Command::new(exe)
+            .args(["edit", "--title", "Batch"])
+            .current_dir(dir.path()),
+    );
+    assert!(out.status.success());
+    assert_eq!(Reader::open(&a).unwrap().title(), "Batch");
+    assert_eq!(Reader::open(&b).unwrap().title(), "Batch");
+}
+
+#[test]
 fn cli_prints_package_version() {
     let output = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).arg("--version"));
     assert_eq!(
@@ -657,7 +688,7 @@ fn cli_prints_package_version() {
 }
 
 #[test]
-fn cli_info_discovers_files_and_supports_all_output_formats() {
+fn cli_ls_discovers_files_and_supports_all_output_formats() {
     let dir = tempdir().unwrap();
     let v1 = dir.path().join("a.fwob");
     let v2 = dir.path().join("b.fwob");
@@ -666,20 +697,20 @@ fn cli_info_discovers_files_and_supports_all_output_formats() {
     std::fs::write(dir.path().join("ignored.txt"), b"not fwob").unwrap();
     let exe = env!("CARGO_BIN_EXE_fwob");
 
-    let table = command_output(Command::new(exe).arg("info").current_dir(dir.path()));
+    let table = command_output(Command::new(exe).arg("ls").current_dir(dir.path()));
     let table = String::from_utf8(table.stdout).unwrap();
     assert!(table.contains("file") && table.contains("physical_ratio"));
     assert!(table.contains("a.fwob") && table.contains("b.fwob"));
     assert!(!table.contains("ignored.txt"));
 
     let markdown =
-        command_output(Command::new(exe).args(["info", dir.path().to_str().unwrap(), "md"]));
+        command_output(Command::new(exe).args(["ls", dir.path().to_str().unwrap(), "md"]));
     let markdown = String::from_utf8(markdown.stdout).unwrap();
     assert!(markdown.starts_with("| file | format | title |"));
     assert!(markdown.contains("| fwob-v1 |") && markdown.contains("| fwob-v2 |"));
 
     let csv = command_output(Command::new(exe).args([
-        "info",
+        "ls",
         v1.to_str().unwrap(),
         dir.path().to_str().unwrap(),
         "csv",
@@ -695,7 +726,7 @@ fn cli_info_discovers_files_and_supports_all_output_formats() {
 
     let jsonl = command_output(
         Command::new(exe)
-            .args(["info", v1.to_str().unwrap(), v2.to_str().unwrap(), "jsonl"])
+            .args(["ls", v1.to_str().unwrap(), v2.to_str().unwrap(), "jsonl"])
             .current_dir(dir.path()),
     );
     let rows: Vec<serde_json::Value> = String::from_utf8(jsonl.stdout)
@@ -715,7 +746,7 @@ fn cli_info_discovers_files_and_supports_all_output_formats() {
 }
 
 #[test]
-fn cli_info_reports_corrupt_files_and_continues() {
+fn cli_ls_reports_corrupt_files_and_continues() {
     let dir = tempdir().unwrap();
     let valid = dir.path().join("valid.fwob");
     let corrupt = dir.path().join("corrupt.fwob");
@@ -723,7 +754,7 @@ fn cli_info_reports_corrupt_files_and_continues() {
     std::fs::write(&corrupt, b"not a FWOB file").unwrap();
 
     let output = command_output(Command::new(env!("CARGO_BIN_EXE_fwob")).args([
-        "info",
+        "ls",
         dir.path().to_str().unwrap(),
         "csv",
     ]));
