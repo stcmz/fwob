@@ -1,4 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 use fwob_core::{Field, FieldType, Schema};
 use fwob_v2::{Codec, CodecSelection, Writer, WriterOptions};
 use std::io::Cursor;

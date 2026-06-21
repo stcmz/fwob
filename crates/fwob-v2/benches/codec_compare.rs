@@ -1,4 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 use fwob_v2::Codec;
 
 fn raw_data() -> Vec<u8> {
