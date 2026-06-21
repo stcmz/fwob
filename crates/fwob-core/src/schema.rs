@@ -32,13 +32,23 @@ pub enum TimestampUnit {
     Nanoseconds,
 }
 
+/// Largest supported decimal-point count for the fixed-point and percentage semantics.
+pub const MAX_DECIMAL_POINTS: u8 = 4;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldSemantic {
     None,
     UnixTimestamp(TimestampUnit),
+    /// Render an integer as `value / 10^points` with `points` fractional digits, comma-grouped.
+    /// `points == 0` formats the integer with commas and no decimal point.
+    FixedPoint(u8),
+    /// Like [`FieldSemantic::FixedPoint`] but with a trailing `%`.
+    Percentage(u8),
 }
 
 impl FieldSemantic {
+    // On-disk ids are a flat enumeration. 0..=4 are grandfathered; a slot is reserved between
+    // each new category (5 and 11) so future kinds can extend without renumbering.
     pub fn id(self) -> u8 {
         match self {
             Self::None => 0,
@@ -46,6 +56,10 @@ impl FieldSemantic {
             Self::UnixTimestamp(TimestampUnit::Milliseconds) => 2,
             Self::UnixTimestamp(TimestampUnit::Microseconds) => 3,
             Self::UnixTimestamp(TimestampUnit::Nanoseconds) => 4,
+            // reserved: 5
+            Self::FixedPoint(points) => 6 + points,
+            // reserved: 11
+            Self::Percentage(points) => 12 + points,
         }
     }
 
@@ -56,9 +70,19 @@ impl FieldSemantic {
             2 => Ok(Self::UnixTimestamp(TimestampUnit::Milliseconds)),
             3 => Ok(Self::UnixTimestamp(TimestampUnit::Microseconds)),
             4 => Ok(Self::UnixTimestamp(TimestampUnit::Nanoseconds)),
+            6..=10 => Ok(Self::FixedPoint(id - 6)),
+            12..=16 => Ok(Self::Percentage(id - 12)),
             _ => Err(FwobError::InvalidSchema(format!(
                 "unsupported field semantic id {id}"
             ))),
+        }
+    }
+
+    /// The decimal-point count for fixed-point / percentage semantics, if applicable.
+    pub fn decimal_points(self) -> Option<u8> {
+        match self {
+            Self::FixedPoint(points) | Self::Percentage(points) => Some(points),
+            _ => None,
         }
     }
 }
@@ -142,9 +166,17 @@ impl Schema {
                 )
             {
                 return Err(FwobError::InvalidSchema(format!(
-                    "field '{}' uses timestamp semantics but is not an integer",
+                    "field '{}' uses a numeric semantic but is not an integer",
                     field.name
                 )));
+            }
+            if let Some(points) = field.semantic.decimal_points() {
+                if points > MAX_DECIMAL_POINTS {
+                    return Err(FwobError::InvalidSchema(format!(
+                        "field '{}' uses {points} decimal points but at most {MAX_DECIMAL_POINTS} are supported",
+                        field.name
+                    )));
+                }
             }
             if field.offset != expected_offset {
                 return Err(FwobError::InvalidSchema(format!(

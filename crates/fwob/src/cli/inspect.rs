@@ -197,6 +197,18 @@ pub(super) fn field_semantic_name(semantic: fwob_core::FieldSemantic) -> &'stati
         fwob_core::FieldSemantic::UnixTimestamp(fwob_core::TimestampUnit::Nanoseconds) => {
             "unix-nanoseconds"
         }
+        fwob_core::FieldSemantic::FixedPoint(0) => "fixed-0",
+        fwob_core::FieldSemantic::FixedPoint(1) => "fixed-1",
+        fwob_core::FieldSemantic::FixedPoint(2) => "fixed-2",
+        fwob_core::FieldSemantic::FixedPoint(3) => "fixed-3",
+        fwob_core::FieldSemantic::FixedPoint(4) => "fixed-4",
+        fwob_core::FieldSemantic::FixedPoint(_) => "fixed",
+        fwob_core::FieldSemantic::Percentage(0) => "percent-0",
+        fwob_core::FieldSemantic::Percentage(1) => "percent-1",
+        fwob_core::FieldSemantic::Percentage(2) => "percent-2",
+        fwob_core::FieldSemantic::Percentage(3) => "percent-3",
+        fwob_core::FieldSemantic::Percentage(4) => "percent-4",
+        fwob_core::FieldSemantic::Percentage(_) => "percent",
     }
 }
 

@@ -116,6 +116,8 @@ pub struct FrameFormatter<'a> {
     decoder: FrameDecoder<'a>,
     format: FrameFormat,
     widths: Vec<usize>,
+    /// Per-column alignment: `true` = right-align (numeric columns), `false` = left (strings).
+    right_aligned: Vec<bool>,
     header_written: bool,
 }
 
@@ -126,11 +128,17 @@ impl<'a> FrameFormatter<'a> {
             .iter()
             .map(|field| field_width(field, string_table))
             .collect();
+        let right_aligned = schema
+            .fields
+            .iter()
+            .map(|field| is_numeric(field.field_type))
+            .collect();
         Self {
             schema,
             decoder: FrameDecoder::new(schema, string_table),
             format,
             widths,
+            right_aligned,
             header_written: false,
         }
     }
@@ -147,7 +155,7 @@ impl<'a> FrameFormatter<'a> {
                     .iter()
                     .map(|field| field.name.as_str())
                     .collect::<Vec<_>>();
-                write_padded_row(output, &values, &self.widths, false)?;
+                write_padded_row(output, &values, &self.widths, &self.right_aligned)?;
             }
             FrameFormat::Markdown => {
                 write_markdown_row(
@@ -159,7 +167,18 @@ impl<'a> FrameFormatter<'a> {
                         .map(|field| field.name.as_str())
                         .collect::<Vec<_>>(),
                 )?;
-                let separators = self.schema.fields.iter().map(|_| "---").collect::<Vec<_>>();
+                let separators = self
+                    .schema
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        if is_numeric(field.field_type) {
+                            "---:"
+                        } else {
+                            "---"
+                        }
+                    })
+                    .collect::<Vec<_>>();
                 write_markdown_row(output, &separators)?;
             }
             FrameFormat::Csv => {
@@ -199,7 +218,7 @@ impl<'a> FrameFormatter<'a> {
                     .map(|(field, value)| render_display(field, value))
                     .collect::<Vec<_>>();
                 let borrowed = rendered.iter().map(String::as_str).collect::<Vec<_>>();
-                write_padded_row(output, &borrowed, &self.widths, true)?;
+                write_padded_row(output, &borrowed, &self.widths, &self.right_aligned)?;
             }
             FrameFormat::Markdown => {
                 let rendered = self
@@ -257,29 +276,59 @@ fn render_plain(value: &FieldValue) -> String {
     }
 }
 
-fn render_grouped(value: &FieldValue) -> String {
+fn numeric_i128(value: &FieldValue) -> Option<i128> {
     match value {
-        FieldValue::Signed(value) => group_number(&value.to_string()),
-        FieldValue::Unsigned(value) => group_number(&value.to_string()),
-        FieldValue::Float32(value) => group_number(&value.to_string()),
-        FieldValue::Float64(value) => group_number(&value.to_string()),
-        FieldValue::Decimal(value) => group_number(&value.to_string()),
-        FieldValue::String(value) => value.clone(),
+        FieldValue::Signed(value) => Some(i128::from(*value)),
+        FieldValue::Unsigned(value) => Some(i128::from(*value)),
+        _ => None,
     }
 }
 
 fn render_display(field: &Field, value: &FieldValue) -> String {
-    if let FieldSemantic::UnixTimestamp(unit) = field.semantic {
-        let numeric = match value {
-            FieldValue::Signed(value) => Some(i128::from(*value)),
-            FieldValue::Unsigned(value) => Some(i128::from(*value)),
-            _ => None,
-        };
-        if let Some(value) = numeric.and_then(|value| format_unix_timestamp(value, unit)) {
-            return value;
+    match field.semantic {
+        FieldSemantic::UnixTimestamp(unit) => {
+            if let Some(rendered) =
+                numeric_i128(value).and_then(|value| format_unix_timestamp(value, unit))
+            {
+                return rendered;
+            }
         }
+        FieldSemantic::FixedPoint(points) => {
+            if let Some(value) = numeric_i128(value) {
+                return format_fixed_point(value, points, false);
+            }
+        }
+        FieldSemantic::Percentage(points) => {
+            if let Some(value) = numeric_i128(value) {
+                return format_fixed_point(value, points, true);
+            }
+        }
+        FieldSemantic::None => {}
     }
-    render_grouped(value)
+    render_plain(value)
+}
+
+/// Render an integer as `value / 10^points` with exactly `points` fractional digits, comma-grouping
+/// the integer part. `percent` appends a trailing `%`; `points == 0` yields a grouped integer.
+fn format_fixed_point(value: i128, points: u8, percent: bool) -> String {
+    let scale = 10u128.pow(u32::from(points));
+    let magnitude = value.unsigned_abs();
+    let integer = magnitude / scale;
+    let fraction = magnitude % scale;
+
+    let mut out = String::new();
+    if value < 0 {
+        out.push('-');
+    }
+    out.push_str(&group_number(&integer.to_string()));
+    if points > 0 {
+        out.push('.');
+        out.push_str(&format!("{fraction:0width$}", width = usize::from(points)));
+    }
+    if percent {
+        out.push('%');
+    }
+    out
 }
 
 fn group_number(value: &str) -> String {
@@ -301,30 +350,65 @@ fn group_number(value: &str) -> String {
     grouped
 }
 
-fn field_width(field: &Field, string_table: &[String]) -> usize {
-    if !matches!(field.semantic, FieldSemantic::None) {
-        return 30.max(field.name.chars().count());
+fn is_numeric(field_type: FieldType) -> bool {
+    matches!(
+        field_type,
+        FieldType::SignedInteger | FieldType::UnsignedInteger | FieldType::FloatingPoint
+    )
+}
+
+/// Maximum decimal digit count of the magnitude representable in `length` integer bytes.
+fn integer_digits(length: u16) -> usize {
+    match length {
+        1 => 3,
+        2 => 5,
+        4 => 10,
+        8 => 20,
+        other => (other as usize) * 3,
     }
-    let value_width = match field.field_type {
-        FieldType::SignedInteger => match field.length {
-            1 => 4,
-            2 => 7,
-            4 => 14,
-            8 => 26,
-            _ => field.length as usize * 2,
-        },
-        FieldType::UnsignedInteger => match field.length {
-            1 => 3,
-            2 => 6,
-            4 => 13,
-            8 => 26,
-            _ => field.length as usize * 2,
-        },
+}
+
+fn timestamp_width(unit: TimestampUnit) -> usize {
+    match unit {
+        TimestampUnit::Seconds => 20,
+        TimestampUnit::Milliseconds => 24,
+        TimestampUnit::Microseconds => 27,
+        TimestampUnit::Nanoseconds => 30,
+    }
+}
+
+/// Worst-case rendered width of a fixed-point / percentage integer field: the integer part is
+/// `digits - points` wide (with comma separators), plus the decimal point, fractional digits, an
+/// optional `%`, and a sign for signed types.
+fn fixed_point_width(field: &Field, points: u8, percent: bool) -> usize {
+    let digits = integer_digits(field.length);
+    let points = usize::from(points);
+    let int_digits = digits.saturating_sub(points).max(1);
+    let commas = int_digits.saturating_sub(1) / 3;
+    let mut width = int_digits + commas;
+    if points > 0 {
+        width += 1 + points;
+    }
+    if percent {
+        width += 1;
+    }
+    if matches!(field.field_type, FieldType::SignedInteger) {
+        width += 1;
+    }
+    width
+}
+
+/// Width of an unformatted (no-semantic) value: raw integer digits (no commas), float estimate, or
+/// max string length.
+fn plain_width(field: &Field, string_table: &[String]) -> usize {
+    match field.field_type {
+        FieldType::SignedInteger => integer_digits(field.length) + 1,
+        FieldType::UnsignedInteger => integer_digits(field.length),
         FieldType::FloatingPoint => match field.length {
             4 => 16,
             8 => 24,
             16 => 34,
-            _ => field.length as usize * 2,
+            other => other as usize * 2,
         },
         FieldType::Utf8String => field.length as usize,
         FieldType::StringTableIndex => string_table
@@ -332,8 +416,17 @@ fn field_width(field: &Field, string_table: &[String]) -> usize {
             .map(|value| value.chars().count())
             .max()
             .unwrap_or(1),
+    }
+}
+
+fn field_width(field: &Field, string_table: &[String]) -> usize {
+    let width = match field.semantic {
+        FieldSemantic::UnixTimestamp(unit) => timestamp_width(unit),
+        FieldSemantic::FixedPoint(points) => fixed_point_width(field, points, false),
+        FieldSemantic::Percentage(points) => fixed_point_width(field, points, true),
+        FieldSemantic::None => plain_width(field, string_table),
     };
-    value_width.max(field.name.chars().count())
+    width.max(field.name.chars().count())
 }
 
 fn format_unix_timestamp(value: i128, unit: TimestampUnit) -> Option<String> {
@@ -386,19 +479,22 @@ fn write_padded_row(
     output: &mut impl Write,
     values: &[&str],
     widths: &[usize],
-    right_align: bool,
+    right_aligned: &[bool],
 ) -> Result<()> {
+    // Build the row, then drop end-of-line padding so rows never carry trailing whitespace.
+    // Inter-column padding is preserved because it is never at the line end.
+    let mut line = String::new();
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
-            write!(output, "  ")?;
+            line.push_str("  ");
         }
-        if right_align {
-            write!(output, "{value:>width$}", width = widths[index])?;
+        if right_aligned[index] {
+            write!(line, "{value:>width$}", width = widths[index]).unwrap();
         } else {
-            write!(output, "{value:<width$}", width = widths[index])?;
+            write!(line, "{value:<width$}", width = widths[index]).unwrap();
         }
     }
-    writeln!(output)?;
+    writeln!(output, "{}", line.trim_end())?;
     Ok(())
 }
 
@@ -527,14 +623,96 @@ mod tests {
     }
 
     #[test]
-    fn formats_grouped_console_and_markdown_output() {
+    fn unformatted_numbers_print_raw_and_markdown_aligns_by_type() {
+        // No semantic => raw integers, no comma grouping.
         let table = render(FrameFormat::Table);
-        assert!(table.contains("1,234"));
-        assert!(table.contains("5,678,900"));
+        assert!(table.contains("1234"));
+        assert!(table.contains("5678900"));
+        assert!(!table.contains("1,234"));
+        // Numeric columns get right-aligned markers (---:), strings get left (---).
         assert_eq!(
             render(FrameFormat::Markdown),
-            "| key | price | symbol | name |\n| --- | --- | --- | --- |\n| 1,234 | 5,678,900 | AAPL | AB |\n"
+            "| key | price | symbol | name |\n| ---: | ---: | --- | --- |\n| 1234 | 5678900 | AAPL | AB |\n"
         );
+    }
+
+    #[test]
+    fn fixed_point_and_percentage_render_only_in_display_formats() {
+        let schema = Schema::new(
+            "Quote",
+            vec![
+                Field::new("price", FieldType::UnsignedInteger, 4, 0)
+                    .with_semantic(FieldSemantic::FixedPoint(4)),
+                Field::new("ret", FieldType::SignedInteger, 4, 4)
+                    .with_semantic(FieldSemantic::Percentage(2)),
+            ],
+            0,
+        )
+        .unwrap();
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&1_500_000u32.to_le_bytes()); // 150.0000
+        frame.extend_from_slice(&3527i32.to_le_bytes()); // 35.27%
+
+        let mut table = FrameFormatter::new(&schema, &[], FrameFormat::Table);
+        let mut out = Vec::new();
+        table.write_frame(&mut out, &frame).unwrap();
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("150.0000"), "{rendered}");
+        assert!(rendered.contains("35.27%"), "{rendered}");
+
+        // raw keeps the underlying integers.
+        let mut raw = FrameFormatter::new(&schema, &[], FrameFormat::Raw);
+        let mut raw_out = Vec::new();
+        raw.write_frame(&mut raw_out, &frame).unwrap();
+        assert_eq!(String::from_utf8(raw_out).unwrap(), "1500000 3527\n");
+    }
+
+    #[test]
+    fn fixed_point_formatting_covers_grouping_zero_and_negative() {
+        assert_eq!(format_fixed_point(1_500_000, 4, false), "150.0000");
+        assert_eq!(format_fixed_point(1_111_111_111, 0, false), "1,111,111,111");
+        assert_eq!(format_fixed_point(3527, 0, true), "3,527%");
+        assert_eq!(format_fixed_point(3527, 4, true), "0.3527%");
+        assert_eq!(format_fixed_point(-12_345, 2, false), "-123.45");
+    }
+
+    #[test]
+    fn field_width_reflects_max_possible_value() {
+        let u32_field =
+            |semantic| Field::new("v", FieldType::UnsignedInteger, 4, 0).with_semantic(semantic);
+        assert_eq!(field_width(&u32_field(FieldSemantic::None), &[]), 10);
+        assert_eq!(
+            field_width(&u32_field(FieldSemantic::FixedPoint(0)), &[]),
+            13
+        );
+        assert_eq!(
+            field_width(&u32_field(FieldSemantic::FixedPoint(1)), &[]),
+            13
+        );
+        assert_eq!(
+            field_width(&u32_field(FieldSemantic::FixedPoint(4)), &[]),
+            12
+        );
+        assert_eq!(
+            field_width(&u32_field(FieldSemantic::Percentage(4)), &[]),
+            13
+        );
+        assert_eq!(
+            field_width(
+                &Field::new("t", FieldType::UnsignedInteger, 4, 0)
+                    .with_semantic(FieldSemantic::UnixTimestamp(TimestampUnit::Seconds)),
+                &[]
+            ),
+            20
+        );
+    }
+
+    #[test]
+    fn field_width_is_at_least_the_header_width() {
+        // A header wider than the type's max value width must widen the column.
+        let name = "a_very_long_header_name";
+        let field = Field::new(name, FieldType::UnsignedInteger, 1, 0); // u8 value width is 3
+        assert_eq!(field_width(&field, &[]), name.chars().count());
     }
 
     #[test]

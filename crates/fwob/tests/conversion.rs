@@ -642,7 +642,7 @@ fn cli_edit_validates_semantics_before_mutating_other_metadata() {
             "--set-semantic",
             "Value=unix-seconds",
         ]),
-        "timestamp semantics but is not an integer",
+        "a numeric semantic but is not an integer",
     );
     assert_eq!(Reader::open(&v2).unwrap().title(), "Tick");
 }

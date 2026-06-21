@@ -14,7 +14,7 @@ pub use io::{
 };
 pub use key::{Key, KeyType};
 pub use rust_decimal::Decimal;
-pub use schema::{Field, FieldSemantic, FieldType, Schema, TimestampUnit};
+pub use schema::{Field, FieldSemantic, FieldType, Schema, TimestampUnit, MAX_DECIMAL_POINTS};
 pub use typed::{
     decode_decimal, encode_decimal, FixedString, FwobFrame, FwobKey, StringIndex, StringIndex16,
     StringIndex64, StringIndex8,

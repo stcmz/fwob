@@ -366,9 +366,19 @@ fn parse_semantic_updates(
             "unix-milliseconds" => FieldSemantic::UnixTimestamp(TimestampUnit::Milliseconds),
             "unix-microseconds" => FieldSemantic::UnixTimestamp(TimestampUnit::Microseconds),
             "unix-nanoseconds" => FieldSemantic::UnixTimestamp(TimestampUnit::Nanoseconds),
+            "fixed-0" => FieldSemantic::FixedPoint(0),
+            "fixed-1" => FieldSemantic::FixedPoint(1),
+            "fixed-2" => FieldSemantic::FixedPoint(2),
+            "fixed-3" => FieldSemantic::FixedPoint(3),
+            "fixed-4" => FieldSemantic::FixedPoint(4),
+            "percent-0" => FieldSemantic::Percentage(0),
+            "percent-1" => FieldSemantic::Percentage(1),
+            "percent-2" => FieldSemantic::Percentage(2),
+            "percent-3" => FieldSemantic::Percentage(3),
+            "percent-4" => FieldSemantic::Percentage(4),
             other => bail!(
                 "unknown semantic '{other}'; expected none, unix-seconds, unix-milliseconds, \
-                 unix-microseconds, or unix-nanoseconds"
+                 unix-microseconds, unix-nanoseconds, fixed-0..fixed-4, or percent-0..percent-4"
             ),
         };
         updates.push((name.to_owned(), semantic));

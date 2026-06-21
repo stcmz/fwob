@@ -389,7 +389,8 @@ struct EditArgs {
     #[arg(long)]
     clear_strings: bool,
     /// Set a field's semantic as NAME=VALUE, where VALUE is one of none, unix-seconds,
-    /// unix-milliseconds, unix-microseconds, unix-nanoseconds. v2 only. May be repeated.
+    /// unix-milliseconds, unix-microseconds, unix-nanoseconds, fixed-0..fixed-4 (integer / 10^N,
+    /// comma-grouped), or percent-0..percent-4 (same, with a % suffix). v2 only. May be repeated.
     #[arg(long = "set-semantic", value_name = "NAME=VALUE")]
     set_semantics: Vec<String>,
     /// Key field index for v1 input only.
@@ -413,7 +414,7 @@ struct FindArgs {
 #[command(override_usage = "fwob dump [OPTIONS] PATH [SELECTOR...] [FORMAT]")]
 #[command(after_help = "Plain tokens:
   selectors: KEY, FIRST.., ..LAST, FIRST..LAST
-  formats: raw (default), table, md, csv, jsonl, hex
+  formats: table (default), raw, md, csv, jsonl, hex
 
 Selectors may be mixed, reordered, duplicated, or omitted to stream all frames.
 Overlapping selectors are silently unioned. The format token may appear among

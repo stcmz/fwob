@@ -30,7 +30,7 @@ pub(super) fn dump_frames(args: DumpArgs) -> Result<()> {
     let mut formatter = fwob::formatting::FrameFormatter::new(
         &schema,
         &string_table,
-        format.unwrap_or(fwob::formatting::FrameFormat::Raw),
+        format.unwrap_or(fwob::formatting::FrameFormat::Table),
     );
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
