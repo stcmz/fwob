@@ -303,7 +303,7 @@ fn signed_min(length: u16) -> i128 {
         2 => i128::from(i16::MIN),
         4 => i128::from(i32::MIN),
         8 => i128::from(i64::MIN),
-        other if other >= 1 && other <= 16 => -(1i128 << (u32::from(other) * 8 - 1)),
+        other if (1..=16).contains(&other) => -(1i128 << (u32::from(other) * 8 - 1)),
         _ => i128::MIN,
     }
 }
