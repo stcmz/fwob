@@ -402,8 +402,8 @@ struct EditArgs {
     #[arg(long)]
     clear_strings: bool,
     /// Set a field's semantic as NAME=VALUE, where VALUE is one of none, unix-seconds,
-    /// unix-milliseconds, unix-microseconds, unix-nanoseconds, fixed-0..fixed-4 (integer / 10^N,
-    /// comma-grouped), or percent-0..percent-4 (same, with a % suffix). v2 only. May be repeated.
+    /// unix-milliseconds, unix-microseconds, unix-nanoseconds, fixed-0..fixed-8 (integer / 10^N,
+    /// comma-grouped), or percent-0..percent-8 (same, with a % suffix). v2 only. May be repeated.
     #[arg(long = "set-semantic", value_name = "NAME=VALUE")]
     set_semantics: Vec<String>,
     /// Key field index for v1 input only.

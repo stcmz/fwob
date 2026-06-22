@@ -597,6 +597,38 @@ fn cli_edit_sets_and_clears_field_semantic() {
         FieldSemantic::None
     );
 
+    // Extended fixed-8 / percent-8 semantics round-trip through a v2 header (Time is integer).
+    assert_command_success(Command::new(exe).args([
+        "edit",
+        v2.to_str().unwrap(),
+        "--set-semantic",
+        "Time=fixed-8",
+    ]));
+    assert_eq!(
+        fwob_v2::Reader::open(&v2).unwrap().header().schema.fields[0].semantic,
+        FieldSemantic::FixedPoint(8)
+    );
+    assert_command_success(Command::new(exe).args([
+        "edit",
+        v2.to_str().unwrap(),
+        "--set-semantic",
+        "Time=percent-8",
+    ]));
+    assert_eq!(
+        fwob_v2::Reader::open(&v2).unwrap().header().schema.fields[0].semantic,
+        FieldSemantic::Percentage(8)
+    );
+    // Out-of-range decimals are rejected.
+    assert_command_failure(
+        Command::new(exe).args([
+            "edit",
+            v2.to_str().unwrap(),
+            "--set-semantic",
+            "Time=fixed-9",
+        ]),
+        "unknown semantic 'fixed-9'",
+    );
+
     // v1 cannot store semantics.
     let v1 = dir.path().join("v1.fwob");
     write_v1_file(&v1, tick_schema(), 0..10);

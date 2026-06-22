@@ -33,7 +33,7 @@ pub enum TimestampUnit {
 }
 
 /// Largest supported decimal-point count for the fixed-point and percentage semantics.
-pub const MAX_DECIMAL_POINTS: u8 = 4;
+pub const MAX_DECIMAL_POINTS: u8 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldSemantic {
@@ -47,8 +47,9 @@ pub enum FieldSemantic {
 }
 
 impl FieldSemantic {
-    // On-disk ids are a flat enumeration. 0..=4 are grandfathered; a slot is reserved between
-    // each new category (5 and 11) so future kinds can extend without renumbering.
+    // On-disk ids are a flat enumeration. 0..=4 are grandfathered; a slot is reserved after
+    // each category (5, 15, 25) so future kinds can extend without renumbering. FixedPoint and
+    // Percentage carry 0..=8 decimal points (ids 6..=14 and 16..=24).
     pub fn id(self) -> u8 {
         match self {
             Self::None => 0,
@@ -58,8 +59,8 @@ impl FieldSemantic {
             Self::UnixTimestamp(TimestampUnit::Nanoseconds) => 4,
             // reserved: 5
             Self::FixedPoint(points) => 6 + points,
-            // reserved: 11
-            Self::Percentage(points) => 12 + points,
+            // reserved: 15
+            Self::Percentage(points) => 16 + points,
         }
     }
 
@@ -70,8 +71,8 @@ impl FieldSemantic {
             2 => Ok(Self::UnixTimestamp(TimestampUnit::Milliseconds)),
             3 => Ok(Self::UnixTimestamp(TimestampUnit::Microseconds)),
             4 => Ok(Self::UnixTimestamp(TimestampUnit::Nanoseconds)),
-            6..=10 => Ok(Self::FixedPoint(id - 6)),
-            12..=16 => Ok(Self::Percentage(id - 12)),
+            6..=14 => Ok(Self::FixedPoint(id - 6)),
+            16..=24 => Ok(Self::Percentage(id - 16)),
             _ => Err(FwobError::InvalidSchema(format!(
                 "unsupported field semantic id {id}"
             ))),
@@ -259,6 +260,43 @@ mod tests {
 
     fn field(name: &str, field_type: FieldType, length: u16, offset: u32) -> Field {
         Field::new(name, field_type, length, offset)
+    }
+
+    #[test]
+    fn semantic_ids_round_trip_through_fixed8_and_percent8() {
+        // Grandfathered + extended ids round-trip; reserved slots (5, 15, 25) reject.
+        for points in 0..=MAX_DECIMAL_POINTS {
+            let fixed = FieldSemantic::FixedPoint(points);
+            assert_eq!(FieldSemantic::from_id(fixed.id()).unwrap(), fixed);
+            assert_eq!(fixed.id(), 6 + points);
+            let percent = FieldSemantic::Percentage(points);
+            assert_eq!(FieldSemantic::from_id(percent.id()).unwrap(), percent);
+            assert_eq!(percent.id(), 16 + points);
+        }
+        assert_eq!(FieldSemantic::FixedPoint(8).id(), 14);
+        assert_eq!(FieldSemantic::Percentage(8).id(), 24);
+        for reserved in [5u8, 15, 25] {
+            assert!(FieldSemantic::from_id(reserved).is_err());
+        }
+        assert!(FieldSemantic::from_id(255).is_err());
+    }
+
+    #[test]
+    fn schema_accepts_fixed8_but_rejects_nine_decimals() {
+        let ok = Schema::new(
+            "Row",
+            vec![field("v", FieldType::SignedInteger, 4, 0)
+                .with_semantic(FieldSemantic::FixedPoint(8))],
+            0,
+        );
+        assert!(ok.is_ok());
+        let too_many = Schema::new(
+            "Row",
+            vec![field("v", FieldType::SignedInteger, 4, 0)
+                .with_semantic(FieldSemantic::FixedPoint(9))],
+            0,
+        );
+        assert!(too_many.is_err());
     }
 
     #[test]

@@ -232,7 +232,19 @@ impl<'a> FrameFormatter<'a> {
                 write_markdown_row(output, &borrowed)?;
             }
             FrameFormat::Csv => {
-                let rendered = values.iter().map(render_plain).collect::<Vec<_>>();
+                let rendered = self
+                    .schema
+                    .fields
+                    .iter()
+                    .zip(&values)
+                    .map(|(field, value)| {
+                        if fixed_point_null(field, value) {
+                            String::new()
+                        } else {
+                            render_plain(value)
+                        }
+                    })
+                    .collect::<Vec<_>>();
                 let borrowed = rendered.iter().map(String::as_str).collect::<Vec<_>>();
                 write_csv_row(output, &borrowed)?;
             }
@@ -284,7 +296,34 @@ fn numeric_i128(value: &FieldValue) -> Option<i128> {
     }
 }
 
+/// The most-negative value of a signed integer of `length` bytes.
+fn signed_min(length: u16) -> i128 {
+    match length {
+        1 => i128::from(i8::MIN),
+        2 => i128::from(i16::MIN),
+        4 => i128::from(i32::MIN),
+        8 => i128::from(i64::MIN),
+        other if other >= 1 && other <= 16 => -(1i128 << (u32::from(other) * 8 - 1)),
+        _ => i128::MIN,
+    }
+}
+
+/// A fixed-point / percentage column over a *signed* integer treats that integer type's
+/// minimum value as NULL (there is no NaN for integers). Such cells render as `-` / `null` /
+/// empty in the display, json, and csv formats; `raw`/`hex` keep the exact stored integer.
+fn fixed_point_null(field: &Field, value: &FieldValue) -> bool {
+    matches!(field.field_type, FieldType::SignedInteger)
+        && matches!(
+            field.semantic,
+            FieldSemantic::FixedPoint(_) | FieldSemantic::Percentage(_)
+        )
+        && numeric_i128(value) == Some(signed_min(field.length))
+}
+
 fn render_display(field: &Field, value: &FieldValue) -> String {
+    if fixed_point_null(field, value) {
+        return "-".to_string();
+    }
     match field.semantic {
         FieldSemantic::UnixTimestamp(unit) => {
             if let Some(rendered) =
@@ -531,6 +570,10 @@ fn write_json_line(output: &mut impl Write, schema: &Schema, values: &[FieldValu
         }
         write_json_string(&mut line, &field.name);
         line.push(':');
+        if fixed_point_null(field, value) {
+            line.push_str("null");
+            continue;
+        }
         match value {
             FieldValue::Signed(value) => write!(line, "{value}").unwrap(),
             FieldValue::Unsigned(value) => write!(line, "{value}").unwrap(),
@@ -634,6 +677,46 @@ mod tests {
             render(FrameFormat::Markdown),
             "| key | price | symbol | name |\n| ---: | ---: | --- | --- |\n| 1234 | 5678900 | AAPL | AB |\n"
         );
+    }
+
+    #[test]
+    fn signed_fixed_point_min_is_null_but_unsigned_is_not() {
+        let schema = Schema::new(
+            "Calc",
+            vec![
+                Field::new("a", FieldType::SignedInteger, 4, 0)
+                    .with_semantic(FieldSemantic::FixedPoint(8)),
+                Field::new("b", FieldType::UnsignedInteger, 4, 4)
+                    .with_semantic(FieldSemantic::FixedPoint(4)),
+            ],
+            0,
+        )
+        .unwrap();
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&i32::MIN.to_le_bytes()); // a: null sentinel
+        frame.extend_from_slice(&1_500_000u32.to_le_bytes()); // b: 150.0000 (unsigned never null)
+
+        let render = |format| {
+            let mut formatter = FrameFormatter::new(&schema, &[], format);
+            let mut out = Vec::new();
+            formatter.write_frame(&mut out, &frame).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+
+        let table = render(FrameFormat::Table);
+        assert!(table.contains('-'), "{table}");
+        assert!(table.contains("150.0000"), "{table}");
+        assert!(
+            !table.contains("2147"),
+            "sentinel must not render as a number: {table}"
+        );
+        assert_eq!(
+            render(FrameFormat::JsonLines),
+            "{\"a\":null,\"b\":1500000}\n"
+        );
+        assert_eq!(render(FrameFormat::Csv), "a,b\n,1500000\n");
+        // raw keeps the exact stored integer (no null concept).
+        assert_eq!(render(FrameFormat::Raw), "-2147483648 1500000\n");
     }
 
     #[test]
