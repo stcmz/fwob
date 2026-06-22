@@ -11,6 +11,9 @@ use crate::{
     Result, V1Error,
 };
 
+/// Target byte size of each bulk read backing a sequential key/frame scan.
+const SCAN_CHUNK_BYTES: usize = 256 * 1024;
+
 pub struct Reader<R> {
     inner: R,
     header: Header,
@@ -189,20 +192,37 @@ impl<R: Read + Seek> Reader<R> {
     }
 
     pub fn verify_key_order(&mut self) -> Result<()> {
-        if self.header.frame_count <= 1 {
+        let count = self.header.frame_count;
+        if count <= 1 {
             return Ok(());
         }
-        let mut last = self.read_key_at(0)?.expect("frame exists");
-        for index in 1..self.header.frame_count {
-            let key = self.read_key_at(index)?.expect("frame exists");
-            if key < last {
-                return Err(V1Error::KeyOrderViolation {
-                    index,
-                    key,
-                    previous: last,
-                });
+        let frame_len = self.header.frame_length as usize;
+        let key_field = self.schema.key_field();
+        let key_start = key_field.offset as usize;
+        let key_end = key_start + key_field.length as usize;
+        let batch = (SCAN_CHUNK_BYTES / frame_len.max(1)).max(1);
+        let mut last: Option<Key> = None;
+        let mut index = 0u64;
+        while index < count {
+            let want = ((count - index) as usize).min(batch);
+            let raw = self.read_raw_frames_chunk(index, want)?;
+            if raw.is_empty() {
+                break;
             }
-            last = key;
+            for (offset, bytes) in raw.chunks_exact(frame_len).enumerate() {
+                let key = Key::decode(self.key_type, &bytes[key_start..key_end])?;
+                if let Some(previous) = last {
+                    if key < previous {
+                        return Err(V1Error::KeyOrderViolation {
+                            index: index + offset as u64,
+                            key,
+                            previous,
+                        });
+                    }
+                }
+                last = Some(key);
+            }
+            index += (raw.len() / frame_len) as u64;
         }
         Ok(())
     }

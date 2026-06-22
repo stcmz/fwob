@@ -201,10 +201,16 @@ impl Reader {
                 frame_count: self.frame_count(),
             });
         }
+        let frame_len = self.schema().frame_len as usize;
+        let frames_per_chunk = frames_per_chunk(frame_len);
         Ok(FrameIter {
             reader: self,
             next: range.start,
             end: range.end,
+            buf: Vec::new(),
+            buf_pos: 0,
+            frame_len,
+            frames_per_chunk,
         })
     }
 
@@ -241,11 +247,17 @@ impl Reader {
                 ranges.push(range);
             }
         }
+        let frame_len = self.schema().frame_len as usize;
+        let frames_per_chunk = frames_per_chunk(frame_len);
         Ok(MultiRangeFrameIter {
             reader: self,
             ranges,
             range_index: 0,
             next: 0,
+            buf: Vec::new(),
+            buf_start: 0,
+            frame_len,
+            frames_per_chunk,
         })
     }
 
@@ -285,10 +297,27 @@ impl FileInfo for Reader {
     }
 }
 
+/// Target byte size of each bulk read backing the sequential frame iterators.
+///
+/// Sequential iteration reads frames in chunks of this many bytes instead of
+/// one backend call per frame. On v1 this collapses a per-frame `seek`+`read`
+/// into a single bulk `read_exact`; on v2 each chunk is copied from the decoded
+/// page cache. Random-access `read_frame`/`read_key` are unaffected.
+const STREAM_CHUNK_BYTES: usize = 256 * 1024;
+
+fn frames_per_chunk(frame_len: usize) -> usize {
+    (STREAM_CHUNK_BYTES / frame_len.max(1)).max(1)
+}
+
 pub struct FrameIter<'a> {
     reader: &'a mut Reader,
     next: u64,
     end: u64,
+    /// Raw bytes of the frames `[next, next + buf.len()/frame_len)` once filled.
+    buf: Vec<u8>,
+    buf_pos: usize,
+    frame_len: usize,
+    frames_per_chunk: usize,
 }
 
 impl Iterator for FrameIter<'_> {
@@ -298,17 +327,39 @@ impl Iterator for FrameIter<'_> {
         if self.next >= self.end {
             return None;
         }
-        let index = self.next;
-        self.next += 1;
-        match self.reader.read_frame(index) {
-            Ok(Some(frame)) => Some(Ok(frame)),
-            Ok(None) => Some(Err(FwobError::InvalidFrameRange {
-                start: index,
-                end: index + 1,
-                frame_count: self.reader.frame_count(),
-            })),
-            Err(error) => Some(Err(error)),
+        if self.buf_pos >= self.buf.len() {
+            let want = (self.end - self.next).min(self.frames_per_chunk as u64) as usize;
+            match self.reader.read_raw_frames_chunk(self.next, want) {
+                Ok(raw) if !raw.is_empty() => {
+                    self.buf = raw;
+                    self.buf_pos = 0;
+                }
+                Ok(_) => {
+                    let index = self.next;
+                    self.next = self.end;
+                    return Some(Err(FwobError::InvalidFrameRange {
+                        start: index,
+                        end: index + 1,
+                        frame_count: self.reader.frame_count(),
+                    }));
+                }
+                Err(error) => {
+                    self.next = self.end;
+                    return Some(Err(error));
+                }
+            }
         }
+        let slice = self.buf[self.buf_pos..self.buf_pos + self.frame_len].to_vec();
+        let frame = match OwnedFrame::new(self.reader.schema(), slice) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.next = self.end;
+                return Some(Err(error));
+            }
+        };
+        self.buf_pos += self.frame_len;
+        self.next += 1;
+        Some(Ok(frame))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -324,6 +375,18 @@ pub struct MultiRangeFrameIter<'a> {
     ranges: Vec<Range<u64>>,
     range_index: usize,
     next: u64,
+    /// Raw bytes of the frames `[buf_start, buf_start + buf.len()/frame_len)`.
+    buf: Vec<u8>,
+    buf_start: u64,
+    frame_len: usize,
+    frames_per_chunk: usize,
+}
+
+impl MultiRangeFrameIter<'_> {
+    fn terminate_with(&mut self, error: FwobError) -> Option<Result<OwnedFrame>> {
+        self.range_index = self.ranges.len();
+        Some(Err(error))
+    }
 }
 
 impl Iterator for MultiRangeFrameIter<'_> {
@@ -331,7 +394,7 @@ impl Iterator for MultiRangeFrameIter<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let range = self.ranges.get(self.range_index)?;
+            let range = self.ranges.get(self.range_index)?.clone();
             if self.next < range.start {
                 self.next = range.start;
             }
@@ -339,17 +402,34 @@ impl Iterator for MultiRangeFrameIter<'_> {
                 self.range_index += 1;
                 continue;
             }
-            let index = self.next;
+            let buf_frames = (self.buf.len() / self.frame_len) as u64;
+            if self.next < self.buf_start || self.next >= self.buf_start + buf_frames {
+                // Bound the read to this range so a chunk never straddles a gap.
+                let want = (range.end - self.next).min(self.frames_per_chunk as u64) as usize;
+                match self.reader.read_raw_frames_chunk(self.next, want) {
+                    Ok(raw) if !raw.is_empty() => {
+                        self.buf = raw;
+                        self.buf_start = self.next;
+                    }
+                    Ok(_) => {
+                        let index = self.next;
+                        return self.terminate_with(FwobError::InvalidFrameRange {
+                            start: index,
+                            end: index + 1,
+                            frame_count: self.reader.frame_count(),
+                        });
+                    }
+                    Err(error) => return self.terminate_with(error),
+                }
+            }
+            let offset = (self.next - self.buf_start) as usize * self.frame_len;
+            let slice = self.buf[offset..offset + self.frame_len].to_vec();
+            let frame = match OwnedFrame::new(self.reader.schema(), slice) {
+                Ok(frame) => frame,
+                Err(error) => return self.terminate_with(error),
+            };
             self.next += 1;
-            return Some(match self.reader.read_frame(index) {
-                Ok(Some(frame)) => Ok(frame),
-                Ok(None) => Err(FwobError::InvalidFrameRange {
-                    start: index,
-                    end: index + 1,
-                    frame_count: self.reader.frame_count(),
-                }),
-                Err(error) => Err(error),
-            });
+            return Some(Ok(frame));
         }
     }
 
