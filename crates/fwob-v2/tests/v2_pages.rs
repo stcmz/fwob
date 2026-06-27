@@ -681,7 +681,7 @@ fn open_append_with_zstd_coalesces_raw_tail_pages() {
 }
 
 #[test]
-fn open_append_limits_raw_tail_reclaim_to_max_append_tail_pages() {
+fn open_append_reclaims_entire_raw_tail_for_recompression() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("limit.fwob");
 
@@ -702,7 +702,8 @@ fn open_append_limits_raw_tail_reclaim_to_max_append_tail_pages() {
     let initial_pages = Reader::open(&path).unwrap().header().page_count;
     assert_eq!(initial_pages, 12);
 
-    // Reopen with Zstd and append a large incompressible batch so compression actually fires.
+    // Reopen with Zstd and append more data so compression fires. There is no reclaim cap: the
+    // whole 12-page raw tail is loaded back into memory and recompacted with the new frames.
     let mut zstd_opts = WriterOptions::new("Limit");
     zstd_opts.page_size = 1024;
     zstd_opts.codec = Codec::Zstd;
@@ -719,16 +720,20 @@ fn open_append_limits_raw_tail_reclaim_to_max_append_tail_pages() {
     reader.verify().unwrap();
     assert_eq!(reader.header().frame_count, 1708);
 
-    // Pages outside the 10-page reclaim window (0 and 1) are untouched: still raw None.
-    assert_eq!(reader.read_page_header(0).unwrap().codec, Codec::None);
-    assert_eq!(reader.read_page_header(0).unwrap().frame_count, 59);
-    assert_eq!(reader.read_page_header(1).unwrap().codec, Codec::None);
-    // The reclaimed window was recompressed.
-    let has_zstd = (0..reader.header().page_count)
-        .any(|p| reader.read_page_header(p).unwrap().codec == Codec::Zstd);
-    assert!(has_zstd, "windowed tail should have been recompressed");
+    // The entire raw tail was reclaimed and recompacted: even page 0 is now a compressed page
+    // (under the old 10-page cap, pages 0 and 1 would have stayed raw `None`). The recompacted file
+    // has far fewer raw `None` pages than the 12 it started with — only the trailing incompressible
+    // run stays raw.
+    assert_eq!(reader.read_page_header(0).unwrap().codec, Codec::Zstd);
+    let raw_pages = (0..reader.header().page_count)
+        .filter(|&p| reader.read_page_header(p).unwrap().codec == Codec::None)
+        .count() as u64;
+    assert!(
+        raw_pages < initial_pages,
+        "whole-tail recompaction should leave fewer raw pages than the original {initial_pages}, found {raw_pages}"
+    );
 
-    // Round-trip across the survived and rewritten regions.
+    // Round-trip across the original (recompressed) and newly appended regions.
     assert_eq!(
         reader.read_frame_at(0).unwrap().unwrap().bytes(),
         tick(0, 0.0, "").as_slice()
@@ -847,4 +852,128 @@ fn zstd_level_option_is_supported() {
     let mut reader = Reader::new(cursor).unwrap();
     reader.verify().unwrap();
     assert_eq!(reader.read_page_header(0).unwrap().codec, Codec::Zstd);
+}
+
+#[test]
+fn sync_at_arbitrary_points_does_not_change_the_file() {
+    // A sync is a checkpoint: the eventual file must be byte-identical whether or not (and however
+    // often) sync was called. Use an incompressible payload at a small page size so several Zstd
+    // pages form and a raw residual remains, exercising the reclaim path on each sync.
+    let mut options = WriterOptions::new("Title");
+    options.page_size = 4096;
+    options.codec = Codec::Zstd;
+    options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
+    options.zstd_level = 9;
+
+    let frame = |i: i32| {
+        let mut frame = tick(
+            i,
+            f64::from_bits((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+            "",
+        );
+        frame[12..16].copy_from_slice(&(i as u32).wrapping_mul(2_654_435_761).to_le_bytes());
+        frame
+    };
+    let total = 5000i32;
+
+    let build = |sync_every: Option<i32>| -> Vec<u8> {
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut writer = Writer::new(&mut cursor, tick_schema(), options.clone()).unwrap();
+            for i in 0..total {
+                writer.append_frame(&frame(i)).unwrap();
+                if let Some(k) = sync_every {
+                    if (i + 1) % k == 0 {
+                        writer.sync().unwrap();
+                    }
+                }
+            }
+            writer.finish().unwrap();
+        }
+        cursor.into_inner()
+    };
+
+    let reference = build(None);
+    for sync_every in [1, 13, 254, 1000, 5000] {
+        assert_eq!(
+            build(Some(sync_every)),
+            reference,
+            "sync every {sync_every} frames changed the resulting file",
+        );
+    }
+
+    // Reference must itself be a valid multi-page Zstd file (so the test is meaningful).
+    let mut reader = Reader::new(Cursor::new(reference)).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, total as u64);
+    assert!(reader.header().page_count >= 2);
+}
+
+#[test]
+fn reopen_in_batches_does_not_change_the_file() {
+    // Closing and reopening the file between batches must produce the same bytes as one continuous
+    // open+finish: on reopen the raw tail is loaded back into memory and recompacted exactly as a
+    // never-closed writer would, so the file depends only on the frames, not on how appends were
+    // split across sessions.
+    let mut options = WriterOptions::new("Title");
+    options.page_size = 4096;
+    options.codec = Codec::Zstd;
+    options.codec_selection = CodecSelection::Fixed(Codec::Zstd);
+    options.zstd_level = 9;
+
+    let frame = |i: i32| {
+        let mut frame = tick(
+            i,
+            f64::from_bits((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+            "",
+        );
+        frame[12..16].copy_from_slice(&(i as u32).wrapping_mul(2_654_435_761).to_le_bytes());
+        frame
+    };
+    let total = 5000i32;
+
+    let dir = tempdir().unwrap();
+
+    // One continuous session.
+    let continuous = dir.path().join("continuous.fwob");
+    {
+        let mut writer = Writer::create(&continuous, tick_schema(), options.clone()).unwrap();
+        for i in 0..total {
+            writer.append_frame(&frame(i)).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+    let reference = std::fs::read(&continuous).unwrap();
+
+    // Several non-page-aligned reopen cadences. (The per-frame in-memory case is covered by
+    // `sync_at_arbitrary_points_does_not_change_the_file`; reopening 5000× would recompact a
+    // growing tail O(n²) at zstd level 9 with no extra coverage.)
+    for batch in [13, 254, 1000, 5000] {
+        let path = dir.path().join(format!("batched_{batch}.fwob"));
+        let mut i = 0i32;
+        let mut first = true;
+        while i < total {
+            let end = (i + batch).min(total);
+            if first {
+                let mut writer = Writer::create(&path, tick_schema(), options.clone()).unwrap();
+                for j in i..end {
+                    writer.append_frame(&frame(j)).unwrap();
+                }
+                writer.finish().unwrap();
+                first = false;
+            } else {
+                let mut writer = Writer::open_append(&path, options.clone()).unwrap();
+                for j in i..end {
+                    writer.append_frame(&frame(j)).unwrap();
+                }
+                writer.finish().unwrap();
+            }
+            i = end;
+        }
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            reference,
+            "reopening every {batch} frames changed the resulting file",
+        );
+    }
 }

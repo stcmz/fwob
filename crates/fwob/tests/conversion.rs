@@ -1088,6 +1088,61 @@ fn cli_inspect_and_dump_use_v2_timestamp_semantics() {
 }
 
 #[test]
+fn cli_inspect_reports_page_ranges_by_codec() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("ranges.fwob");
+
+    // Small Zstd pages over compressible data: the dense leading pages compress (codec zstd) while
+    // the trailing under-filled page stays raw (codec none), giving two distinct page ranges.
+    let mut options = V2WriterOptions::new("Tick");
+    options.page_size = 1024;
+    options.codec = Codec::Zstd;
+    let mut writer = V2Writer::create(&path, tick_schema(), options).unwrap();
+    for value in 0..400 {
+        writer.append_frame(&tick(value, value as f64)).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    let inspect = command_output(Command::new(exe).args(["inspect", path.to_str().unwrap()]));
+    let stdout = String::from_utf8(inspect.stdout).unwrap();
+
+    assert!(stdout.contains("[[page_ranges]]"), "{stdout}");
+    // Per-range keys are all present.
+    for key in [
+        "codec = ",
+        "encoding = ",
+        "start_page = ",
+        "end_page = ",
+        "page_count = ",
+        "frame_count = ",
+        "first_key = ",
+        "last_key = ",
+        "compressed_bytes = ",
+        "uncompressed_bytes = ",
+    ] {
+        assert!(stdout.contains(key), "missing `{key}` in:\n{stdout}");
+    }
+    // The mixed layout surfaces both a compressed run and a trailing raw run.
+    assert!(stdout.contains("codec = \"zstd\""), "{stdout}");
+    assert!(stdout.contains("codec = \"none\""), "{stdout}");
+
+    // The page ranges cover exactly the file's pages: the last range's end_page is page_count - 1.
+    let page_count: u64 = stdout
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("page_count = "))
+        .and_then(|value| value.parse().ok())
+        .expect("page_count in [pages]");
+    let last_end_page: u64 = stdout
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("end_page = "))
+        .filter_map(|value| value.parse().ok())
+        .next_back()
+        .expect("at least one page range");
+    assert_eq!(last_end_page, page_count - 1, "{stdout}");
+}
+
+#[test]
 fn cli_roundtrips_v1_to_v2_to_v1() {
     let dir = tempdir().unwrap();
     let v1_path = dir.path().join("input.fwob");

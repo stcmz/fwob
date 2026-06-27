@@ -103,6 +103,13 @@ impl Writer {
     pub fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()> {
         Ok(self.inner.append_frames_transactional(frames)?)
     }
+
+    /// Durably flushes appended data to disk without consuming the writer, so a reader can observe
+    /// progress mid-write and a crash loses at most the data appended since the last `sync`. The
+    /// eventual file is identical whether or not `sync` is called.
+    pub fn sync(&mut self) -> Result<()> {
+        Ok(self.inner.sync()?)
+    }
 }
 
 pub(crate) fn inherited_v2_options(path: &Path) -> fwob_v2::WriterOptions {

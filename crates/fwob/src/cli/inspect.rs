@@ -139,6 +139,21 @@ pub(super) fn inspect_v2(args: V2FileArgs) -> Result<()> {
     }
     print_page_codec_encoding_stats_toml(&metadata);
 
+    for range in &metadata.page_ranges {
+        println!();
+        toml_array_section("page_ranges");
+        toml_kv_str("codec", codec_label(range.codec));
+        toml_kv_str("encoding", encoding_label(range.encoding));
+        toml_kv_num("start_page", range.start_page);
+        toml_kv_num("end_page", range.start_page + range.page_count - 1);
+        toml_kv_num("page_count", range.page_count);
+        toml_kv_num("frame_count", range.frame_count);
+        toml_kv_key("first_key", range.first_key);
+        toml_kv_key("last_key", range.last_key);
+        toml_kv_num("compressed_bytes", range.compressed_bytes);
+        toml_kv_num("uncompressed_bytes", range.uncompressed_bytes);
+    }
+
     println!();
     toml_section("schema");
     toml_kv_num("field_count", header.schema.fields.len());

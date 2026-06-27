@@ -19,10 +19,6 @@ use crate::{
 const INTERPOLATED_PROBE_WINDOW_MARGIN_DIVISOR: usize = 0;
 const RECORDED_WINDOW_SPANS: usize = 10;
 const INITIAL_COMPRESSED_PROBE_RAW_PAGES: usize = 4;
-/// Maximum number of trailing uncompressed pages a compressing codec will reclaim and repack
-/// when opening a file for append. Bounds the work: a file with thousands of raw pages reclaims
-/// at most this many. `Codec::None` only ever coalesces the single trailing page.
-const MAX_APPEND_TAIL_PAGES: usize = 10;
 const RECOMMENDED_COMPRESSED_INPUT_PAGES: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,75 +341,15 @@ impl Writer<File> {
         let header = crate::file_header::read_file_header(&mut file)?;
         let key_type = KeyType::from_field(header.schema.key_field())?;
 
-        // Identify the trailing run of uncompressed pages that can be reclaimed on append, and
-        // within it the trailing run of *under-filled* pages. Two boundaries are tracked:
-        //   - `tail_start`: start of the whole reclaimable tail (full raw pages included). A
-        //     compressing codec may recompress this entire run, up to MAX_APPEND_TAIL_PAGES,
-        //     stopping only at the first compressed page.
-        //   - `underfilled_start`: start of the trailing run of under-filled pages. A plain raw
-        //     flush (no full compressed page produced) only ever rewrites this run, so already
-        //     dense pages are never touched.
-        // `Codec::None` never compresses, so its tail is just the single trailing under-filled
-        // page ("append to the last page until full").
-        let raw_page_capacity = ((header.page_size as usize - PAGE_HEADER_LEN)
-            / header.schema.frame_len as usize)
-            .max(1);
-        let max_tail_pages = if options.codec == Codec::None {
-            1
-        } else {
-            MAX_APPEND_TAIL_PAGES
-        };
-        let min_tail_start = header.page_count.saturating_sub(max_tail_pages as u64);
-        let mut tail_start = header.page_count;
-        let mut underfilled_start = header.page_count;
-        let mut run_open = true;
-        while tail_start > min_tail_start {
-            file.seek(SeekFrom::Start(header.page_offset(tail_start - 1)))?;
-            let page = PageHeader::read(&mut file, tail_start - 1)?;
-            if page.codec != Codec::None {
-                break; // compressed page: cannot grow / repack across it
-            }
-            if run_open && page.frame_count as usize >= raw_page_capacity {
-                run_open = false; // first full page (from the end) closes the under-filled run
-            }
-            if options.codec == Codec::None && !run_open {
-                break; // None reclaims only the trailing under-filled page, never a full one
-            }
-            tail_start -= 1;
-            if run_open {
-                underfilled_start = tail_start;
-            }
-        }
-
-        let mut tail_frames = 0u64;
-        let mut underfilled_frames = 0u64;
-        let mut last_key = if tail_start > 0 {
-            file.seek(SeekFrom::Start(header.page_offset(tail_start - 1)))?;
-            Some(PageHeader::read(&mut file, tail_start - 1)?.last_key)
+        // Reclaimable trailing tail (see `compute_append_tail`) plus the overall last key. Sharing
+        // the scan with `Writer::sync` is what guarantees a reopen and an in-memory sync recompact
+        // the residual identically.
+        let append_tail = compute_append_tail(&mut file, &header, &options)?;
+        let last_key = if header.page_count > 0 {
+            file.seek(SeekFrom::Start(header.page_offset(header.page_count - 1)))?;
+            Some(PageHeader::read(&mut file, header.page_count - 1)?.last_key)
         } else {
             None
-        };
-        for page_index in tail_start..header.page_count {
-            file.seek(SeekFrom::Start(header.page_offset(page_index)))?;
-            let page = PageHeader::read(&mut file, page_index)?;
-            tail_frames += u64::from(page.frame_count);
-            if page_index >= underfilled_start {
-                underfilled_frames += u64::from(page.frame_count);
-            }
-            last_key = Some(page.last_key);
-        }
-
-        let append_tail = if tail_frames == 0 {
-            None
-        } else {
-            Some(AppendTail {
-                start_page: tail_start,
-                page_count: header.page_count - tail_start,
-                frame_count: tail_frames,
-                underfilled_start_page: underfilled_start,
-                underfilled_frame_count: underfilled_frames,
-                loaded: false,
-            })
         };
         let append_offset = FILE_HEADER_LEN + header.page_count * u64::from(header.page_size);
         file.seek(SeekFrom::Start(append_offset))?;
@@ -426,7 +362,7 @@ impl Writer<File> {
 
         let zstd_compressor =
             new_zstd_compressor(append_options.codec_selection, append_options.zstd_level)?;
-        Ok(Self {
+        let mut writer = Self {
             inner: file,
             header,
             key_type,
@@ -439,7 +375,15 @@ impl Writer<File> {
             packing_stats: PackingStats::default(),
             current_page_attempts: 0,
             append_tail,
-        })
+        };
+        // Load the reclaimable raw tail straight into `pending` so the reopened writer is in the
+        // exact in-memory state a never-closed writer would be in: the uncompressed residual lives
+        // in memory (`tail.loaded == true`) with its durable raw mirror still on disk. Continued
+        // appends then take the same pending-based compaction path, so splitting a write across
+        // reopen sessions yields a byte-identical file (see `reopen_in_batches_does_not_change_...`).
+        writer.load_append_tail_for_compression()?;
+        writer.inner.seek(SeekFrom::Start(append_offset))?;
+        Ok(writer)
     }
 }
 
@@ -628,6 +572,38 @@ impl<W: Read + Write + Seek + Resize> Writer<W> {
         }
         self.inner.flush()?;
         Ok(self.packing_stats)
+    }
+
+    /// Durably flushes everything appended so far to disk **without** consuming the writer: it runs
+    /// the same flush as [`finish`](Self::finish), then re-establishes the reclaimable tail
+    /// (`compute_append_tail`) so a subsequent append recompacts the just-flushed residual exactly
+    /// as reopening the file would. The eventual file is therefore byte-identical whether or not
+    /// `sync` is called — it only bounds how much un-flushed data a crash could lose and lets a
+    /// reader observe progress mid-write.
+    pub fn sync(&mut self) -> Result<()> {
+        self.compact_overflowing_tail()?;
+        if self.options.compress_partial_page {
+            while !self.pending.is_empty() {
+                if !self.flush_one_compressed_page_allow_partial()? {
+                    break;
+                }
+            }
+        }
+        while !self.pending.is_empty() {
+            self.flush_one_raw_page()?;
+        }
+        self.inner.flush()?;
+        // Re-derive the reclaimable tail on disk, then eager-load it straight back into `pending`
+        // (mirroring `open_append` + the first deferred-compaction reload). This restores the exact
+        // in-memory state of a writer that never synced: the uncompressed residual lives in
+        // `pending` (`tail.loaded == true`) with a durable raw mirror on disk, so continued appends
+        // take the same pending-based compaction path and the file is byte-identical to no-sync.
+        self.append_tail = compute_append_tail(&mut self.inner, &self.header, &self.options)?;
+        self.load_append_tail_for_compression()?;
+        let append_offset =
+            FILE_HEADER_LEN + self.header.page_count * u64::from(self.header.page_size);
+        self.inner.seek(SeekFrom::Start(append_offset))?;
+        Ok(())
     }
 
     fn compact_overflowing_tail(&mut self) -> Result<()> {
@@ -1465,6 +1441,74 @@ fn interpolated_probe(
     } else {
         estimated.clamp(clamped_min, clamped_max)
     }
+}
+
+/// Scans the trailing pages of a v2 file and builds the reclaimable [`AppendTail`] — the *entire*
+/// run of trailing uncompressed pages a later append may recompact (or, for `Codec::None`, the
+/// single trailing under-filled page), and within it the trailing under-filled run a plain raw
+/// flush rewrites. Shared by `open_append` (on reopen) and `Writer::sync` (an in-memory
+/// checkpoint), so both reclaim identically and a sync never changes the eventual file.
+fn compute_append_tail<R: Read + Seek>(
+    inner: &mut R,
+    header: &FileHeader,
+    options: &WriterOptions,
+) -> Result<Option<AppendTail>> {
+    let raw_page_capacity =
+        ((header.page_size as usize - PAGE_HEADER_LEN) / header.schema.frame_len as usize).max(1);
+    // Reclaim the *entire* trailing run of raw pages (the scan below stops at the first compressed
+    // page), so every checkpoint — open_append, sync, or finish — reconsiders the whole tail plus
+    // the newly appended data and recompacts it identically. This makes the file depend only on the
+    // frames, never on how appends were chunked, and lets a checkpoint heal an over-long raw tail.
+    // `Codec::None` never compresses, so it only ever extends the single trailing under-filled page.
+    let min_tail_start = if options.codec == Codec::None {
+        header.page_count.saturating_sub(1)
+    } else {
+        0
+    };
+    let mut tail_start = header.page_count;
+    let mut underfilled_start = header.page_count;
+    let mut run_open = true;
+    while tail_start > min_tail_start {
+        inner.seek(SeekFrom::Start(header.page_offset(tail_start - 1)))?;
+        let page = PageHeader::read(inner, tail_start - 1)?;
+        if page.codec != Codec::None {
+            break; // compressed page: cannot grow / repack across it
+        }
+        if run_open && page.frame_count as usize >= raw_page_capacity {
+            run_open = false; // first full page (from the end) closes the under-filled run
+        }
+        if options.codec == Codec::None && !run_open {
+            break; // None reclaims only the trailing under-filled page, never a full one
+        }
+        tail_start -= 1;
+        if run_open {
+            underfilled_start = tail_start;
+        }
+    }
+
+    let mut tail_frames = 0u64;
+    let mut underfilled_frames = 0u64;
+    for page_index in tail_start..header.page_count {
+        inner.seek(SeekFrom::Start(header.page_offset(page_index)))?;
+        let page = PageHeader::read(inner, page_index)?;
+        tail_frames += u64::from(page.frame_count);
+        if page_index >= underfilled_start {
+            underfilled_frames += u64::from(page.frame_count);
+        }
+    }
+
+    Ok(if tail_frames == 0 {
+        None
+    } else {
+        Some(AppendTail {
+            start_page: tail_start,
+            page_count: header.page_count - tail_start,
+            frame_count: tail_frames,
+            underfilled_start_page: underfilled_start,
+            underfilled_frame_count: underfilled_frames,
+            loaded: false,
+        })
+    })
 }
 
 fn normalize_encoding_selection(options: &mut WriterOptions) {

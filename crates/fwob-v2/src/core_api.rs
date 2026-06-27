@@ -209,6 +209,10 @@ impl WriterBackend for WriterAdapter {
             .map_err(fwob_core::FwobError::backend)
     }
 
+    fn sync(&mut self) -> CoreResult<()> {
+        self.writer.sync().map_err(fwob_core::FwobError::backend)
+    }
+
     fn finish(self: Box<Self>) -> CoreResult<()> {
         self.writer.finish().map_err(fwob_core::FwobError::backend)
     }

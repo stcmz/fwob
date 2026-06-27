@@ -462,6 +462,10 @@ pub trait WriterBackend: FileInfo + Send {
         self.append_presorted_frames(&frames)
     }
     fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()>;
+    /// Durably flush everything appended so far to disk while keeping the writer open for further
+    /// appends. The resulting file must be identical to one written without any `sync` calls — a
+    /// sync is a checkpoint, never a change to the eventual output.
+    fn sync(&mut self) -> Result<()>;
     fn finish(self: Box<Self>) -> Result<()>;
 }
 
@@ -511,6 +515,13 @@ impl Writer {
 
     pub fn append_frames_transactional(&mut self, frames: &[u8]) -> Result<()> {
         self.inner.append_frames_transactional(frames)
+    }
+
+    /// Durably flush appended data to disk without consuming the writer. The eventual file is
+    /// identical whether or not `sync` is called; it only bounds how much un-flushed data a crash
+    /// could lose and lets a reader observe progress mid-write.
+    pub fn sync(&mut self) -> Result<()> {
+        self.inner.sync()
     }
 
     pub fn finish(self) -> Result<()> {

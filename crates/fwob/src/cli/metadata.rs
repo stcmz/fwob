@@ -22,6 +22,21 @@ pub(super) struct V2Metadata {
     pub(super) encoding_row_raw_v1_pages: u64,
     pub(super) encoding_columnar_basic_v1_pages: u64,
     pub(super) encoding_columnar_delta_v1_pages: u64,
+    pub(super) page_ranges: Vec<PageRange>,
+}
+
+/// A maximal run of consecutive pages sharing the same codec and encoding — the codec layout of
+/// the file, summarized for `inspect`.
+pub(super) struct PageRange {
+    pub(super) start_page: u64,
+    pub(super) page_count: u64,
+    pub(super) codec: fwob_v2::Codec,
+    pub(super) encoding: fwob_v2::Encoding,
+    pub(super) frame_count: u64,
+    pub(super) first_key: fwob_core::Key,
+    pub(super) last_key: fwob_core::Key,
+    pub(super) compressed_bytes: u64,
+    pub(super) uncompressed_bytes: u64,
 }
 
 pub(super) fn collect_v2_metadata(
@@ -46,6 +61,7 @@ pub(super) fn collect_v2_metadata(
     let mut encoding_row_raw_v1_pages = 0u64;
     let mut encoding_columnar_basic_v1_pages = 0u64;
     let mut encoding_columnar_delta_v1_pages = 0u64;
+    let mut page_ranges: Vec<PageRange> = Vec::new();
 
     for page_index in 0..page_count {
         let page = reader.read_page_header(page_index)?;
@@ -57,6 +73,27 @@ pub(super) fn collect_v2_metadata(
             first_key = Some(page.first_key);
         }
         last_key = Some(page.last_key);
+
+        match page_ranges.last_mut() {
+            Some(run) if run.codec == page.codec && run.encoding == page.encoding => {
+                run.page_count += 1;
+                run.frame_count += u64::from(page.frame_count);
+                run.last_key = page.last_key;
+                run.compressed_bytes += u64::from(page.compressed_len);
+                run.uncompressed_bytes += u64::from(page.uncompressed_len);
+            }
+            _ => page_ranges.push(PageRange {
+                start_page: page_index,
+                page_count: 1,
+                codec: page.codec,
+                encoding: page.encoding,
+                frame_count: u64::from(page.frame_count),
+                first_key: page.first_key,
+                last_key: page.last_key,
+                compressed_bytes: u64::from(page.compressed_len),
+                uncompressed_bytes: u64::from(page.uncompressed_len),
+            }),
+        }
 
         match page.codec {
             fwob_v2::Codec::None => codec_none_pages += 1,
@@ -101,5 +138,22 @@ pub(super) fn collect_v2_metadata(
         encoding_row_raw_v1_pages,
         encoding_columnar_basic_v1_pages,
         encoding_columnar_delta_v1_pages,
+        page_ranges,
     })
+}
+
+pub(super) fn codec_label(codec: fwob_v2::Codec) -> &'static str {
+    match codec {
+        fwob_v2::Codec::None => "none",
+        fwob_v2::Codec::Zstd => "zstd",
+        fwob_v2::Codec::Lz4 => "lz4",
+    }
+}
+
+pub(super) fn encoding_label(encoding: fwob_v2::Encoding) -> &'static str {
+    match encoding {
+        fwob_v2::Encoding::RowRawV1 => "row-raw-v1",
+        fwob_v2::Encoding::ColumnarBasicV1 => "columnar-basic-v1",
+        fwob_v2::Encoding::ColumnarDeltaV1 => "columnar-delta-v1",
+    }
 }

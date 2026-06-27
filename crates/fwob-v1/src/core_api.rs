@@ -195,6 +195,12 @@ impl WriterBackend for WriterAdapter {
             .map_err(fwob_core::FwobError::backend)
     }
 
+    fn sync(&mut self) -> CoreResult<()> {
+        // v1 flushes every append immediately (its `finish` is already a no-op), so the file is
+        // always durable and complete — a checkpoint has nothing to do.
+        Ok(())
+    }
+
     fn finish(self: Box<Self>) -> CoreResult<()> {
         Ok(())
     }
