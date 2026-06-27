@@ -910,6 +910,31 @@ fn sync_at_arbitrary_points_does_not_change_the_file() {
 }
 
 #[test]
+fn sync_on_a_freshly_created_file_writer_reads_back() {
+    // `Writer::create` must open the file read+write: `sync` reads pages back to re-derive and
+    // reload the reclaimable tail. A write-only handle (the old `File::create`) fails this with
+    // "Access is denied" on Windows. Use a real file (not an in-memory cursor, which is always
+    // readable) so the regression is actually exercised.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("sync.fwob");
+
+    let mut options = WriterOptions::new("Title");
+    options.page_size = 4096;
+    options.codec = Codec::Zstd;
+
+    let mut writer = Writer::create(&path, tick_schema(), options).unwrap();
+    writer.append_frame(&tick(10, 1.0, "")).unwrap();
+    writer.sync().unwrap();
+    writer.append_frame(&tick(11, 2.0, "")).unwrap();
+    writer.sync().unwrap();
+    writer.finish().unwrap();
+
+    let mut reader = Reader::open(&path).unwrap();
+    reader.verify().unwrap();
+    assert_eq!(reader.header().frame_count, 2);
+}
+
+#[test]
 fn reopen_in_batches_does_not_change_the_file() {
     // Closing and reopening the file between batches must produce the same bytes as one continuous
     // open+finish: on reopen the raw tail is loaded back into memory and recompacted exactly as a

@@ -332,7 +332,14 @@ impl PendingFrames {
 
 impl Writer<File> {
     pub fn create(path: impl AsRef<Path>, schema: Schema, options: WriterOptions) -> Result<Self> {
-        let file = File::create(path)?;
+        // Open read+write (not `File::create`, which is write-only on Windows): `sync` reads pages
+        // back to re-derive and reload the reclaimable tail, so the handle must be readable.
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
         Self::new(file, schema, options)
     }
 
