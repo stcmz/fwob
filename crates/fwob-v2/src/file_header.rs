@@ -206,6 +206,43 @@ pub fn update_field_semantics(
     Ok(())
 }
 
+/// Renames schema fields (columns) of an existing v2 file in place. Field names are metadata only
+/// (they do not affect frame layout), and the header is fixed-size, so this rewrites just the
+/// header and leaves all pages untouched. Each rename names an existing field by its current name;
+/// the resulting schema is re-validated (rejecting empty or duplicate names).
+pub fn update_field_names(
+    path: impl AsRef<std::path::Path>,
+    renames: &[(String, String)],
+) -> Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    let mut header = read_file_header(&mut file)?;
+    let actual_len = file.metadata()?.len();
+    let expected_len = FILE_HEADER_LEN + header.page_count * u64::from(header.page_size);
+    if actual_len != expected_len {
+        return Err(V2Error::InvalidFileHeader);
+    }
+    let mut fields = header.schema.fields.clone();
+    for (old, new) in renames {
+        let field = fields
+            .iter_mut()
+            .find(|field| &field.name == old)
+            .ok_or(V2Error::InvalidFileHeader)?;
+        field.name = new.clone();
+    }
+    let schema = Schema::new(
+        header.schema.frame_type.clone(),
+        fields,
+        header.schema.key_field_index,
+    )?;
+    header.schema = schema;
+    write_file_header(&mut file, &header)?;
+    file.flush()?;
+    Ok(())
+}
+
 pub fn update_counts<W: Write + Seek>(
     writer: &mut W,
     page_count: u64,

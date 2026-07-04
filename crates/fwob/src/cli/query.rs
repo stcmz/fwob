@@ -3,10 +3,10 @@ use std::io::Write;
 use anyhow::{bail, Context, Result};
 
 use super::inspect::{format_frame_preview_rows, preview_indices, PreviewIndex, PreviewRow};
-use super::{resolve_selectors, DumpArgs, FindArgs};
+use super::{resolve_selectors, CatArgs, FindArgs};
 use super::{toml_kv_multiline, toml_kv_num, toml_kv_str, toml_section};
 
-pub(super) fn dump_frames(args: DumpArgs) -> Result<()> {
+pub(super) fn dump_frames(args: CatArgs) -> Result<()> {
     let mut format = None;
     let mut selector_values = Vec::new();
     for value in &args.target {

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn create_blank(args: CreateArgs) -> Result<()> {
+pub(super) fn create_blank(args: NewArgs) -> Result<()> {
     let (format, output, page_size) = parse_create_target(&args.target)?;
     ensure_output_available(&output, args.force)?;
     let (schema, strings, template_title) = if let Some(template) = &args.template {
@@ -42,7 +42,7 @@ pub(super) fn create_blank(args: CreateArgs) -> Result<()> {
         }
     }
 
-    toml_section("create");
+    toml_section("new");
     toml_kv_str("output", &output.display().to_string());
     Ok(())
 }
@@ -57,7 +57,7 @@ fn parse_create_target(values: &[String]) -> Result<(TargetFormat, PathBuf, u32)
         } else if let Some(parsed) = parse_page_size_token(value) {
             set_once(&mut page_size, parsed?, "page size")?;
         } else if is_any_reserved_token(value) {
-            bail!("token '{value}' is not valid for create");
+            bail!("token '{value}' is not valid for new");
         } else {
             paths.push(value);
         }
@@ -72,8 +72,8 @@ fn parse_create_target(values: &[String]) -> Result<(TargetFormat, PathBuf, u32)
             PathBuf::from(output),
             page_size.unwrap_or(fwob_v2::DEFAULT_PAGE_SIZE),
         )),
-        [] => bail!("create expects OUTPUT or FORMAT OUTPUT"),
-        _ => bail!("create expects exactly one output path"),
+        [] => bail!("new expects OUTPUT or FORMAT OUTPUT"),
+        _ => bail!("new expects exactly one output path"),
     }
 }
 

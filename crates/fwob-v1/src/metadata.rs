@@ -5,7 +5,10 @@ use std::{
 };
 
 use crate::{
-    header::{read_header, update_string_table_len, HEADER_LEN, MAX_FRAME_TYPE_LEN, MAX_TITLE_LEN},
+    header::{
+        read_header, update_string_table_len, write_header, HEADER_LEN, MAX_FIELD_NAME_LEN,
+        MAX_FRAME_TYPE_LEN, MAX_TITLE_LEN,
+    },
     writer::write_dotnet_string,
     Result, V1Error,
 };
@@ -78,6 +81,62 @@ pub fn update_metadata(
         update_string_table_len(&mut file, strings.len() as u32, new_len)?;
     }
     file.flush()?;
+    Ok(())
+}
+
+/// Renames v1 schema fields (columns) in place. v1 stores field names in a fixed-size header
+/// region, so this rewrites just the header and never moves frame data. Each rename names an
+/// existing field by its current name; new names must be non-empty ASCII within the v1 field-name
+/// limit, and the resulting set of names must stay unique.
+pub fn update_field_names(path: impl AsRef<Path>, renames: &[(String, String)]) -> Result<()> {
+    if renames.is_empty() {
+        return Ok(());
+    }
+    let mut file = OpenOptions::new().read(true).write(true).open(path)?;
+    let actual_len = file.metadata()?.len();
+    let mut header = read_header(&mut file)?;
+    let expected_len = header.file_length();
+    if actual_len != expected_len {
+        return Err(V1Error::CorruptedFileLength {
+            expected: expected_len,
+            actual: actual_len,
+        });
+    }
+    for (old, new) in renames {
+        validate_field_name(new)?;
+        let index = header
+            .field_names
+            .iter()
+            .position(|name| name == old)
+            .ok_or_else(|| {
+                V1Error::Core(fwob_core::FwobError::InvalidSchema(format!(
+                    "field '{old}' not found"
+                )))
+            })?;
+        header.field_names[index] = new.clone();
+    }
+    for i in 0..header.field_names.len() {
+        for j in (i + 1)..header.field_names.len() {
+            if header.field_names[i] == header.field_names[j] {
+                return Err(V1Error::Core(fwob_core::FwobError::InvalidSchema(format!(
+                    "duplicate field name '{}'",
+                    header.field_names[i]
+                ))));
+            }
+        }
+    }
+    file.seek(SeekFrom::Start(0))?;
+    write_header(&mut file, &header)?;
+    file.flush()?;
+    Ok(())
+}
+
+fn validate_field_name(name: &str) -> Result<()> {
+    if name.is_empty() || !name.is_ascii() || name.len() > MAX_FIELD_NAME_LEN {
+        return Err(V1Error::Core(fwob_core::FwobError::InvalidSchema(format!(
+            "field name '{name}' exceeds FWOB v1 limits (1..={MAX_FIELD_NAME_LEN} ASCII bytes)"
+        ))));
+    }
     Ok(())
 }
 

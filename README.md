@@ -117,7 +117,7 @@ fwob verify ticks.fwob
 fwob inspect ticks.fwob
 fwob ls
 fwob ls data archive/ticks.fwob md
-fwob create ticks-empty.fwob --template ticks.fwob
+fwob new ticks-empty.fwob --template ticks.fwob
 fwob convert ticks.fwob ticks-v2.fwob smallest 1MiB --zstd-level 9
 fwob convert ticks.fwob ticks-columnar.fwob columnar-basic zstd
 fwob convert v2 ticks.fwob ticks-delta.fwob columnar-delta zstd verify
@@ -126,12 +126,13 @@ fwob append ticks-v2.fwob new-ticks-1.fwob new-ticks-2.fwob verify
 fwob split ticks.fwob parts 1000 2000 3000 zstd columnar-basic
 fwob concat ticks-joined.fwob parts/ticks.part0.fwob parts/ticks.part1.fwob zstd
 fwob concat v1 ticks-v1.fwob ticks-old.fwob ticks-new.fwob
-fwob edit ticks-joined.fwob --title Renamed --frame-type Quote --append-string NASDAQ --set-semantic Time=unix-milliseconds
-fwob edit data archive/ticks.fwob --set-semantic Price=fixed-4
+fwob set ticks-joined.fwob --title Renamed --frame-type Quote --append-string NASDAQ --set-semantic Time=unix-milliseconds
+fwob set data archive/ticks.fwob --set-semantic Price=fixed-4
+fwob set ticks-v2.fwob --rename-column Price=price --rename-column Size=size
 fwob find ticks-v2.fwob 100..200
 fwob find ticks-v2.fwob 100 200..300 500.. ..50
-fwob dump ticks-v2.fwob 100 200..300 csv
-fwob dump ticks-v2.fwob raw > ticks.txt
+fwob cat ticks-v2.fwob 100 200..300 csv
+fwob cat ticks-v2.fwob raw > ticks.txt
 fwob rm ticks-v2.fwob 100..200 local-repack verify
 fwob rm ticks-v2.fwob 100.. 250 300..400 repack-to-end zstd columnar-basic compress-partial-page
 fwob rm GOOGL.fwob 1772563641.. verify
@@ -140,14 +141,14 @@ fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```
 
-`fwob create` and `fwob concat` refuse to overwrite an existing output. Pass
+`fwob new` and `fwob concat` refuse to overwrite an existing output. Pass
 `--force` (or `--overwrite`) to replace it explicitly.
 
-`fwob rm` and `fwob edit` change files in place, so they print the impact
+`fwob rm` and `fwob set` change files in place, so they print the impact
 (frames to remove, or the files and metadata edits to apply) and ask for a
 single confirmation. Pass `--yes` (`-y`) to skip the prompt; it is required when
 stdin is not a terminal. Selecting nothing is the default: omit selectors to
-remove every frame, and omit paths to edit the current directory's `*.fwob`
+remove every frame, and omit paths to change the current directory's `*.fwob`
 files.
 
 Append and concat assume every input file is internally valid. They validate
@@ -164,12 +165,13 @@ file or directory; directory discovery is non-recursive. Add `table`, `md`,
 title, frame type, key-field index, field count, frame length/count, boundary
 keys, raw frame bytes, and physical-to-raw ratio.
 
-`fwob edit` rewrites metadata (`--title`, `--frame-type`, `--append-string` /
-`--clear-strings`, `--set-semantic NAME=VALUE`) without touching frames. Like
-`ls`, it accepts multiple files and directories and defaults to the current
-directory's immediate `*.fwob` files when no path is given, applying the same
-edit to every file and reporting any it cannot edit. Field semantics are v2
-only.
+`fwob set` rewrites metadata (`--title`, `--frame-type`, `--rename-column OLD=NEW`,
+`--append-string` / `--clear-strings`, `--set-semantic NAME=VALUE`) without
+touching frames. Like `ls`, it accepts multiple files and directories and
+defaults to the current directory's immediate `*.fwob` files when no path is
+given, applying the same change to every file and reporting any it cannot
+change. Field semantics are v2 only; column renames work on both formats (v1
+field names are limited to 8 ASCII bytes).
 
 `fwob convert` accepts file-to-file, file-to-directory, and
 directory-to-directory conversion. Directory input discovers immediate
@@ -181,10 +183,10 @@ limit and defaults to the logical CPU count. Progress lines may interleave on
 stderr and include the input filename, while each file's structured stdout
 summary is printed atomically.
 
-V2 writes default consistently across convert, append, concat, delete, and
+V2 writes default consistently across convert, append, concat, rm, and
 split: zstd level 6, columnar-basic encoding, and estimate-shrink packing.
 New v2 outputs use 512 KiB pages unless another page size is supplied; append
-and rm retain the existing file's fixed page size. Create, convert, and
+and rm retain the existing file's fixed page size. New, convert, and
 concat default to v2 output; pass `v1` explicitly when v1 output is required.
 
 Convert, append, concat, split, and rm write progress diagnostics to stderr

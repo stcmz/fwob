@@ -283,14 +283,14 @@ fn concat_uses_relaxed_semantics(inputs: &[PathBuf]) -> Result<bool> {
     Ok(has_v1 && has_semantic_v2)
 }
 
-pub(super) fn edit_file(args: EditArgs) -> Result<()> {
+pub(super) fn edit_file(args: SetArgs) -> Result<()> {
     let edits_metadata = args.title.is_some()
         || args.frame_type.is_some()
         || !args.append_strings.is_empty()
         || args.clear_strings;
-    if !edits_metadata && args.set_semantics.is_empty() {
+    if !edits_metadata && args.set_semantics.is_empty() && args.rename_columns.is_empty() {
         bail!(
-            "edit requires --title, --frame-type, --append-string, --clear-strings, or --set-semantic"
+            "set requires --title, --frame-type, --rename-column, --append-string, --clear-strings, or --set-semantic"
         );
     }
 
@@ -300,7 +300,7 @@ pub(super) fn edit_file(args: EditArgs) -> Result<()> {
     }
     let files = super::discovery::discover_files(&paths)?;
     if files.is_empty() {
-        bail!("no .fwob files found to edit");
+        bail!("no .fwob files found to change");
     }
 
     // Confirm once for the whole batch, listing the files and the metadata changes to apply.
@@ -310,6 +310,9 @@ pub(super) fn edit_file(args: EditArgs) -> Result<()> {
     }
     if let Some(frame_type) = &args.frame_type {
         changes.push(format!("frame-type={frame_type:?}"));
+    }
+    for rename in &args.rename_columns {
+        changes.push(format!("rename-column {rename}"));
     }
     if args.clear_strings {
         changes.push("clear string table".to_owned());
@@ -328,29 +331,41 @@ pub(super) fn edit_file(args: EditArgs) -> Result<()> {
     for file in &files {
         summary.push(format!("  {}", file.display()));
     }
-    let question = format!("Apply this edit to {} file(s)?", files.len());
+    let question = format!("Apply this change to {} file(s)?", files.len());
     if !confirm_destructive(&summary, &question, args.yes)? {
-        log_info("edit aborted");
+        log_info("set aborted");
         return Ok(());
     }
 
-    // Apply the same edit to every discovered file, reporting and skipping any that fail so one
+    // Apply the same change to every discovered file, reporting and skipping any that fail so one
     // bad file does not abort the batch. A non-zero exit still signals partial failure.
     let mut failures = 0usize;
     for path in &files {
         if let Err(error) = edit_one_file(path, &args, edits_metadata) {
-            log_error(&error.context(format!("failed to edit {}", path.display())));
+            log_error(&error.context(format!("failed to change {}", path.display())));
             failures += 1;
         }
     }
     if failures > 0 {
-        bail!("{failures} of {} file(s) could not be edited", files.len());
+        bail!("{failures} of {} file(s) could not be changed", files.len());
     }
     Ok(())
 }
 
-fn edit_one_file(path: &Path, args: &EditArgs, edits_metadata: bool) -> Result<()> {
+fn edit_one_file(path: &Path, args: &SetArgs, edits_metadata: bool) -> Result<()> {
     use fwob::Editor;
+
+    // Parse column renames up front and confirm each OLD field exists, so a malformed or
+    // non-existent rename fails before any metadata is written.
+    let renames = parse_column_renames(&args.rename_columns)?;
+    if !renames.is_empty() {
+        let schema = fwob::Reader::open(path)?.schema().clone();
+        for (old, _) in &renames {
+            if !schema.fields.iter().any(|field| &field.name == old) {
+                bail!("field '{old}' not found in {}", path.display());
+            }
+        }
+    }
 
     // Validate every semantic edit before applying any metadata change. This keeps deterministic
     // validation failures from partially applying a combined edit command.
@@ -398,11 +413,26 @@ fn edit_one_file(path: &Path, args: &EditArgs, edits_metadata: bool) -> Result<(
         fwob_v2::update_field_semantics(path, &updates)?;
     }
 
+    // Field-name renames are metadata-only and supported on both formats.
+    if !renames.is_empty() {
+        match detect_format(path)? {
+            Format::V1 => fwob_v1::update_field_names(path, &renames)?,
+            Format::V2 => fwob_v2::update_field_names(path, &renames)?,
+        }
+    }
+
     let reader = fwob::Reader::open(path)?;
-    toml_array_section("edit");
+    toml_array_section("set");
     toml_kv_str("path", &path.display().to_string());
     toml_kv_str("title", reader.title());
     toml_kv_str("frame_type", &reader.schema().frame_type);
+    let field_names: Vec<&str> = reader
+        .schema()
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect();
+    toml_kv_str("fields", &field_names.join(", "));
     toml_kv_num("string_count", reader.string_table().len());
     for field in &reader.schema().fields {
         if !matches!(field.semantic, fwob_core::FieldSemantic::None) {
@@ -413,6 +443,22 @@ fn edit_one_file(path: &Path, args: &EditArgs, edits_metadata: bool) -> Result<(
         }
     }
     Ok(())
+}
+
+/// Parses `OLD=NEW` column renames, rejecting malformed or empty pairs. Field existence is checked
+/// against each file's schema in [`edit_one_file`].
+fn parse_column_renames(values: &[String]) -> Result<Vec<(String, String)>> {
+    let mut renames = Vec::with_capacity(values.len());
+    for value in values {
+        let (old, new) = value
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--rename-column expects OLD=NEW, got '{value}'"))?;
+        if old.is_empty() || new.is_empty() {
+            bail!("--rename-column expects non-empty OLD=NEW, got '{value}'");
+        }
+        renames.push((old.to_owned(), new.to_owned()));
+    }
+    Ok(renames)
 }
 
 fn validate_semantic_updates(

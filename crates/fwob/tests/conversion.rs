@@ -175,7 +175,7 @@ fn cli_create_refuses_to_overwrite_existing_output_without_force() {
 
     assert_command_failure(
         Command::new(exe).args([
-            "create",
+            "new",
             output_path,
             "--frame-type",
             "Tick",
@@ -187,7 +187,7 @@ fn cli_create_refuses_to_overwrite_existing_output_without_force() {
     assert_eq!(std::fs::read(&output).unwrap(), original);
 
     assert_command_success(Command::new(exe).args([
-        "create",
+        "new",
         "--force",
         output_path,
         "--frame-type",
@@ -576,7 +576,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     let exe = env!("CARGO_BIN_EXE_fwob");
 
     assert_command_success(Command::new(exe).args([
-        "edit",
+        "set",
         "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
@@ -588,7 +588,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     );
 
     assert_command_success(Command::new(exe).args([
-        "edit",
+        "set",
         "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
@@ -601,7 +601,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
 
     // Extended fixed-8 / percent-8 semantics round-trip through a v2 header (Time is integer).
     assert_command_success(Command::new(exe).args([
-        "edit",
+        "set",
         "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
@@ -612,7 +612,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
         FieldSemantic::FixedPoint(8)
     );
     assert_command_success(Command::new(exe).args([
-        "edit",
+        "set",
         "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
@@ -625,7 +625,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     // Out-of-range decimals are rejected.
     assert_command_failure(
         Command::new(exe).args([
-            "edit",
+            "set",
             "--yes",
             v2.to_str().unwrap(),
             "--set-semantic",
@@ -639,7 +639,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     write_v1_file(&v1, tick_schema(), 0..10);
     assert_command_failure(
         Command::new(exe).args([
-            "edit",
+            "set",
             "--yes",
             v1.to_str().unwrap(),
             "--set-semantic",
@@ -660,7 +660,7 @@ fn cli_edit_validates_semantics_before_mutating_other_metadata() {
 
     assert_command_failure(
         Command::new(exe).args([
-            "edit",
+            "set",
             "--yes",
             v1.to_str().unwrap(),
             "--title",
@@ -674,7 +674,7 @@ fn cli_edit_validates_semantics_before_mutating_other_metadata() {
 
     assert_command_failure(
         Command::new(exe).args([
-            "edit",
+            "set",
             "--yes",
             v2.to_str().unwrap(),
             "--title",
@@ -698,7 +698,7 @@ fn cli_edit_handles_folders_multiple_files_frame_type_and_cwd_default() {
 
     // Editing a directory applies to every *.fwob inside it; frame type works for v1 and v2.
     let out = command_output(Command::new(exe).args([
-        "edit",
+        "set",
         "--yes",
         dir.path().to_str().unwrap(),
         "--frame-type",
@@ -711,12 +711,67 @@ fn cli_edit_handles_folders_multiple_files_frame_type_and_cwd_default() {
     // No path edits the current directory's *.fwob files.
     let out = command_output(
         Command::new(exe)
-            .args(["edit", "--yes", "--title", "Batch"])
+            .args(["set", "--yes", "--title", "Batch"])
             .current_dir(dir.path()),
     );
     assert!(out.status.success());
     assert_eq!(Reader::open(&a).unwrap().title(), "Batch");
     assert_eq!(Reader::open(&b).unwrap().title(), "Batch");
+}
+
+#[test]
+fn cli_set_renames_columns_on_v1_and_v2() {
+    let dir = tempdir().unwrap();
+    let exe = env!("CARGO_BIN_EXE_fwob");
+    for format in ["v1", "v2"] {
+        let path = dir.path().join(format!("rename-{format}.fwob"));
+        if format == "v1" {
+            write_v1_file(&path, tick_schema(), 0..5);
+        } else {
+            write_v2_file(&path, tick_schema(), 0..5);
+        }
+
+        // Rename two columns at once; frame bytes are untouched.
+        assert_command_success(Command::new(exe).args([
+            "set",
+            "--yes",
+            path.to_str().unwrap(),
+            "--rename-column",
+            "Value=price",
+            "--rename-column",
+            "Str=label",
+        ]));
+        let reader = Reader::open(&path).unwrap();
+        let names: Vec<&str> = reader
+            .schema()
+            .fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect();
+        assert_eq!(names, ["Time", "price", "label"], "{format}");
+        assert_eq!(reader.frame_count(), 5, "{format}");
+        drop(reader);
+
+        // Renaming a column that does not exist fails and changes nothing.
+        assert_command_failure(
+            Command::new(exe).args([
+                "set",
+                "--yes",
+                path.to_str().unwrap(),
+                "--rename-column",
+                "Missing=x",
+            ]),
+            "not found",
+        );
+        let names: Vec<String> = Reader::open(&path)
+            .unwrap()
+            .schema()
+            .fields
+            .iter()
+            .map(|field| field.name.clone())
+            .collect();
+        assert_eq!(names, ["Time", "price", "label"], "{format}");
+    }
 }
 
 #[test]
@@ -850,7 +905,7 @@ fn cli_splits_concatenates_and_edits_metadata() {
     concat.args(&parts);
     assert_command_success(&mut concat);
     assert_command_success(Command::new(exe).args([
-        "edit",
+        "set",
         "--yes",
         joined.to_str().unwrap(),
         "--title",
@@ -1049,7 +1104,7 @@ fn cli_dumps_all_or_mixed_key_selections_in_reusable_formats() {
 
     let exe = env!("CARGO_BIN_EXE_fwob");
     let raw = command_output(Command::new(exe).args([
-        "dump",
+        "cat",
         path.to_str().unwrap(),
         "4..",
         "..1",
@@ -1064,13 +1119,13 @@ fn cli_dumps_all_or_mixed_key_selections_in_reusable_formats() {
     assert!(rows[3].starts_with("5 "));
     assert!(!raw.contains(','));
 
-    let csv = command_output(Command::new(exe).args(["dump", path.to_str().unwrap(), "2", "csv"]));
+    let csv = command_output(Command::new(exe).args(["cat", path.to_str().unwrap(), "2", "csv"]));
     let csv = String::from_utf8(csv.stdout).unwrap();
     assert!(csv.starts_with("Time,Value,Str\n"));
     assert_eq!(csv.lines().count(), 2);
 
     let jsonl =
-        command_output(Command::new(exe).args(["dump", path.to_str().unwrap(), "2..3", "jsonl"]));
+        command_output(Command::new(exe).args(["cat", path.to_str().unwrap(), "2..3", "jsonl"]));
     let jsonl = String::from_utf8(jsonl.stdout).unwrap();
     assert_eq!(jsonl.lines().count(), 2);
     assert!(jsonl.lines().all(|line| line.starts_with('{')));
@@ -1104,7 +1159,7 @@ fn cli_inspect_and_dump_use_v2_timestamp_semantics() {
         .unwrap()
         .contains("semantic = \"unix-milliseconds\""));
 
-    let table = command_output(Command::new(exe).args(["dump", path.to_str().unwrap(), "table"]));
+    let table = command_output(Command::new(exe).args(["cat", path.to_str().unwrap(), "table"]));
     assert!(String::from_utf8(table.stdout)
         .unwrap()
         .contains("2018-04-03T08:00:00.125Z"));
@@ -1552,7 +1607,7 @@ fn cli_creates_blank_v2_from_template_with_new_title() {
 
     let exe = env!("CARGO_BIN_EXE_fwob");
     assert_command_success(Command::new(exe).args([
-        "create",
+        "new",
         "v2",
         output_path.to_str().unwrap(),
         "--template",
@@ -1575,7 +1630,7 @@ fn cli_creates_blank_v2_from_schema_args() {
 
     let exe = env!("CARGO_BIN_EXE_fwob");
     assert_command_success(Command::new(exe).args([
-        "create",
+        "new",
         "v2",
         output_path.to_str().unwrap(),
         "--title",
@@ -1614,7 +1669,7 @@ fn cli_accepts_bounded_page_size_tokens_with_all_supported_suffixes() {
     for (index, (token, expected)) in cases.into_iter().enumerate() {
         let output_path = dir.path().join(format!("blank-{index}.fwob"));
         assert_command_success(Command::new(exe).args([
-            "create",
+            "new",
             "v2",
             token,
             output_path.to_str().unwrap(),
@@ -1631,7 +1686,7 @@ fn cli_accepts_bounded_page_size_tokens_with_all_supported_suffixes() {
         let output_path = dir.path().join(format!("invalid-{token}.fwob"));
         assert_command_failure(
             Command::new(exe).args([
-                "create",
+                "new",
                 "v2",
                 token,
                 output_path.to_str().unwrap(),
@@ -1652,7 +1707,7 @@ fn cli_create_without_template_requires_schema_args() {
 
     let exe = env!("CARGO_BIN_EXE_fwob");
     let output = Command::new(exe)
-        .args(["create", output_path.to_str().unwrap()])
+        .args(["new", output_path.to_str().unwrap()])
         .output()
         .unwrap();
 

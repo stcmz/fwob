@@ -41,7 +41,7 @@ struct Cli {
 enum Command {
     /// Create an empty v1 or v2 file from a template schema or explicit schema
     /// parameters.
-    Create(CreateArgs),
+    New(NewArgs),
     /// Inspect a v1 or v2 file. v1 inputs need --key-field-index when the key is
     /// not field 0.
     Inspect(AutoFileArgs),
@@ -61,14 +61,14 @@ enum Command {
     Split(SplitArgs),
     /// Concatenate ordered, compatible v1 or v2 files.
     Concat(ConcatArgs),
-    /// Rewrite title, frame type, string-table, or field-semantic metadata without changing
-    /// frames. Accepts multiple files and directories.
-    Edit(EditArgs),
+    /// Rewrite title, frame type, string-table, field-name, or field-semantic metadata without
+    /// changing frames. Accepts multiple files and directories.
+    Set(SetArgs),
     /// Find all frames or the union of exact keys and inclusive key ranges.
     Find(FindArgs),
     /// Stream selected frame data in raw, table, Markdown, CSV, JSON Lines, or
     /// hexadecimal form.
-    Dump(DumpArgs),
+    Cat(CatArgs),
     /// Remove frames matching one or more key selectors.
     Rm(RmArgs),
 }
@@ -121,14 +121,14 @@ struct LsArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob create [OPTIONS] [TOKENS] OUTPUT")]
+#[command(override_usage = "fwob new [OPTIONS] [TOKENS] OUTPUT")]
 #[command(after_help = "Plain tokens:
   formats: v1, v2
   v2 page size: INTEGER{B|KB|KiB|MB|MiB} (1KiB..16MiB; default 512KiB)
 
 Tokens may appear before or after OUTPUT. The default format is v2. Reserved tokens win on exact match; use ./v1 for a file named v1.")]
-struct CreateArgs {
-    /// Create target. Forms: `OUTPUT`, `v1 OUTPUT`, or `v2 OUTPUT`. If the
+struct NewArgs {
+    /// New file target. Forms: `OUTPUT`, `v1 OUTPUT`, or `v2 OUTPUT`. If the
     /// format is omitted, the command creates v2.
     #[arg(value_name = "TARGET", num_args = 1..)]
     target: Vec<String>,
@@ -158,7 +158,7 @@ struct CreateArgs {
     #[arg(long, default_value_t = 0)]
     key_field_index: usize,
 
-    /// Overwrite OUTPUT if it already exists. Without this, create refuses to
+    /// Overwrite OUTPUT if it already exists. Without this, new refuses to
     /// clobber an existing file.
     #[arg(long, visible_alias = "overwrite")]
     force: bool,
@@ -378,20 +378,20 @@ struct ConcatArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob edit [PATH...] [OPTIONS]")]
+#[command(override_usage = "fwob set [PATH...] [OPTIONS]")]
 #[command(
     after_help = "PATH may name a file or directory; directories contribute their immediate \
-*.fwob files. With no PATH, the current directory's immediate *.fwob files are edited. The same \
-edit is applied to every file; a file that cannot be edited is reported and skipped. Edit lists \
+*.fwob files. With no PATH, the current directory's immediate *.fwob files are set. The same \
+change is applied to every file; a file that cannot be changed is reported and skipped. set lists \
 the files it will rewrite and asks to confirm once; pass --yes to skip the prompt (required when \
 stdin is not a terminal)."
 )]
-struct EditArgs {
+struct SetArgs {
     /// Input v1 or v2 files and directories to rewrite atomically. Defaults to the current
     /// directory's *.fwob files.
     #[arg(value_name = "PATH")]
     target: Vec<String>,
-    /// Skip the confirmation prompt. Required to edit when stdin is not a terminal.
+    /// Skip the confirmation prompt. Required to change files when stdin is not a terminal.
     #[arg(long, short = 'y')]
     yes: bool,
     /// Replacement title.
@@ -400,6 +400,10 @@ struct EditArgs {
     /// Replacement schema frame-type name.
     #[arg(long = "frame-type")]
     frame_type: Option<String>,
+    /// Rename a schema field (column) as OLD=NEW. Metadata only; frame bytes are untouched.
+    /// May be repeated.
+    #[arg(long = "rename-column", value_name = "OLD=NEW")]
+    rename_columns: Vec<String>,
     /// Append a string-table value. May be repeated.
     #[arg(long = "append-string")]
     append_strings: Vec<String>,
@@ -429,7 +433,7 @@ struct FindArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob dump [OPTIONS] PATH [SELECTOR...] [FORMAT]")]
+#[command(override_usage = "fwob cat [OPTIONS] PATH [SELECTOR...] [FORMAT]")]
 #[command(after_help = "Plain tokens:
   selectors: KEY, FIRST.., ..LAST, FIRST..LAST
   formats: table (default), raw, md, csv, jsonl, hex
@@ -437,7 +441,7 @@ struct FindArgs {
 Selectors may be mixed, reordered, duplicated, or omitted to stream all frames.
 Overlapping selectors are silently unioned. The format token may appear among
 the selectors. Output is written to stdout; diagnostics are written to stderr.")]
-struct DumpArgs {
+struct CatArgs {
     /// Input v1 or v2 file.
     path: PathBuf,
     /// Mixed selectors and one optional output-format token.
@@ -627,7 +631,7 @@ pub fn print_error(error: &anyhow::Error) {
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Create(args) => create_blank(args),
+        Command::New(args) => create_blank(args),
         Command::Inspect(args) => inspect_auto(args),
         Command::Verify(args) => verify_auto(args),
         Command::Ls(args) => file_info::print_file_info(args),
@@ -636,9 +640,9 @@ pub fn run() -> Result<()> {
         Command::Append(args) => transfer::append_to_v2(args),
         Command::Split(args) => mutate::split_file(args),
         Command::Concat(args) => mutate::concat_file(args),
-        Command::Edit(args) => mutate::edit_file(args),
+        Command::Set(args) => mutate::edit_file(args),
         Command::Find(args) => query::find_frames(args),
-        Command::Dump(args) => query::dump_frames(args),
+        Command::Cat(args) => query::dump_frames(args),
         Command::Rm(args) => mutate::remove_frames(args),
     }
 }

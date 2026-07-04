@@ -14,8 +14,8 @@ pub use core_api::{
 };
 pub use encoding::{decode_page_payload, encode_page_payload};
 pub use file_header::{
-    update_counts, update_field_semantics, update_metadata, FileHeader, FILE_HEADER_LEN, MAGIC,
-    MAX_PAGE_SIZE, MIN_PAGE_SIZE, VERSION,
+    update_counts, update_field_names, update_field_semantics, update_metadata, FileHeader,
+    FILE_HEADER_LEN, MAGIC, MAX_PAGE_SIZE, MIN_PAGE_SIZE, VERSION,
 };
 pub use page::{Encoding, PageHeader, PAGE_HEADER_LEN};
 pub use reader::Reader;
