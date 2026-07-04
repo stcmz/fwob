@@ -425,7 +425,7 @@ payloads; only their `first_frame_index` and header CRC are updated.
 
 The CLI tokens are `local-repack` and `repack-to-end`.
 
-CLI append, concat, split, and delete commands emit progress on stderr so
+CLI append, concat, split, and rm commands emit progress on stderr so
 structured stdout remains reusable. Their TOML result contains one
 operation-specific section with `elapsed_seconds`, followed by the common
 `[parameters]`, `[packing]`, `[compression]`, and `[page_stats]` sections.

@@ -1,13 +1,13 @@
 use super::*;
 
-pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
+pub(super) fn remove_frames(args: RmArgs) -> Result<()> {
     let started = std::time::Instant::now();
     let parsed = parse_command_tokens(&args.target, false, true, false, false, true)?;
     let deletion_packing = parsed
         .deletion_packing
         .unwrap_or(DeletionPackingArg::LocalRepack);
     let Some((path, selector_values)) = parsed.paths.split_first() else {
-        bail!("delete expects a PATH");
+        bail!("rm expects a PATH");
     };
     // Omitting selectors deletes every frame (all-by-default); explicit selectors filter.
     let deletes_all = selector_values.is_empty();
@@ -34,13 +34,13 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
             "the selected frames"
         };
         let summary = vec![format!(
-            "About to delete {} of {} frame(s) from {} ({} will remain).",
+            "About to remove {} of {} frame(s) from {} ({} will remain).",
             comma_u64(selected_frames),
             comma_u64(total_frames),
             path.display(),
             comma_u64(total_frames - selected_frames),
         )];
-        let question = format!("Delete {scope} from {}?", path.display());
+        let question = format!("Remove {scope} from {}?", path.display());
         if !confirm_destructive(&summary, &question, args.yes)? {
             log_info("deletion aborted");
             return Ok(());

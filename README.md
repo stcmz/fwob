@@ -132,10 +132,10 @@ fwob find ticks-v2.fwob 100..200
 fwob find ticks-v2.fwob 100 200..300 500.. ..50
 fwob dump ticks-v2.fwob 100 200..300 csv
 fwob dump ticks-v2.fwob raw > ticks.txt
-fwob delete ticks-v2.fwob 100..200 local-repack verify
-fwob delete ticks-v2.fwob 100.. 250 300..400 repack-to-end zstd columnar-basic compress-partial-page
-fwob delete GOOGL.fwob 1772563641.. verify
-fwob delete ticks-v2.fwob --yes            # omit selectors to delete every frame
+fwob rm ticks-v2.fwob 100..200 local-repack verify
+fwob rm ticks-v2.fwob 100.. 250 300..400 repack-to-end zstd columnar-basic compress-partial-page
+fwob rm GOOGL.fwob 1772563641.. verify
+fwob rm ticks-v2.fwob --yes            # omit selectors to remove every frame
 fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```
@@ -143,11 +143,11 @@ fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 `fwob create` and `fwob concat` refuse to overwrite an existing output. Pass
 `--force` (or `--overwrite`) to replace it explicitly.
 
-`fwob delete` and `fwob edit` change files in place, so they print the impact
+`fwob rm` and `fwob edit` change files in place, so they print the impact
 (frames to remove, or the files and metadata edits to apply) and ask for a
 single confirmation. Pass `--yes` (`-y`) to skip the prompt; it is required when
 stdin is not a terminal. Selecting nothing is the default: omit selectors to
-delete every frame, and omit paths to edit the current directory's `*.fwob`
+remove every frame, and omit paths to edit the current directory's `*.fwob`
 files.
 
 Append and concat assume every input file is internally valid. They validate
@@ -184,10 +184,10 @@ summary is printed atomically.
 V2 writes default consistently across convert, append, concat, delete, and
 split: zstd level 6, columnar-basic encoding, and estimate-shrink packing.
 New v2 outputs use 512 KiB pages unless another page size is supplied; append
-and delete retain the existing file's fixed page size. Create, convert, and
+and rm retain the existing file's fixed page size. Create, convert, and
 concat default to v2 output; pass `v1` explicitly when v1 output is required.
 
-Convert, append, concat, split, and delete write progress diagnostics to stderr
+Convert, append, concat, split, and rm write progress diagnostics to stderr
 and keep structured TOML on stdout. Mutation summaries contain one
 operation-specific section followed by `[parameters]`, `[packing]`,
 `[compression]`, and `[page_stats]`; the operation section includes

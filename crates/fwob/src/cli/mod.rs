@@ -69,8 +69,8 @@ enum Command {
     /// Stream selected frame data in raw, table, Markdown, CSV, JSON Lines, or
     /// hexadecimal form.
     Dump(DumpArgs),
-    /// Delete frames matching one or more key selectors.
-    Delete(DeleteArgs),
+    /// Remove frames matching one or more key selectors.
+    Rm(RmArgs),
 }
 
 const FRAME_PREVIEW_COUNT: usize = 3;
@@ -449,7 +449,7 @@ struct DumpArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob delete [OPTIONS] PATH [SELECTOR...] [TOKENS]")]
+#[command(override_usage = "fwob rm [OPTIONS] PATH [SELECTOR...] [TOKENS]")]
 #[command(after_help = "Plain tokens:
   selectors: KEY, FIRST.., ..LAST, FIRST..LAST
   deletion packing: local-repack (default), repack-to-end
@@ -459,13 +459,13 @@ struct DumpArgs {
   switches: verify, compress-partial-page
 
 Selectors may be mixed, reordered, or duplicated. Overlapping selectors are
-silently unioned. Omit selectors entirely to delete every frame. Delete always
+silently unioned. Omit selectors entirely to remove every frame. rm always
 prints the number of frames to remove and asks to confirm; pass --yes to skip
 the prompt (required when stdin is not a terminal).
 compress-partial-page applies to the final EOF remainder in repack-to-end mode.
 Tokens may appear anywhere. Reserved tokens win on exact match.")]
-struct DeleteArgs {
-    /// File, optional selectors (omit to delete all frames), and optional v2 mutation tokens.
+struct RmArgs {
+    /// File, optional selectors (omit to remove all frames), and optional v2 mutation tokens.
     #[arg(value_name = "TARGET", num_args = 1..)]
     target: Vec<String>,
     /// Key field index for v1 input only.
@@ -475,7 +475,7 @@ struct DeleteArgs {
     /// explicit mutation settings instead of inheriting the affected page.
     #[arg(long)]
     zstd_level: Option<i32>,
-    /// Skip the confirmation prompt. Required to delete when stdin is not a terminal.
+    /// Skip the confirmation prompt. Required to remove when stdin is not a terminal.
     #[arg(long, short = 'y')]
     yes: bool,
 }
@@ -639,7 +639,7 @@ pub fn run() -> Result<()> {
         Command::Edit(args) => mutate::edit_file(args),
         Command::Find(args) => query::find_frames(args),
         Command::Dump(args) => query::dump_frames(args),
-        Command::Delete(args) => mutate::delete_frames(args),
+        Command::Rm(args) => mutate::remove_frames(args),
     }
 }
 

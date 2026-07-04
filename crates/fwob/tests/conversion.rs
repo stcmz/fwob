@@ -922,7 +922,7 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
         "zstd",
     ]));
     let deletion = command_output(Command::new(exe).args([
-        "delete",
+        "rm",
         "--yes",
         v2_path.to_str().unwrap(),
         "10..12",
@@ -946,7 +946,7 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
 }
 
 #[test]
-fn cli_delete_uses_dump_selectors_and_deletes_all_when_omitted() {
+fn cli_rm_uses_dump_selectors_and_removes_all_when_omitted() {
     let dir = tempdir().unwrap();
     let exe = env!("CARGO_BIN_EXE_fwob");
 
@@ -974,7 +974,7 @@ fn cli_delete_uses_dump_selectors_and_deletes_all_when_omitted() {
         }
 
         let deletion = command_output(Command::new(exe).args([
-            "delete",
+            "rm",
             "--yes",
             path.to_str().unwrap(),
             "8..",
@@ -1016,7 +1016,7 @@ fn cli_delete_uses_dump_selectors_and_deletes_all_when_omitted() {
 
     // Without --yes and a non-terminal stdin, deletion refuses rather than proceeding silently.
     let refused = Command::new(exe)
-        .args(["delete", path.to_str().unwrap()])
+        .args(["rm", path.to_str().unwrap()])
         .stdin(std::process::Stdio::null())
         .output()
         .unwrap();
@@ -1025,13 +1025,13 @@ fn cli_delete_uses_dump_selectors_and_deletes_all_when_omitted() {
 
     // `..` is no longer a selector: select-all is expressed by omitting selectors entirely.
     let bad_selector = Command::new(exe)
-        .args(["delete", path.to_str().unwrap(), "..", "--yes"])
+        .args(["rm", path.to_str().unwrap(), "..", "--yes"])
         .output()
         .unwrap();
     assert!(!bad_selector.status.success());
 
     // Omitting selectors (with --yes to skip the prompt) deletes every frame.
-    assert_command_success(Command::new(exe).args(["delete", path.to_str().unwrap(), "--yes"]));
+    assert_command_success(Command::new(exe).args(["rm", path.to_str().unwrap(), "--yes"]));
     assert_eq!(Reader::open(&path).unwrap().frame_count(), 0);
 }
 
