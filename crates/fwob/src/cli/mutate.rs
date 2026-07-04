@@ -7,11 +7,10 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
         .deletion_packing
         .unwrap_or(DeletionPackingArg::LocalRepack);
     let Some((path, selector_values)) = parsed.paths.split_first() else {
-        bail!("delete expects PATH and at least one SELECTOR after tokens");
+        bail!("delete expects a PATH");
     };
-    if selector_values.is_empty() {
-        bail!("delete requires at least one selector");
-    }
+    // Omitting selectors deletes every frame (all-by-default); explicit selectors filter.
+    let deletes_all = selector_values.is_empty();
     let path = PathBuf::from(path);
     let (operation_options, write) = parsed.operation_options(
         args.key_field_index,
@@ -21,10 +20,32 @@ pub(super) fn delete_frames(args: DeleteArgs) -> Result<()> {
     );
     let reader_options = operation_options.reader_options;
     let mut reader = fwob::Reader::open_with_options(&path, reader_options)?;
+    let total_frames = reader.frame_count();
     let resolved = resolve_selectors(&mut reader, selector_values.iter().copied())?;
     let ranges = resolved.selection.ranges().to_vec();
     let selected_frames = resolved.selection.frame_count();
     drop(reader);
+
+    // Confirm before touching the file when the operation would actually remove frames.
+    if selected_frames > 0 {
+        let scope = if deletes_all {
+            "all frames"
+        } else {
+            "the selected frames"
+        };
+        let summary = vec![format!(
+            "About to delete {} of {} frame(s) from {} ({} will remain).",
+            comma_u64(selected_frames),
+            comma_u64(total_frames),
+            path.display(),
+            comma_u64(total_frames - selected_frames),
+        )];
+        let question = format!("Delete {scope} from {}?", path.display());
+        if !confirm_destructive(&summary, &question, args.yes)? {
+            log_info("deletion aborted");
+            return Ok(());
+        }
+    }
 
     log_info(format!(
         "deletion started: {} selectors={} frames={}",
@@ -280,6 +301,37 @@ pub(super) fn edit_file(args: EditArgs) -> Result<()> {
     let files = super::discovery::discover_files(&paths)?;
     if files.is_empty() {
         bail!("no .fwob files found to edit");
+    }
+
+    // Confirm once for the whole batch, listing the files and the metadata changes to apply.
+    let mut changes = Vec::new();
+    if let Some(title) = &args.title {
+        changes.push(format!("title={title:?}"));
+    }
+    if let Some(frame_type) = &args.frame_type {
+        changes.push(format!("frame-type={frame_type:?}"));
+    }
+    if args.clear_strings {
+        changes.push("clear string table".to_owned());
+    }
+    if !args.append_strings.is_empty() {
+        changes.push(format!("append {} string(s)", args.append_strings.len()));
+    }
+    for update in &args.set_semantics {
+        changes.push(format!("set-semantic {update}"));
+    }
+    let mut summary = vec![format!(
+        "About to rewrite {} file(s) [{}]:",
+        files.len(),
+        changes.join(", ")
+    )];
+    for file in &files {
+        summary.push(format!("  {}", file.display()));
+    }
+    let question = format!("Apply this edit to {} file(s)?", files.len());
+    if !confirm_destructive(&summary, &question, args.yes)? {
+        log_info("edit aborted");
+        return Ok(());
     }
 
     // Apply the same edit to every discovered file, reporting and skipping any that fail so one

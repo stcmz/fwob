@@ -22,7 +22,10 @@ impl KeySelector {
             return Err(Error::InvalidSelector(value.to_owned()));
         }
         match (first.is_empty(), last.is_empty()) {
-            (true, true) => Ok(Self::All),
+            // A bare `..` is rejected: selecting everything is expressed by omitting selectors
+            // entirely (all-by-default), which also avoids the ambiguity with the `..` parent
+            // directory. Half-open (`FIRST..`, `..LAST`) and closed (`FIRST..LAST`) ranges remain.
+            (true, true) => Err(Error::InvalidSelector(value.to_owned())),
             (false, true) => Ok(Self::From(Key::parse(key_type, first)?)),
             (true, false) => Ok(Self::Through(Key::parse(key_type, last)?)),
             (false, false) => {
@@ -127,10 +130,8 @@ mod tests {
                 last: Key::I32(20),
             }
         );
-        assert_eq!(
-            KeySelector::parse("..", KeyType::I32).unwrap(),
-            KeySelector::All
-        );
+        // A bare `..` is no longer a selector: select everything by omitting selectors instead.
+        assert!(KeySelector::parse("..", KeyType::I32).is_err());
         assert!(KeySelector::parse("20..10", KeyType::I32).is_err());
         assert!(KeySelector::parse("1..2..3", KeyType::I32).is_err());
     }

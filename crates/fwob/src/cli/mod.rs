@@ -382,13 +382,18 @@ struct ConcatArgs {
 #[command(
     after_help = "PATH may name a file or directory; directories contribute their immediate \
 *.fwob files. With no PATH, the current directory's immediate *.fwob files are edited. The same \
-edit is applied to every file; a file that cannot be edited is reported and skipped."
+edit is applied to every file; a file that cannot be edited is reported and skipped. Edit lists \
+the files it will rewrite and asks to confirm once; pass --yes to skip the prompt (required when \
+stdin is not a terminal)."
 )]
 struct EditArgs {
     /// Input v1 or v2 files and directories to rewrite atomically. Defaults to the current
     /// directory's *.fwob files.
     #[arg(value_name = "PATH")]
     target: Vec<String>,
+    /// Skip the confirmation prompt. Required to edit when stdin is not a terminal.
+    #[arg(long, short = 'y')]
+    yes: bool,
     /// Replacement title.
     #[arg(long)]
     title: Option<String>,
@@ -444,9 +449,9 @@ struct DumpArgs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "fwob delete [OPTIONS] PATH SELECTOR... [TOKENS]")]
+#[command(override_usage = "fwob delete [OPTIONS] PATH [SELECTOR...] [TOKENS]")]
 #[command(after_help = "Plain tokens:
-  selectors: KEY, FIRST.., ..LAST, FIRST..LAST, ..
+  selectors: KEY, FIRST.., ..LAST, FIRST..LAST
   deletion packing: local-repack (default), repack-to-end
   codecs: zstd, lz4, smallest, uncompressed
   encodings: row-raw, columnar-basic, columnar-delta, smallest
@@ -454,12 +459,14 @@ struct DumpArgs {
   switches: verify, compress-partial-page
 
 Selectors may be mixed, reordered, or duplicated. Overlapping selectors are
-silently unioned. At least one selector is required; `..` deletes all frames.
+silently unioned. Omit selectors entirely to delete every frame. Delete always
+prints the number of frames to remove and asks to confirm; pass --yes to skip
+the prompt (required when stdin is not a terminal).
 compress-partial-page applies to the final EOF remainder in repack-to-end mode.
 Tokens may appear anywhere. Reserved tokens win on exact match.")]
 struct DeleteArgs {
-    /// File, one or more selectors, and optional v2 mutation tokens.
-    #[arg(value_name = "TARGET", num_args = 2..)]
+    /// File, optional selectors (omit to delete all frames), and optional v2 mutation tokens.
+    #[arg(value_name = "TARGET", num_args = 1..)]
     target: Vec<String>,
     /// Key field index for v1 input only.
     #[arg(long, default_value_t = 0)]
@@ -468,6 +475,9 @@ struct DeleteArgs {
     /// explicit mutation settings instead of inheriting the affected page.
     #[arg(long)]
     zstd_level: Option<i32>,
+    /// Skip the confirmation prompt. Required to delete when stdin is not a terminal.
+    #[arg(long, short = 'y')]
+    yes: bool,
 }
 
 #[derive(Debug, Clone, Copy)]

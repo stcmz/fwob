@@ -48,6 +48,38 @@ pub(super) fn log_warn(message: impl AsRef<str>) {
     eprintln!("{}", colorize_stderr(message.as_ref(), LOG_YELLOW));
 }
 
+/// Asks the user to confirm a destructive operation. `summary` lines describe the impact (one per
+/// line) and are printed to stderr; `question` is the yes/no prompt. Returns `Ok(true)` to proceed.
+///
+/// With `assume_yes` the prompt is skipped. When stdin is not a terminal and `assume_yes` is unset,
+/// this refuses (returns an error) rather than hanging on a read or silently proceeding, so scripted
+/// use must opt in with `--yes`.
+pub(super) fn confirm_destructive(
+    summary: &[String],
+    question: &str,
+    assume_yes: bool,
+) -> anyhow::Result<bool> {
+    use std::io::{IsTerminal, Write};
+
+    for line in summary {
+        eprintln!("{}", colorize_stderr(line, LOG_YELLOW));
+    }
+    if assume_yes {
+        return Ok(true);
+    }
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!(
+            "refusing to proceed without confirmation because stdin is not a terminal; pass --yes to confirm"
+        );
+    }
+    eprint!("{} [y/N] ", colorize_stderr(question, LOG_YELLOW));
+    std::io::stderr().flush().ok();
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let answer = line.trim();
+    Ok(answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes"))
+}
+
 pub(super) struct ProgressTicker {
     stop: mpsc::Sender<()>,
     worker: Option<thread::JoinHandle<()>>,

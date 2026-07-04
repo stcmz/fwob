@@ -577,6 +577,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
 
     assert_command_success(Command::new(exe).args([
         "edit",
+        "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
         "Time=unix-seconds",
@@ -588,6 +589,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
 
     assert_command_success(Command::new(exe).args([
         "edit",
+        "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
         "Time=none",
@@ -600,6 +602,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     // Extended fixed-8 / percent-8 semantics round-trip through a v2 header (Time is integer).
     assert_command_success(Command::new(exe).args([
         "edit",
+        "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
         "Time=fixed-8",
@@ -610,6 +613,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     );
     assert_command_success(Command::new(exe).args([
         "edit",
+        "--yes",
         v2.to_str().unwrap(),
         "--set-semantic",
         "Time=percent-8",
@@ -622,6 +626,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     assert_command_failure(
         Command::new(exe).args([
             "edit",
+            "--yes",
             v2.to_str().unwrap(),
             "--set-semantic",
             "Time=fixed-9",
@@ -635,6 +640,7 @@ fn cli_edit_sets_and_clears_field_semantic() {
     assert_command_failure(
         Command::new(exe).args([
             "edit",
+            "--yes",
             v1.to_str().unwrap(),
             "--set-semantic",
             "Time=unix-seconds",
@@ -655,6 +661,7 @@ fn cli_edit_validates_semantics_before_mutating_other_metadata() {
     assert_command_failure(
         Command::new(exe).args([
             "edit",
+            "--yes",
             v1.to_str().unwrap(),
             "--title",
             "Changed",
@@ -668,6 +675,7 @@ fn cli_edit_validates_semantics_before_mutating_other_metadata() {
     assert_command_failure(
         Command::new(exe).args([
             "edit",
+            "--yes",
             v2.to_str().unwrap(),
             "--title",
             "Changed",
@@ -691,6 +699,7 @@ fn cli_edit_handles_folders_multiple_files_frame_type_and_cwd_default() {
     // Editing a directory applies to every *.fwob inside it; frame type works for v1 and v2.
     let out = command_output(Command::new(exe).args([
         "edit",
+        "--yes",
         dir.path().to_str().unwrap(),
         "--frame-type",
         "Renamed",
@@ -702,7 +711,7 @@ fn cli_edit_handles_folders_multiple_files_frame_type_and_cwd_default() {
     // No path edits the current directory's *.fwob files.
     let out = command_output(
         Command::new(exe)
-            .args(["edit", "--title", "Batch"])
+            .args(["edit", "--yes", "--title", "Batch"])
             .current_dir(dir.path()),
     );
     assert!(out.status.success());
@@ -842,6 +851,7 @@ fn cli_splits_concatenates_and_edits_metadata() {
     assert_command_success(&mut concat);
     assert_command_success(Command::new(exe).args([
         "edit",
+        "--yes",
         joined.to_str().unwrap(),
         "--title",
         "Renamed",
@@ -913,6 +923,7 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
     ]));
     let deletion = command_output(Command::new(exe).args([
         "delete",
+        "--yes",
         v2_path.to_str().unwrap(),
         "10..12",
         "repack-to-end",
@@ -935,7 +946,7 @@ fn cli_finds_and_deletes_by_key_or_key_range() {
 }
 
 #[test]
-fn cli_delete_uses_dump_selectors_and_requires_one() {
+fn cli_delete_uses_dump_selectors_and_deletes_all_when_omitted() {
     let dir = tempdir().unwrap();
     let exe = env!("CARGO_BIN_EXE_fwob");
 
@@ -964,6 +975,7 @@ fn cli_delete_uses_dump_selectors_and_requires_one() {
 
         let deletion = command_output(Command::new(exe).args([
             "delete",
+            "--yes",
             path.to_str().unwrap(),
             "8..",
             "2",
@@ -1002,13 +1014,24 @@ fn cli_delete_uses_dump_selectors_and_requires_one() {
     writer.append_frame(&tick(1, 1.0)).unwrap();
     drop(writer);
 
-    let missing = Command::new(exe)
+    // Without --yes and a non-terminal stdin, deletion refuses rather than proceeding silently.
+    let refused = Command::new(exe)
         .args(["delete", path.to_str().unwrap()])
+        .stdin(std::process::Stdio::null())
         .output()
         .unwrap();
-    assert!(!missing.status.success());
+    assert!(!refused.status.success());
+    assert_eq!(Reader::open(&path).unwrap().frame_count(), 1);
 
-    assert_command_success(Command::new(exe).args(["delete", path.to_str().unwrap(), ".."]));
+    // `..` is no longer a selector: select-all is expressed by omitting selectors entirely.
+    let bad_selector = Command::new(exe)
+        .args(["delete", path.to_str().unwrap(), "..", "--yes"])
+        .output()
+        .unwrap();
+    assert!(!bad_selector.status.success());
+
+    // Omitting selectors (with --yes to skip the prompt) deletes every frame.
+    assert_command_success(Command::new(exe).args(["delete", path.to_str().unwrap(), "--yes"]));
     assert_eq!(Reader::open(&path).unwrap().frame_count(), 0);
 }
 

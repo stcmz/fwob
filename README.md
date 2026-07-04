@@ -135,12 +135,20 @@ fwob dump ticks-v2.fwob raw > ticks.txt
 fwob delete ticks-v2.fwob 100..200 local-repack verify
 fwob delete ticks-v2.fwob 100.. 250 300..400 repack-to-end zstd columnar-basic compress-partial-page
 fwob delete GOOGL.fwob 1772563641.. verify
+fwob delete ticks-v2.fwob --yes            # omit selectors to delete every frame
 fwob verify ticks-v2.fwob
 fwob bench range ticks-v2.fwob --first-key-i32 100 --last-key-i32 200
 ```
 
 `fwob create` and `fwob concat` refuse to overwrite an existing output. Pass
 `--force` (or `--overwrite`) to replace it explicitly.
+
+`fwob delete` and `fwob edit` change files in place, so they print the impact
+(frames to remove, or the files and metadata edits to apply) and ask for a
+single confirmation. Pass `--yes` (`-y`) to skip the prompt; it is required when
+stdin is not a terminal. Selecting nothing is the default: omit selectors to
+delete every frame, and omit paths to edit the current directory's `*.fwob`
+files.
 
 Append and concat assume every input file is internally valid. They validate
 cross-file schema, string-table, and key-boundary compatibility without rescanning
