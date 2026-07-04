@@ -21,9 +21,9 @@ winresource = "0.1"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-fwob-core = { version = "1.11.0", path = "../fwob-core" }
-fwob-v1 = { version = "1.11.0", path = "../fwob-v1" }
-fwob-v2 = { version = "1.11.0", path = "../fwob-v2" }
+fwob-core = { version = "1.12.0", path = "../fwob-core" }
+fwob-v1 = { version = "1.12.0", path = "../fwob-v1" }
+fwob-v2 = { version = "1.12.0", path = "../fwob-v2" }
 pathdiff.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
