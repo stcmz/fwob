@@ -13,7 +13,7 @@ description = "Reader, writer, verifier, and editor for the FWOB v1 binary forma
 
 [dependencies]
 byteorder.workspace = true
-fwob-core = { version = "1.12.0", path = "../fwob-core" }
+fwob-core = { version = "1.13.0", path = "../fwob-core" }
 thiserror.workspace = true
 
 [dev-dependencies]
