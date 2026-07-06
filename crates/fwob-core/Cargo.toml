@@ -12,6 +12,6 @@ categories.workspace = true
 description = "Shared schema, frame, and key types for the FWOB binary format"
 
 [dependencies]
-fwob-derive = { version = "1.0.0", path = "../fwob-derive" }
+fwob-derive = { version = "1.13.0", path = "../fwob-derive" }
 rust_decimal.workspace = true
 thiserror.workspace = true

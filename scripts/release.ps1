@@ -77,6 +77,7 @@ if ($LASTEXITCODE -ne 1) {
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $files = @(
     "Cargo.toml",
+    "crates/fwob-core/Cargo.toml",
     "crates/fwob/Cargo.toml",
     "crates/fwob-v1/Cargo.toml",
     "crates/fwob-v2/Cargo.toml"
@@ -103,7 +104,7 @@ Assert-NativeSuccess "Running tests"
 cargo build --workspace --release --locked
 Assert-NativeSuccess "Building release binaries"
 
-git add Cargo.toml Cargo.lock crates/fwob/Cargo.toml `
+git add Cargo.toml Cargo.lock crates/fwob-core/Cargo.toml crates/fwob/Cargo.toml `
     crates/fwob-v1/Cargo.toml crates/fwob-v2/Cargo.toml
 Assert-NativeSuccess "Staging the version update"
 git commit -m "Release $newVersion"
