@@ -152,28 +152,30 @@ pub(super) struct OperationResult<'a> {
     pub elapsed_seconds: f64,
 }
 
-pub(super) fn print_operation_result(result: OperationResult<'_>) {
-    toml_section(result.section);
-    toml_kv_str("target_format", result.storage.format_name());
+pub(super) fn print_operation_result(result: OperationResult<'_>) -> std::io::Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
+    w.section(result.section)?;
+    w.kv_str("target_format", result.storage.format_name())?;
     if let Some(input) = result.input {
-        toml_kv_str("input", &input.display().to_string());
+        w.kv_str("input", &input.display().to_string())?;
     }
-    toml_kv_str("output", &result.output.display().to_string());
-    toml_kv_num("input_count", result.input_count);
-    toml_kv_num("frames", result.storage.frame_count());
+    w.kv_str("output", &result.output.display().to_string())?;
+    w.kv_num("input_count", result.input_count)?;
+    w.kv_num("frames", result.storage.frame_count())?;
     if let Some(page_count) = result.storage.page_count() {
-        toml_kv_num("pages", page_count);
+        w.kv_num("pages", page_count)?;
     }
-    toml_kv_bool("verified", result.verified);
-    toml_kv_str(
+    w.kv_bool("verified", result.verified)?;
+    w.kv_str(
         "verification",
         if result.verified {
             "completed"
         } else {
             "skipped (run `fwob verify` or pass verify)"
         },
-    );
-    toml_kv_num("elapsed_seconds", format!("{:.3}", result.elapsed_seconds));
+    )?;
+    w.kv_num("elapsed_seconds", format!("{:.3}", result.elapsed_seconds))?;
+    Ok(())
 }
 
 pub(super) struct CommonSummary<'a> {
@@ -186,142 +188,150 @@ pub(super) struct CommonSummary<'a> {
     pub verified: bool,
 }
 
-pub(super) fn print_common_sections(summary: CommonSummary<'_>) {
+pub(super) fn print_common_sections(summary: CommonSummary<'_>) -> std::io::Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     println!();
-    toml_section("parameters");
-    toml_kv_str("target_format", summary.storage.format_name());
-    toml_kv_num("key_field_index", summary.key_field_index);
+    w.section("parameters")?;
+    w.kv_str("target_format", summary.storage.format_name())?;
+    w.kv_num("key_field_index", summary.key_field_index)?;
     if let Some(page_size) = summary.page_size {
-        toml_kv_num("page_size", page_size);
+        w.kv_num("page_size", page_size)?;
     }
     if let Some(parallelism) = summary.parallelism {
-        toml_kv_num("parallelism", parallelism);
+        w.kv_num("parallelism", parallelism)?;
     }
     if let Some(write) = summary.write {
-        toml_kv_str("codec", write.codec.as_str());
-        toml_kv_str("encoding", write.encoding.as_str());
-        toml_kv_num("zstd_level", write.zstd_level);
-        toml_kv_bool("compress_partial_page", write.compress_partial_page);
-        toml_kv_str("page_packing", write.page_packing.as_str());
+        w.kv_str("codec", write.codec.as_str())?;
+        w.kv_str("encoding", write.encoding.as_str())?;
+        w.kv_num("zstd_level", write.zstd_level)?;
+        w.kv_bool("compress_partial_page", write.compress_partial_page)?;
+        w.kv_str("page_packing", write.page_packing.as_str())?;
     }
-    toml_kv_bool("verify", summary.verified);
+    w.kv_bool("verify", summary.verified)?;
 
     println!();
     if let Some(packing) = summary.packing {
-        print_packing_stats_toml(packing);
+        print_packing_stats_toml(packing)?;
     } else {
-        toml_section("packing");
-        toml_kv_bool("available", false);
+        w.section("packing")?;
+        w.kv_bool("available", false)?;
     }
 
     println!();
-    toml_section("compression");
+    w.section("compression")?;
     match summary.storage {
         StorageSummary::V1 {
             physical_bytes,
             raw_bytes,
             ..
         } => {
-            toml_kv_num("compressed_payload_bytes", raw_bytes);
-            toml_kv_num("uncompressed_payload_bytes", raw_bytes);
+            w.kv_num("compressed_payload_bytes", raw_bytes)?;
+            w.kv_num("uncompressed_payload_bytes", raw_bytes)?;
             if *raw_bytes > 0 {
-                toml_kv_num("payload_ratio", "1.0000");
-                toml_kv_num(
+                w.kv_num("payload_ratio", "1.0000")?;
+                w.kv_num(
                     "physical_ratio",
                     format!("{:.4}", *physical_bytes as f64 / *raw_bytes as f64),
-                );
+                )?;
             }
         }
-        StorageSummary::V2(metadata) => print_compression_stats_values(metadata),
+        StorageSummary::V2(metadata) => print_compression_stats_values(metadata)?,
     }
 
     println!();
-    toml_section("page_stats");
+    w.section("page_stats")?;
     if let Some(metadata) = summary.storage.v2_metadata() {
-        print_page_codec_encoding_stats_toml(metadata);
+        print_page_codec_encoding_stats_toml(metadata)?;
     } else {
-        toml_kv_bool("available", false);
+        w.kv_bool("available", false)?;
     }
+    Ok(())
 }
 
-pub(super) fn print_packing_stats_toml(stats: fwob_v2::PackingStats) {
-    toml_section("packing");
-    toml_kv_num("first_page_compression_attempts", stats.first_page_attempts);
-    toml_kv_num(
+pub(super) fn print_packing_stats_toml(stats: fwob_v2::PackingStats) -> std::io::Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
+    w.section("packing")?;
+    w.kv_num("first_page_compression_attempts", stats.first_page_attempts)?;
+    w.kv_num(
         "subsequent_page_average_compression_attempts",
         format!("{:.2}", stats.subsequent_average_attempts()),
-    );
-    toml_kv_str(
+    )?;
+    w.kv_str(
         "subsequent_page_compression_attempts_range",
         &format!(
             "{}..{}",
             stats.subsequent_min_attempts, stats.subsequent_max_attempts
         ),
-    );
-    toml_kv_num(
+    )?;
+    w.kv_num(
         "subsequent_compressed_pages_measured",
         stats.subsequent_pages,
-    );
+    )?;
     let spans = (0..10)
         .map(|index| stats.average_window_frame_span(index))
         .collect::<Vec<_>>();
-    toml_kv_float_array("average_initial_window_frame_span", &spans, 2);
-    toml_kv_num(
+    w.kv_float_array("average_initial_window_frame_span", &spans, 2)?;
+    w.kv_num(
         "average_initial_window_attempts",
         format!("{:.2}", stats.average_initial_window_attempts()),
-    );
+    )?;
     let positions = (0..10)
         .map(|index| stats.average_window_final_position(index))
         .collect::<Vec<_>>();
-    toml_kv_float_array("average_initial_window_final_position", &positions, 4);
-    toml_kv_num("initial_windows_measured", stats.initial_windows);
+    w.kv_float_array("average_initial_window_final_position", &positions, 4)?;
+    w.kv_num("initial_windows_measured", stats.initial_windows)?;
+    Ok(())
 }
 
-fn print_compression_stats_values(metadata: &V2Metadata) {
-    toml_kv_num("compressed_payload_bytes", metadata.compressed_total);
-    toml_kv_num("uncompressed_payload_bytes", metadata.uncompressed_total);
+fn print_compression_stats_values(metadata: &V2Metadata) -> std::io::Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
+    w.kv_num("compressed_payload_bytes", metadata.compressed_total)?;
+    w.kv_num("uncompressed_payload_bytes", metadata.uncompressed_total)?;
     let compressed_pages = metadata.codec_zstd_pages + metadata.codec_lz4_pages;
     if compressed_pages > 0 {
-        toml_kv_num(
+        w.kv_num(
             "average_frames_per_compressed_page",
             format!(
                 "{:.2}",
                 metadata.compressed_page_frames as f64 / compressed_pages as f64
             ),
-        );
+        )?;
     }
     if metadata.uncompressed_total > 0 {
-        toml_kv_num(
+        w.kv_num(
             "payload_ratio",
             format!(
                 "{:.4}",
                 metadata.compressed_total as f64 / metadata.uncompressed_total as f64
             ),
-        );
-        toml_kv_num(
+        )?;
+        w.kv_num(
             "physical_ratio",
             format!(
                 "{:.4}",
                 metadata.physical_bytes as f64 / metadata.uncompressed_total as f64
             ),
-        );
+        )?;
     }
+    Ok(())
 }
 
-pub(super) fn print_page_codec_encoding_stats_toml(metadata: &V2Metadata) {
-    toml_kv_num("codec_none_pages", metadata.codec_none_pages);
-    toml_kv_num("codec_zstd_pages", metadata.codec_zstd_pages);
-    toml_kv_num("codec_lz4_pages", metadata.codec_lz4_pages);
-    toml_kv_num(
+pub(super) fn print_page_codec_encoding_stats_toml(metadata: &V2Metadata) -> std::io::Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
+    w.kv_num("codec_none_pages", metadata.codec_none_pages)?;
+    w.kv_num("codec_zstd_pages", metadata.codec_zstd_pages)?;
+    w.kv_num("codec_lz4_pages", metadata.codec_lz4_pages)?;
+    w.kv_num(
         "encoding_row_raw_v1_pages",
         metadata.encoding_row_raw_v1_pages,
-    );
-    toml_kv_num(
+    )?;
+    w.kv_num(
         "encoding_columnar_basic_v1_pages",
         metadata.encoding_columnar_basic_v1_pages,
-    );
-    toml_kv_num(
+    )?;
+    w.kv_num(
         "encoding_columnar_delta_v1_pages",
         metadata.encoding_columnar_delta_v1_pages,
-    );
+    )?;
+    Ok(())
 }

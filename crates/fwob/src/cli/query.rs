@@ -3,8 +3,8 @@ use std::io::Write;
 use anyhow::{bail, Context, Result};
 
 use super::inspect::{format_frame_preview_rows, preview_indices, PreviewIndex, PreviewRow};
+use super::{color_enabled, TomlWriter};
 use super::{resolve_selectors, CatArgs, FindArgs};
-use super::{toml_kv_multiline, toml_kv_num, toml_kv_str, toml_section};
 
 pub(super) fn dump_frames(args: CatArgs) -> Result<()> {
     let mut format = None;
@@ -45,6 +45,7 @@ pub(super) fn dump_frames(args: CatArgs) -> Result<()> {
 }
 
 pub(super) fn find_frames(args: FindArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let reader_options = fwob::ReaderOptions {
         v1_key_field_index: args.key_field_index,
     };
@@ -54,19 +55,19 @@ pub(super) fn find_frames(args: FindArgs) -> Result<()> {
     let selection = resolved.selection;
     let rows = selection_preview_rows(&mut reader, &selection)?;
 
-    toml_section("find");
-    toml_kv_str("path", &args.path.display().to_string());
-    toml_kv_num("selector_count", resolved.selector_count);
-    toml_kv_num("range_count", selection.ranges().len());
+    w.section("find")?;
+    w.kv_str("path", &args.path.display().to_string())?;
+    w.kv_num("selector_count", resolved.selector_count)?;
+    w.kv_num("range_count", selection.ranges().len())?;
     if let Some(start) = selection.first_index() {
-        toml_kv_num("start_index", start);
-        toml_kv_num("end_index", selection.end_index().unwrap());
+        w.kv_num("start_index", start)?;
+        w.kv_num("end_index", selection.end_index().unwrap())?;
     }
-    toml_kv_num("frame_count", selection.frame_count());
+    w.kv_num("frame_count", selection.frame_count())?;
     if !rows.is_empty() {
         println!();
-        toml_section("frames");
-        toml_kv_multiline("preview", &format_frame_preview_rows(&schema, &rows));
+        w.section("frames")?;
+        w.kv_multiline("preview", &format_frame_preview_rows(&schema, &rows))?;
     }
     Ok(())
 }

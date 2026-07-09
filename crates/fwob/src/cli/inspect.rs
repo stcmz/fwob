@@ -1,189 +1,193 @@
 use super::*;
 
 pub(super) fn inspect_v1(args: V1FileArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let mut reader = fwob_v1::Reader::open(&args.path, args.key_field_index)?;
     let header = reader.header();
     let physical_bytes = std::fs::metadata(&args.path)?.len();
     let data_bytes = header.frame_count * u64::from(header.frame_length);
 
-    toml_section("file");
-    toml_kv_str("format", "fwob-v1");
-    toml_kv_str("title", &header.title);
-    toml_kv_str("frame_type", &header.frame_type);
-    toml_kv_num("key_field_index", args.key_field_index);
+    w.section("file")?;
+    w.kv_str("format", "fwob-v1")?;
+    w.kv_str("title", &header.title)?;
+    w.kv_str("frame_type", &header.frame_type)?;
+    w.kv_num("key_field_index", args.key_field_index)?;
 
     println!();
-    toml_section("storage");
-    toml_kv_num("physical_bytes", physical_bytes);
-    toml_kv_num("frame_count", header.frame_count);
-    toml_kv_num("frame_length", header.frame_length);
-    toml_kv_num("data_bytes", data_bytes);
+    w.section("storage")?;
+    w.kv_num("physical_bytes", physical_bytes)?;
+    w.kv_num("frame_count", header.frame_count)?;
+    w.kv_num("frame_length", header.frame_length)?;
+    w.kv_num("data_bytes", data_bytes)?;
 
     println!();
-    toml_section("strings");
-    toml_kv_num("string_count", header.string_count);
-    toml_kv_num("string_table_length", header.string_table_length);
-    toml_kv_num(
+    w.section("strings")?;
+    w.kv_num("string_count", header.string_count)?;
+    w.kv_num("string_table_length", header.string_table_length)?;
+    w.kv_num(
         "string_table_preserved_length",
         header.string_table_preserved_length,
-    );
+    )?;
 
     println!();
-    toml_section("schema");
-    toml_kv_num("field_count", reader.schema().fields.len());
+    w.section("schema")?;
+    w.kv_num("field_count", reader.schema().fields.len())?;
     for field in &reader.schema().fields {
         println!();
-        toml_array_section("schema.fields");
-        toml_kv_str("name", &field.name);
-        toml_kv_str("type", field_type_name(field.field_type));
-        toml_kv_num("length", field.length);
-        toml_kv_num("offset", field.offset);
+        w.array_section("schema.fields")?;
+        w.kv_str("name", &field.name)?;
+        w.kv_str("type", field_type_name(field.field_type))?;
+        w.kv_num("length", field.length)?;
+        w.kv_num("offset", field.offset)?;
         if field.semantic != fwob_core::FieldSemantic::None {
-            toml_kv_str("semantic", field_semantic_name(field.semantic));
+            w.kv_str("semantic", field_semantic_name(field.semantic))?;
         }
     }
     let preview = frame_preview_v1_text(&mut reader)?;
     if !preview.is_empty() {
         println!();
-        toml_section("frames");
-        toml_kv_multiline("preview", &preview);
+        w.section("frames")?;
+        w.kv_multiline("preview", &preview)?;
     }
     Ok(())
 }
 
 pub(super) fn verify_v1(args: V1FileArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let report = fwob_v1::verify_file(&args.path, args.key_field_index)?;
-    toml_section("verify");
-    toml_kv_str("status", "ok");
-    toml_kv_num("frame_count", comma_u64(report.frame_count));
-    toml_kv_num("string_count", comma_u32(report.string_count));
-    toml_kv_num("file_length", comma_u64(report.file_length));
+    w.section("verify")?;
+    w.kv_str("status", "ok")?;
+    w.kv_num("frame_count", comma_u64(report.frame_count))?;
+    w.kv_num("string_count", comma_u32(report.string_count))?;
+    w.kv_num("file_length", comma_u64(report.file_length))?;
     Ok(())
 }
 
 pub(super) fn inspect_v2(args: V2FileArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let mut reader = fwob_v2::Reader::open(&args.path)?;
     let header = reader.header().clone();
     let metadata = collect_v2_metadata(&args.path, &mut reader)?;
 
-    toml_section("file");
-    toml_kv_str("format", "fwob-v2");
-    toml_kv_str("title", &header.title);
-    toml_kv_str("frame_type", &header.schema.frame_type);
-    toml_kv_num("key_field_index", header.key_field_index);
+    w.section("file")?;
+    w.kv_str("format", "fwob-v2")?;
+    w.kv_str("title", &header.title)?;
+    w.kv_str("frame_type", &header.schema.frame_type)?;
+    w.kv_num("key_field_index", header.key_field_index)?;
 
     println!();
-    toml_section("storage");
-    toml_kv_num("physical_bytes", metadata.physical_bytes);
-    toml_kv_num("expected_physical_bytes", metadata.expected_physical_bytes);
+    w.section("storage")?;
+    w.kv_num("physical_bytes", metadata.physical_bytes)?;
+    w.kv_num("expected_physical_bytes", metadata.expected_physical_bytes)?;
     if metadata.physical_bytes != metadata.expected_physical_bytes {
-        toml_kv_str(
+        w.kv_str(
             "physical_size_warning",
             &format!(
                 "file has {} trailing_or_missing bytes relative to header",
                 metadata.physical_bytes as i128 - metadata.expected_physical_bytes as i128
             ),
-        );
+        )?;
     }
-    toml_kv_num("frame_count", header.frame_count);
-    toml_kv_num("string_count", header.string_table.len());
+    w.kv_num("frame_count", header.frame_count)?;
+    w.kv_num("string_count", header.string_table.len())?;
 
     println!();
-    toml_section("pages");
-    toml_kv_num("page_size", header.page_size);
-    toml_kv_num("page_count", header.page_count);
-    toml_kv_num(
+    w.section("pages")?;
+    w.kv_num("page_size", header.page_size)?;
+    w.kv_num("page_count", header.page_count)?;
+    w.kv_num(
         "page_payload_capacity_bytes",
         metadata.payload_capacity_per_page,
-    );
+    )?;
     if header.page_count > 0 {
-        toml_kv_num("min_frames_per_page", metadata.min_frames);
-        toml_kv_num("max_frames_per_page", metadata.max_frames);
+        w.kv_num("min_frames_per_page", metadata.min_frames)?;
+        w.kv_num("max_frames_per_page", metadata.max_frames)?;
     }
     if let Some(first_key) = metadata.first_key {
-        toml_kv_key("first_key", first_key);
+        w.kv_key("first_key", first_key)?;
     }
     if let Some(last_key) = metadata.last_key {
-        toml_kv_key("last_key", last_key);
+        w.kv_key("last_key", last_key)?;
     }
 
     println!();
-    toml_section("compression");
-    toml_kv_num("compressed_payload_bytes", metadata.compressed_total);
-    toml_kv_num("uncompressed_payload_bytes", metadata.uncompressed_total);
-    toml_kv_num("padding_bytes", metadata.padding_bytes);
+    w.section("compression")?;
+    w.kv_num("compressed_payload_bytes", metadata.compressed_total)?;
+    w.kv_num("uncompressed_payload_bytes", metadata.uncompressed_total)?;
+    w.kv_num("padding_bytes", metadata.padding_bytes)?;
     if metadata.uncompressed_total > 0 {
-        toml_kv_num(
+        w.kv_num(
             "payload_ratio",
             format!(
                 "{:.4}",
                 metadata.compressed_total as f64 / metadata.uncompressed_total as f64
             ),
-        );
-        toml_kv_num(
+        )?;
+        w.kv_num(
             "physical_ratio",
             format!(
                 "{:.4}",
                 metadata.physical_bytes as f64 / metadata.uncompressed_total as f64
             ),
-        );
+        )?;
     }
     if metadata.payload_capacity_total > 0 {
-        toml_kv_num(
+        w.kv_num(
             "page_payload_utilization",
             format!(
                 "{:.4}",
                 metadata.compressed_total as f64 / metadata.payload_capacity_total as f64
             ),
-        );
+        )?;
     }
-    print_page_codec_encoding_stats_toml(&metadata);
+    print_page_codec_encoding_stats_toml(&metadata)?;
 
     for range in &metadata.page_ranges {
         println!();
-        toml_array_section("page_ranges");
-        toml_kv_str("codec", codec_label(range.codec));
-        toml_kv_str("encoding", encoding_label(range.encoding));
-        toml_kv_num("start_page", range.start_page);
-        toml_kv_num("end_page", range.start_page + range.page_count - 1);
-        toml_kv_num("page_count", range.page_count);
-        toml_kv_num("frame_count", range.frame_count);
-        toml_kv_key("first_key", range.first_key);
-        toml_kv_key("last_key", range.last_key);
-        toml_kv_num("compressed_bytes", range.compressed_bytes);
-        toml_kv_num("uncompressed_bytes", range.uncompressed_bytes);
+        w.array_section("page_ranges")?;
+        w.kv_str("codec", codec_label(range.codec))?;
+        w.kv_str("encoding", encoding_label(range.encoding))?;
+        w.kv_num("start_page", range.start_page)?;
+        w.kv_num("end_page", range.start_page + range.page_count - 1)?;
+        w.kv_num("page_count", range.page_count)?;
+        w.kv_num("frame_count", range.frame_count)?;
+        w.kv_key("first_key", range.first_key)?;
+        w.kv_key("last_key", range.last_key)?;
+        w.kv_num("compressed_bytes", range.compressed_bytes)?;
+        w.kv_num("uncompressed_bytes", range.uncompressed_bytes)?;
     }
 
     println!();
-    toml_section("schema");
-    toml_kv_num("field_count", header.schema.fields.len());
+    w.section("schema")?;
+    w.kv_num("field_count", header.schema.fields.len())?;
     for field in &header.schema.fields {
         println!();
-        toml_array_section("schema.fields");
-        toml_kv_str("name", &field.name);
-        toml_kv_str("type", field_type_name(field.field_type));
-        toml_kv_num("length", field.length);
-        toml_kv_num("offset", field.offset);
+        w.array_section("schema.fields")?;
+        w.kv_str("name", &field.name)?;
+        w.kv_str("type", field_type_name(field.field_type))?;
+        w.kv_num("length", field.length)?;
+        w.kv_num("offset", field.offset)?;
         if field.semantic != fwob_core::FieldSemantic::None {
-            toml_kv_str("semantic", field_semantic_name(field.semantic));
+            w.kv_str("semantic", field_semantic_name(field.semantic))?;
         }
     }
     let preview = frame_preview_v2_text(&mut reader)?;
     if !preview.is_empty() {
         println!();
-        toml_section("frames");
-        toml_kv_multiline("preview", &preview);
+        w.section("frames")?;
+        w.kv_multiline("preview", &preview)?;
     }
     Ok(())
 }
 
 pub(super) fn verify_v2(args: V2FileArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let mut reader = fwob_v2::Reader::open(&args.path)?;
     reader.verify()?;
-    toml_section("verify");
-    toml_kv_str("status", "ok");
-    toml_kv_num("page_count", comma_u64(reader.header().page_count));
-    toml_kv_num("frame_count", comma_u64(reader.header().frame_count));
+    w.section("verify")?;
+    w.kv_str("status", "ok")?;
+    w.kv_num("page_count", comma_u64(reader.header().page_count))?;
+    w.kv_num("frame_count", comma_u64(reader.header().frame_count))?;
     Ok(())
 }
 

@@ -1,29 +1,16 @@
 use std::io::IsTerminal;
 use std::{sync::mpsc, thread, time::Duration};
 
-use fwob_core::Key;
-
-const GITHUB_BLUE: &str = "38;2;121;192;255";
-const GITHUB_GREEN: &str = "38;2;165;214;255";
-const GITHUB_ORANGE: &str = "38;2;255;166;87";
-const GITHUB_PURPLE: &str = "38;2;210;168;255";
-
 const LOG_RED: &str = "38;2;248;81;73";
 const LOG_YELLOW: &str = "38;2;227;179;65";
 #[allow(dead_code)]
 const LOG_GREEN: &str = "38;2;63;185;80";
 const LOG_DIM: &str = "38;2;139;148;158";
 
-fn color_enabled() -> bool {
-    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-}
+pub(super) use fwob::toml::{key_value, TomlWriter};
 
-fn colorize(value: impl AsRef<str>, code: &str) -> String {
-    if color_enabled() {
-        format!("\x1b[{code}m{}\x1b[0m", value.as_ref())
-    } else {
-        value.as_ref().to_string()
-    }
+pub(super) fn color_enabled() -> bool {
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
 
 fn stderr_color_enabled() -> bool {
@@ -128,91 +115,6 @@ pub(super) fn log_error(error: &anyhow::Error) {
             colorize_stderr(&format!("  caused by: {cause}"), LOG_RED)
         );
     }
-}
-
-pub(super) fn toml_section(name: &str) {
-    println!("{}", colorize(format!("[{name}]"), GITHUB_PURPLE));
-}
-
-pub(super) fn toml_array_section(name: &str) {
-    println!("{}", colorize(format!("[[{name}]]"), GITHUB_PURPLE));
-}
-
-fn toml_key(key: &str) -> String {
-    colorize(key, GITHUB_BLUE)
-}
-
-fn toml_string(value: &str) -> String {
-    colorize(format!("\"{}\"", escape_toml_string(value)), GITHUB_GREEN)
-}
-
-fn toml_value(value: impl ToString) -> String {
-    colorize(value.to_string(), GITHUB_ORANGE)
-}
-
-pub(super) fn toml_kv_str(key: &str, value: &str) {
-    println!("{} = {}", toml_key(key), toml_string(value));
-}
-
-pub(super) fn toml_kv_num(key: &str, value: impl ToString) {
-    println!("{} = {}", toml_key(key), toml_value(value));
-}
-
-pub(super) fn toml_kv_bool(key: &str, value: bool) {
-    println!("{} = {}", toml_key(key), toml_value(value));
-}
-
-pub(super) fn toml_kv_key(key: &str, value: Key) {
-    println!("{} = {}", toml_key(key), toml_value(toml_key_value(value)));
-}
-
-pub(super) fn toml_key_value(key: Key) -> String {
-    match key {
-        Key::I8(value) => value.to_string(),
-        Key::I16(value) => value.to_string(),
-        Key::I32(value) => value.to_string(),
-        Key::I64(value) => value.to_string(),
-        Key::U8(value) => value.to_string(),
-        Key::U16(value) => value.to_string(),
-        Key::U32(value) => value.to_string(),
-        Key::U64(value) => value.to_string(),
-        Key::F32(value) => value.to_string(),
-        Key::F64(value) => value.to_string(),
-        Key::Decimal(value) => value.to_string(),
-    }
-}
-
-pub(super) fn toml_kv_multiline(key: &str, value: &str) {
-    println!("{} = \"\"\"", toml_key(key));
-    print!("{}", escape_toml_multiline(value));
-    if !value.ends_with('\n') {
-        println!();
-    }
-    println!("\"\"\"");
-}
-
-pub(super) fn toml_kv_float_array(key: &str, values: &[f64], precision: usize) {
-    let values = values
-        .iter()
-        .map(|value| format!("{value:.precision$}", precision = precision))
-        .collect::<Vec<_>>()
-        .join(", ");
-    println!("{} = {}", toml_key(key), toml_value(format!("[{values}]")));
-}
-
-fn escape_toml_string(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
-fn escape_toml_multiline(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace("\"\"\"", "\\\"\\\"\\\"")
 }
 
 pub(super) fn print_aligned_table(headers: &[&str], rows: Vec<Vec<String>>, right_align: &[bool]) {

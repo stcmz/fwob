@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) fn remove_frames(args: RmArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let started = std::time::Instant::now();
     let parsed = parse_command_tokens(&args.target, false, true, false, false, true)?;
     let deletion_packing = parsed
@@ -79,13 +80,13 @@ pub(super) fn remove_frames(args: RmArgs) -> Result<()> {
         input_count: 1,
         verified: write.verify,
         elapsed_seconds: started.elapsed().as_secs_f64(),
-    });
-    toml_kv_num("selector_count", resolved.selector_count);
-    toml_kv_num("range_count", ranges.len());
-    toml_kv_num("deleted_frames", removed);
+    })?;
+    w.kv_num("selector_count", resolved.selector_count)?;
+    w.kv_num("range_count", ranges.len())?;
+    w.kv_num("deleted_frames", removed)?;
     debug_assert_eq!(storage.frame_count(), remaining_frames);
-    toml_kv_str("deletion_packing", deletion_packing.as_str());
-    toml_kv_bool("compress_partial_page", effective_compress_partial_page);
+    w.kv_str("deletion_packing", deletion_packing.as_str())?;
+    w.kv_bool("compress_partial_page", effective_compress_partial_page)?;
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index: args.key_field_index,
@@ -94,11 +95,12 @@ pub(super) fn remove_frames(args: RmArgs) -> Result<()> {
         packing: None,
         parallelism: None,
         verified: write.verify,
-    });
+    })?;
     Ok(())
 }
 
 pub(super) fn split_file(args: SplitArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     use fwob::{Organizer, Reader};
     let started = std::time::Instant::now();
 
@@ -161,10 +163,10 @@ pub(super) fn split_file(args: SplitArgs) -> Result<()> {
         input_count: 1,
         verified: write.verify,
         elapsed_seconds: started.elapsed().as_secs_f64(),
-    });
-    toml_kv_num("parts", outputs.len());
+    })?;
+    w.kv_num("parts", outputs.len())?;
     for (index, path) in outputs.iter().enumerate() {
-        toml_kv_str(&format!("part_{index}"), &path.display().to_string());
+        w.kv_str(&format!("part_{index}"), &path.display().to_string())?;
     }
     print_common_sections(CommonSummary {
         storage: &storage,
@@ -174,7 +176,7 @@ pub(super) fn split_file(args: SplitArgs) -> Result<()> {
         packing: None,
         parallelism: None,
         verified: write.verify,
-    });
+    })?;
     Ok(())
 }
 
@@ -248,7 +250,7 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
         input_count: inputs.len(),
         verified: write.verify,
         elapsed_seconds: started.elapsed().as_secs_f64(),
-    });
+    })?;
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index: args.key_field_index,
@@ -259,7 +261,7 @@ pub(super) fn concat_file(args: ConcatArgs) -> Result<()> {
         packing: None,
         parallelism: None,
         verified: write.verify,
-    });
+    })?;
     Ok(())
 }
 
@@ -353,6 +355,7 @@ pub(super) fn edit_file(args: SetArgs) -> Result<()> {
 }
 
 fn edit_one_file(path: &Path, args: &SetArgs, edits_metadata: bool) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     use fwob::Editor;
 
     // Parse column renames up front and confirm each OLD field exists, so a malformed or
@@ -422,24 +425,24 @@ fn edit_one_file(path: &Path, args: &SetArgs, edits_metadata: bool) -> Result<()
     }
 
     let reader = fwob::Reader::open(path)?;
-    toml_array_section("set");
-    toml_kv_str("path", &path.display().to_string());
-    toml_kv_str("title", reader.title());
-    toml_kv_str("frame_type", &reader.schema().frame_type);
+    w.array_section("set")?;
+    w.kv_str("path", &path.display().to_string())?;
+    w.kv_str("title", reader.title())?;
+    w.kv_str("frame_type", &reader.schema().frame_type)?;
     let field_names: Vec<&str> = reader
         .schema()
         .fields
         .iter()
         .map(|field| field.name.as_str())
         .collect();
-    toml_kv_str("fields", &field_names.join(", "));
-    toml_kv_num("string_count", reader.string_table().len());
+    w.kv_str("fields", &field_names.join(", "))?;
+    w.kv_num("string_count", reader.string_table().len())?;
     for field in &reader.schema().fields {
         if !matches!(field.semantic, fwob_core::FieldSemantic::None) {
-            toml_kv_str(
+            w.kv_str(
                 &format!("semantic.{}", field.name),
                 inspect::field_semantic_name(field.semantic),
-            );
+            )?;
         }
     }
     Ok(())

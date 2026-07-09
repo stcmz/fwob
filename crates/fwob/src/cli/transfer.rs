@@ -400,7 +400,7 @@ fn convert_to_v2(
         write.verify,
         started.elapsed().as_secs_f64(),
         parallelism,
-    );
+    )?;
     Ok(())
 }
 
@@ -412,6 +412,7 @@ fn convert_to_v1(
     meta: SourceMeta,
     parallelism: usize,
 ) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let mut options = fwob_v1::WriterOptions::new(meta.title.clone());
     let estimated_string_bytes: usize = meta.string_table.iter().map(|s| s.len() + 5).sum();
     options.string_table_preserved_length = estimated_string_bytes.max(1834) as u32;
@@ -449,9 +450,9 @@ fn convert_to_v1(
         input_count: 1,
         verified: false,
         elapsed_seconds: started.elapsed().as_secs_f64(),
-    });
+    })?;
     if matches!(source_format, Format::V2) {
-        toml_kv_num("source_pages", meta.page_count);
+        w.kv_num("source_pages", meta.page_count)?;
     }
     print_common_sections(CommonSummary {
         storage: &storage,
@@ -461,7 +462,7 @@ fn convert_to_v1(
         packing: None,
         parallelism: Some(parallelism),
         verified: false,
-    });
+    })?;
     Ok(())
 }
 
@@ -559,7 +560,7 @@ fn append_into_v2_target(
         input_count: inputs.len(),
         verified: write.verify,
         elapsed_seconds: started.elapsed().as_secs_f64(),
-    });
+    })?;
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index,
@@ -568,7 +569,7 @@ fn append_into_v2_target(
         packing: Some(packing_stats),
         parallelism: None,
         verified: write.verify,
-    });
+    })?;
     Ok(())
 }
 
@@ -635,7 +636,7 @@ fn append_into_v1_target(
         input_count: inputs.len(),
         verified,
         elapsed_seconds: started.elapsed().as_secs_f64(),
-    });
+    })?;
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index,
@@ -644,7 +645,7 @@ fn append_into_v1_target(
         packing: None,
         parallelism: None,
         verified,
-    });
+    })?;
     Ok(())
 }
 
@@ -662,7 +663,7 @@ fn print_convert_v2_toml(
     verified: bool,
     elapsed_seconds: f64,
     parallelism: usize,
-) {
+) -> std::io::Result<()> {
     let storage = StorageSummary::V2(metadata);
     debug_assert_eq!(storage.frame_count(), frame_count);
     debug_assert_eq!(storage.page_count(), Some(page_count));
@@ -674,7 +675,7 @@ fn print_convert_v2_toml(
         input_count: 1,
         verified,
         elapsed_seconds,
-    });
+    })?;
     print_common_sections(CommonSummary {
         storage: &storage,
         key_field_index,
@@ -683,7 +684,8 @@ fn print_convert_v2_toml(
         packing: Some(packing_stats),
         parallelism: Some(parallelism),
         verified,
-    });
+    })?;
+    Ok(())
 }
 
 fn append_v1_input(

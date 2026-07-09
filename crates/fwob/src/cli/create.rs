@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) fn create_blank(args: NewArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let (format, output, page_size) = parse_create_target(&args.target)?;
     ensure_output_available(&output, args.force)?;
     let (schema, strings, template_title) = if let Some(template) = &args.template {
@@ -42,8 +43,8 @@ pub(super) fn create_blank(args: NewArgs) -> Result<()> {
         }
     }
 
-    toml_section("new");
-    toml_kv_str("output", &output.display().to_string());
+    w.section("new")?;
+    w.kv_str("output", &output.display().to_string())?;
     Ok(())
 }
 

@@ -121,6 +121,7 @@ struct ReadPerformance {
 }
 
 fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     let cases = conversion_bench_cases();
     let output_dir = args
         .output_dir
@@ -134,7 +135,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     println!("output_dir: {}", output_dir.display());
     println!("cases: {}", comma_usize(cases.len()));
     println!();
-    print_conversion_bench_dimensions(&cases, &args);
+    print_conversion_bench_dimensions(&cases, &args)?;
     println!();
 
     let mut results = Vec::with_capacity(cases.len());
@@ -226,7 +227,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     });
 
     println!();
-    toml_section("conversion_matrix_summary");
+    w.section("conversion_matrix_summary")?;
     print_aligned_table(
         &[
             "rank",
@@ -272,7 +273,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     );
 
     println!();
-    toml_section("conversion_matrix_storage");
+    w.section("conversion_matrix_storage")?;
     print_aligned_table(
         &[
             "rank",
@@ -321,7 +322,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     );
 
     println!();
-    toml_section("conversion_matrix_read_samples");
+    w.section("conversion_matrix_read_samples")?;
     print_aligned_table(
         &[
             "rank",
@@ -367,7 +368,7 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     );
 
     println!();
-    toml_section("conversion_matrix_packing");
+    w.section("conversion_matrix_packing")?;
     print_aligned_table(
         &[
             "rank",
@@ -410,8 +411,12 @@ fn bench_conversion_matrix(args: ResolvedBenchArgs) -> Result<()> {
     Ok(())
 }
 
-fn print_conversion_bench_dimensions(cases: &[ConversionBenchCase], args: &ResolvedBenchArgs) {
-    toml_section("conversion_matrix_dimensions");
+fn print_conversion_bench_dimensions(
+    cases: &[ConversionBenchCase],
+    args: &ResolvedBenchArgs,
+) -> std::io::Result<()> {
+    let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
+    w.section("conversion_matrix_dimensions")?;
     println!(
         "page_size ({}): {}",
         CONVERSION_BENCH_PAGE_SIZES.len(),
@@ -490,7 +495,7 @@ fn print_conversion_bench_dimensions(cases: &[ConversionBenchCase], args: &Resol
     println!("conditional: zstd_level applies only to codec=zstd");
 
     println!();
-    toml_section("conversion_matrix_test_runs");
+    w.section("conversion_matrix_test_runs")?;
     println!("conversion: {}", comma_usize(cases.len()));
     println!(
         "random_page: {} cases x {} iterations = {} reads",
@@ -510,6 +515,7 @@ fn print_conversion_bench_dimensions(cases: &[ConversionBenchCase], args: &Resol
         comma_u64(args.iterations),
         comma_u128(cases.len() as u128 * u128::from(args.iterations))
     );
+    Ok(())
 }
 
 fn conversion_bench_cases() -> Vec<ConversionBenchCase> {
@@ -717,8 +723,8 @@ fn measure_v2_read_performance(
             "  test=range started iterations={} page={} first_key={} last_key={}",
             comma_u64(range_iterations),
             comma_u64(page),
-            toml_key_value(first_key),
-            toml_key_value(last_key)
+            key_value(first_key),
+            key_value(last_key)
         ));
     } else {
         log_info(format!(
