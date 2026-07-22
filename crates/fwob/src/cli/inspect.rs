@@ -116,28 +116,22 @@ pub(super) fn inspect_v2(args: V2FileArgs) -> Result<()> {
     w.kv_num("uncompressed_payload_bytes", metadata.uncompressed_total)?;
     w.kv_num("padding_bytes", metadata.padding_bytes)?;
     if metadata.uncompressed_total > 0 {
-        w.kv_num(
+        w.kv_float(
             "payload_ratio",
-            format!(
-                "{:.4}",
-                metadata.compressed_total as f64 / metadata.uncompressed_total as f64
-            ),
+            metadata.compressed_total as f64 / metadata.uncompressed_total as f64,
+            4,
         )?;
-        w.kv_num(
+        w.kv_float(
             "physical_ratio",
-            format!(
-                "{:.4}",
-                metadata.physical_bytes as f64 / metadata.uncompressed_total as f64
-            ),
+            metadata.physical_bytes as f64 / metadata.uncompressed_total as f64,
+            4,
         )?;
     }
     if metadata.payload_capacity_total > 0 {
-        w.kv_num(
+        w.kv_float(
             "page_payload_utilization",
-            format!(
-                "{:.4}",
-                metadata.compressed_total as f64 / metadata.payload_capacity_total as f64
-            ),
+            metadata.compressed_total as f64 / metadata.payload_capacity_total as f64,
+            4,
         )?;
     }
     print_page_codec_encoding_stats_toml(&metadata)?;

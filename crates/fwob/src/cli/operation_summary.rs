@@ -174,7 +174,7 @@ pub(super) fn print_operation_result(result: OperationResult<'_>) -> std::io::Re
             "skipped (run `fwob verify` or pass verify)"
         },
     )?;
-    w.kv_num("elapsed_seconds", format!("{:.3}", result.elapsed_seconds))?;
+    w.kv_float("elapsed_seconds", result.elapsed_seconds, 3)?;
     Ok(())
 }
 
@@ -225,13 +225,14 @@ pub(super) fn print_common_sections(summary: CommonSummary<'_>) -> std::io::Resu
             raw_bytes,
             ..
         } => {
-            w.kv_num("compressed_payload_bytes", raw_bytes)?;
-            w.kv_num("uncompressed_payload_bytes", raw_bytes)?;
+            w.kv_num("compressed_payload_bytes", *raw_bytes)?;
+            w.kv_num("uncompressed_payload_bytes", *raw_bytes)?;
             if *raw_bytes > 0 {
-                w.kv_num("payload_ratio", "1.0000")?;
-                w.kv_num(
+                w.kv_float("payload_ratio", 1.0, 4)?;
+                w.kv_float(
                     "physical_ratio",
-                    format!("{:.4}", *physical_bytes as f64 / *raw_bytes as f64),
+                    *physical_bytes as f64 / *raw_bytes as f64,
+                    4,
                 )?;
             }
         }
@@ -252,9 +253,10 @@ pub(super) fn print_packing_stats_toml(stats: fwob_v2::PackingStats) -> std::io:
     let mut w = TomlWriter::new(std::io::stdout(), color_enabled());
     w.section("packing")?;
     w.kv_num("first_page_compression_attempts", stats.first_page_attempts)?;
-    w.kv_num(
+    w.kv_float(
         "subsequent_page_average_compression_attempts",
-        format!("{:.2}", stats.subsequent_average_attempts()),
+        stats.subsequent_average_attempts(),
+        2,
     )?;
     w.kv_str(
         "subsequent_page_compression_attempts_range",
@@ -271,9 +273,10 @@ pub(super) fn print_packing_stats_toml(stats: fwob_v2::PackingStats) -> std::io:
         .map(|index| stats.average_window_frame_span(index))
         .collect::<Vec<_>>();
     w.kv_float_array("average_initial_window_frame_span", &spans, 2)?;
-    w.kv_num(
+    w.kv_float(
         "average_initial_window_attempts",
-        format!("{:.2}", stats.average_initial_window_attempts()),
+        stats.average_initial_window_attempts(),
+        2,
     )?;
     let positions = (0..10)
         .map(|index| stats.average_window_final_position(index))
@@ -289,28 +292,22 @@ fn print_compression_stats_values(metadata: &V2Metadata) -> std::io::Result<()> 
     w.kv_num("uncompressed_payload_bytes", metadata.uncompressed_total)?;
     let compressed_pages = metadata.codec_zstd_pages + metadata.codec_lz4_pages;
     if compressed_pages > 0 {
-        w.kv_num(
+        w.kv_float(
             "average_frames_per_compressed_page",
-            format!(
-                "{:.2}",
-                metadata.compressed_page_frames as f64 / compressed_pages as f64
-            ),
+            metadata.compressed_page_frames as f64 / compressed_pages as f64,
+            2,
         )?;
     }
     if metadata.uncompressed_total > 0 {
-        w.kv_num(
+        w.kv_float(
             "payload_ratio",
-            format!(
-                "{:.4}",
-                metadata.compressed_total as f64 / metadata.uncompressed_total as f64
-            ),
+            metadata.compressed_total as f64 / metadata.uncompressed_total as f64,
+            4,
         )?;
-        w.kv_num(
+        w.kv_float(
             "physical_ratio",
-            format!(
-                "{:.4}",
-                metadata.physical_bytes as f64 / metadata.uncompressed_total as f64
-            ),
+            metadata.physical_bytes as f64 / metadata.uncompressed_total as f64,
+            4,
         )?;
     }
     Ok(())

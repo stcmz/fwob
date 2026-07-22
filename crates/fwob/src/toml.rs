@@ -35,6 +35,25 @@ fn paint(color: bool, code: &str, text: &str) -> String {
     }
 }
 
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// The integer types [`TomlWriter::kv_num`] accepts.
+///
+/// Sealed: implemented for every primitive integer and not implementable downstream. The bound
+/// exists so a pre-formatted `String` cannot be written as an unquoted TOML value.
+pub trait Integer: sealed::Sealed + Display {}
+
+macro_rules! impl_integer {
+    ($($ty:ty),* $(,)?) => {$(
+        impl sealed::Sealed for $ty {}
+        impl Integer for $ty {}
+    )*};
+}
+
+impl_integer!(u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize);
+
 /// The TOML literal for a [`Key`] (an unquoted numeric/decimal value).
 pub fn key_value(key: Key) -> String {
     match key {
@@ -120,8 +139,12 @@ impl<W: Write> TomlWriter<W> {
         )
     }
 
-    /// `key = value` for any integer/`Display` value.
-    pub fn kv_num(&mut self, key: &str, value: impl Display) -> io::Result<()> {
+    /// `key = value` for any integer.
+    ///
+    /// Restricted to [`Integer`] on purpose: the value is written *unquoted*, so accepting an
+    /// arbitrary `Display` type let pre-formatted strings (e.g. comma-grouped `43,329,300`) through
+    /// and produce unparseable TOML. Use [`kv_str`](Self::kv_str) for text.
+    pub fn kv_num(&mut self, key: &str, value: impl Integer) -> io::Result<()> {
         self.kv_raw(key, &value.to_string())
     }
 
