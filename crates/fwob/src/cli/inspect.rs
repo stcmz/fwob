@@ -57,9 +57,9 @@ pub(super) fn verify_v1(args: V1FileArgs) -> Result<()> {
     let report = fwob_v1::verify_file(&args.path, args.key_field_index)?;
     w.section("verify")?;
     w.kv_str("status", "ok")?;
-    w.kv_num("frame_count", comma_u64(report.frame_count))?;
-    w.kv_num("string_count", comma_u32(report.string_count))?;
-    w.kv_num("file_length", comma_u64(report.file_length))?;
+    w.kv_num("frame_count", report.frame_count)?;
+    w.kv_num("string_count", report.string_count)?;
+    w.kv_num("file_length", report.file_length)?;
     Ok(())
 }
 
@@ -186,8 +186,8 @@ pub(super) fn verify_v2(args: V2FileArgs) -> Result<()> {
     reader.verify()?;
     w.section("verify")?;
     w.kv_str("status", "ok")?;
-    w.kv_num("page_count", comma_u64(reader.header().page_count))?;
-    w.kv_num("frame_count", comma_u64(reader.header().frame_count))?;
+    w.kv_num("page_count", reader.header().page_count)?;
+    w.kv_num("frame_count", reader.header().frame_count)?;
     Ok(())
 }
 

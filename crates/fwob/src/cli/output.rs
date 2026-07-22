@@ -154,10 +154,6 @@ pub(super) fn print_aligned_table(headers: &[&str], rows: Vec<Vec<String>>, righ
     }
 }
 
-pub(super) fn comma_u32(value: u32) -> String {
-    comma_u64(u64::from(value))
-}
-
 pub(super) fn comma_usize(value: usize) -> String {
     comma_u64(value as u64)
 }
