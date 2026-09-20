@@ -39,6 +39,11 @@ jobs:
       - run: cargo test --workspace --all-features --locked
       - run: cargo build --workspace --release --locked
 
+  # Checks that the floor declared in `rust-version` still holds for consumers of the
+  # published crates. Deliberately without `--all-targets`: that pulls in dev-dependencies,
+  # which are not part of a consumer's dependency graph and already sit above this floor
+  # (criterion needs 1.86, trybuild 1.88). Building the library at 1.85 is the promise; running
+  # the test suite needs a newer toolchain, and that is fine.
   msrv:
     name: Rust 1.85
     runs-on: ubuntu-latest
