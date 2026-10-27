@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "fwob"
-version = "1.14.1"
+version = "1.14.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -405,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "fwob-core"
-version = "1.14.1"
+version = "1.14.2"
 dependencies = [
  "fwob-derive",
  "rust_decimal",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "fwob-derive"
-version = "1.14.1"
+version = "1.14.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "fwob-v1"
-version = "1.14.1"
+version = "1.14.2"
 dependencies = [
  "byteorder",
  "criterion",
@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "fwob-v2"
-version = "1.14.1"
+version = "1.14.2"
 dependencies = [
  "byteorder",
  "crc32fast",
